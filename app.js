@@ -13,6 +13,53 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18
 }).addTo(map);
 
+// Add Locate Control
+const LocateControl = L.Control.extend({
+    options: {
+        position: 'bottomleft'
+    },
+    onAdd: function (map) {
+        const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control custom-locate-btn');
+        const button = L.DomUtil.create('a', '', container);
+        button.innerHTML = '⌖';
+        button.href = '#';
+        button.title = 'Find My Location';
+        button.setAttribute('role', 'button');
+
+        L.DomEvent.disableClickPropagation(container);
+        L.DomEvent.on(button, 'click', function (e) {
+            L.DomEvent.preventDefault(e);
+            map.locate({ setView: true, maxZoom: 10 });
+        });
+
+        return container;
+    }
+});
+map.addControl(new LocateControl());
+
+let userLocationMarker = null;
+
+map.on('locationfound', function (e) {
+    if (userLocationMarker) {
+        map.removeLayer(userLocationMarker);
+    }
+    
+    userLocationMarker = L.circleMarker(e.latlng, {
+        radius: 8,
+        fillColor: '#2196F3',
+        color: '#ffffff',
+        weight: 3,
+        opacity: 1,
+        fillOpacity: 1
+    }).addTo(map);
+
+    userLocationMarker.bindPopup('You are here!').openPopup();
+});
+
+map.on('locationerror', function (e) {
+    alert("Could not access your location. Please check your browser permissions.");
+});
+
 // Create a marker layer group for easy clearing
 const markerLayer = L.layerGroup().addTo(map);
 
