@@ -249,6 +249,19 @@ function loadData() {
                         websiteEl.style.display = 'none';
                     }
 
+                    // Dynamically inject directions buttons at the bottom of the panel
+                    let dirContainer = document.getElementById('panel-directions');
+                    if (!dirContainer) {
+                        dirContainer = document.createElement('div');
+                        dirContainer.id = 'panel-directions';
+                        dirContainer.className = 'directions-container';
+                        document.querySelector('.panel-content').appendChild(dirContainer);
+                    }
+                    dirContainer.innerHTML = `
+                        <a href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank" class="dir-btn">🗺️ Google Maps</a>
+                        <a href="http://maps.apple.com/?daddr=${lat},${lng}" target="_blank" class="dir-btn">🧭 Apple Maps</a>
+                    `;
+
                     slidePanel.classList.add('open');
                 });
 
