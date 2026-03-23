@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>B.A.R.K. Ranger Interactive Map</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <div id="filter-panel" class="glass-panel">
+        <div class="panel-header" id="panel-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; cursor: pointer;">
+            <h1>B.A.R.K. Ranger Master Map</h1>
+            <button id="toggle-filter-btn" aria-label="Toggle Filters">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon"><polyline points="18 15 12 9 6 15"></polyline></svg>
+            </button>
+        </div>
+
+        <div id="filter-content" class="filter-content">
+            <div class="search-container">
+                <input type="text" id="park-search" placeholder="Search by name (e.g. 'Acadia')...">
+            </div>
+
+            <div class="filter-group">
+                <select id="type-filter">
+                    <option value="all">All Park Types</option>
+                    <option value="National">National Parks/Sites</option>
+                    <option value="State">State Parks/Forests</option>
+                    <option value="Other">Local/Other</option>
+                </select>
+            </div>
+
+            <div class="filter-toggles">
+                <button class="filter-btn active" data-filter="Tag">
+                    <span class="dot blue"></span> Tags
+                </button>
+                <button class="filter-btn active" data-filter="Bandana">
+                    <span class="dot orange"></span> Bandanas
+                </button>
+                <button class="filter-btn active" data-filter="Certificate">
+                    <span class="dot green"></span> Certificates
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <button id="add-location-btn" class="glass-btn">
+        <svg fill="currentColor" viewBox="0 0 24 24">
+            <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z" />
+        </svg>
+        Add a Location
+    </button>
+
+    <div id="slide-panel">
+        <button id="close-slide-panel" aria-label="Close" class="close-btn">&times;</button>
+        <div class="panel-content">
+            <h2 id="panel-title" style="margin-bottom: 20px;">Park Name</h2>
+
+            <div class="panel-section" id="panel-location-section">
+                <div class="panel-label">Location</div>
+                <div id="panel-location" class="panel-value">Location</div>
+            </div>
+
+            <div class="panel-section" id="panel-type-section">
+                <div class="panel-label">Type</div>
+                <div class="panel-value"><span id="panel-swag-type" class="badge">Swag</span></div>
+            </div>
+
+            <div class="panel-section" id="panel-swag-cost" style="display: none;">
+                <div class="panel-label">Cost</div>
+                <div id="swag-cost-val" class="panel-value"></div>
+            </div>
+
+            <div class="panel-section" id="panel-info-section" style="display: none;">
+                <div class="panel-label">Updates & Reports</div>
+                <div id="panel-info" class="panel-value">Details...</div>
+            </div>
+            
+            <div id="media-links" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
+                <a id="panel-pics" href="#" target="_blank" class="glass-btn" style="display: none; padding: 8px 16px; font-size: 14px; flex: 1; text-align: center;">View Pictures</a>
+                <a id="panel-video" href="#" target="_blank" class="glass-btn" style="display: none; padding: 8px 16px; font-size: 14px; flex: 1; text-align: center;">Watch Video</a>
+            </div>
+        </div>
+        <a id="panel-website" href="#" target="_blank" class="glass-btn primary" style="display: none; margin-top: auto;">Visit Official Website</a>
+    </div>
+
+    <div id="modal-overlay" class="hidden">
+        <div id="submission-modal" class="glass-panel">
+            <button id="close-modal-btn" aria-label="Close Modal" class="close-btn">&times;</button>
+            <div class="modal-content">
+                <h2>Add a B.A.R.K. Ranger Location</h2>
+                <p>Your submissions help keep the B.A.R.K. Ranger map alive! If you know of a location we're missing, please submit it below.</p>
+                <div class="iframe-container">
+                    <iframe
+                        src="https://docs.google.com/forms/d/e/1FAIpQLScZjliA-yi-PAywc2UkX5zhunLh71BJK3HUZ73AKwmX5a9XSg/viewform?embedded=true"
+                        width="100%" height="500" frameborder="0" marginheight="0" marginwidth="0">Loading…</iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
