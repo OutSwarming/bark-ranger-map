@@ -471,3 +471,23 @@ body, html {
 .custom-marker:hover {
     transform: scale(1.2);
 }
+
+.swag-link-btn {
+    display: inline-block;
+    background-color: var(--color-tag, #2196F3);
+    color: #ffffff !important;
+    padding: 6px 16px;
+    margin: 4px 6px 4px 0;
+    border-radius: 20px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 13px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    transition: all 0.2s ease-in-out;
+}
+
+.swag-link-btn:hover {
+    background-color: #1976D2;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}

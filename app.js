@@ -69,6 +69,19 @@ let activeSwagFilters = new Set(['Tag', 'Bandana', 'Certificate']);
 let activeSearchQuery = '';
 let activeTypeFilter = 'all';
 
+function formatSwagLinks(text) {
+    if (!text) return '';
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urls = text.match(urlRegex);
+    if (!urls) return text;
+    
+    let resultHTML = '';
+    urls.forEach((url, index) => {
+        resultHTML += `<a href="${url}" target="_blank" class="swag-link-btn">📷 Swag Pic ${index + 1}</a> `;
+    });
+    return resultHTML.trim();
+}
+
 // DOM Elements
 const slidePanel = document.getElementById('slide-panel');
 const titleEl = document.getElementById('panel-title');
@@ -210,9 +223,14 @@ function loadData() {
                         infoEl.innerHTML = '';
                     }
 
-                    if (pics && typeof pics === 'string' && pics.startsWith('http')) {
-                        picsEl.style.display = 'block';
-                        picsEl.href = pics;
+                    if (pics && typeof pics === 'string') {
+                        const formattedPics = formatSwagLinks(pics);
+                        if (formattedPics.includes('<a ')) {
+                            picsEl.style.display = 'flex';
+                            picsEl.innerHTML = formattedPics;
+                        } else {
+                            picsEl.style.display = 'none';
+                        }
                     } else {
                         picsEl.style.display = 'none';
                     }
