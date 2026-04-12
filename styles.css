@@ -219,22 +219,9 @@ body, html {
 .dot.blue { background-color: var(--color-tag); }
 .dot.orange { background-color: var(--color-bandana); }
 .dot.green { background-color: var(--color-cert); }
+.dot.gray { background-color: var(--color-other); }
 
-/* Add Location Button */
-#add-location-btn {
-    position: absolute;
-    z-index: 1000;
-    padding: 14px 28px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 18px;
-    min-height: 54px;
-}
-#add-location-btn svg {
-    width: 26px;
-    height: 26px;
-}
+
 
 /* Slide-Out Info Panel */
 #slide-panel {
@@ -298,10 +285,6 @@ body, html {
     #slide-panel.open {
         transform: translateX(0);
     }
-    #add-location-btn {
-        bottom: 30px;
-        right: 30px;
-    }
 }
 
 /* Mobile: Bottom */
@@ -319,15 +302,7 @@ body, html {
         transform: translateY(0);
     }
     
-    #add-location-btn {
-        bottom: 25px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 85%;
-        justify-content: center;
-    }
-    
-    /* Ensure Leaflet controls don't overlap with the button on mobile */
+    /* Ensure Leaflet controls don't overlap with the nav bar on mobile */
     .leaflet-control-zoom {
         margin-bottom: 90px !important;
     }
@@ -388,62 +363,103 @@ body, html {
 }
 #panel-website:hover { background: #333; }
 
-/* Modal Window */
-#modal-overlay {
-    position: fixed;
-    top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0,0,0,0.5);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+/* Navigation and UI Overlays */
+.ui-view {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: #e5e5e5;
     z-index: 2000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: none;
+    flex-direction: column;
     padding: 20px;
-    opacity: 1;
-    transition: opacity 0.3s ease;
-}
-#modal-overlay.hidden {
-    opacity: 0;
-    pointer-events: none;
+    padding-bottom: 90px; /* Space for nav bar */
+    overflow-y: auto;
+    touch-action: pan-y;
 }
 
-#submission-modal {
-    position: relative;
-    width: 90%;
-    max-width: 600px;
-    padding: 40px 24px 24px 24px;
+.ui-view.active {
+    display: flex;
+}
+
+.view-content {
+    max-width: 800px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 30px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    transform: translateY(0) scale(1);
-    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    max-height: 90vh;
-    overflow-y: auto;
+    gap: 15px;
 }
 
-#modal-overlay.hidden #submission-modal {
-    transform: translateY(30px) scale(0.95);
+.view-content h2 {
+    color: #2c3e50;
+    font-size: 28px;
+    font-weight: 800;
 }
 
-.modal-content {
+.view-content h3 {
+    color: #2c3e50;
+    font-size: 22px;
+    margin-top: 10px;
+}
+
+.view-content p {
+    color: #444;
+    line-height: 1.6;
+    font-size: 16px;
+}
+
+.view-divider {
+    border: none;
+    border-top: 1px solid rgba(0,0,0,0.1);
+    margin: 20px 0;
+}
+
+.custom-file-input {
+    display: none;
+}
+
+.primary-btn {
+    padding: 12px 24px;
+    font-size: 16px;
+    display: inline-block;
     text-align: center;
+    background: #4CAF50;
+    color: white;
+    border: none;
+}
+.primary-btn:hover {
+    background: #45a049;
+    color: white;
 }
 
-#submission-modal h2 { 
-    font-size: 24px; 
-    font-weight: 800; 
-    margin-bottom: 8px;
-    color: #1a2a3a;
+.watermark-tool {
+    background: rgba(255,255,255,0.5);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
 }
 
-#submission-modal p { 
-    font-size: 15px; 
-    line-height: 1.5; 
-    color: #444; 
-    margin-bottom: 20px;
+.canvas-preview-container {
+    max-width: 100%;
+    overflow: hidden;
+    border-radius: 8px;
+    margin-top: 10px;
+}
+.canvas-preview-container img {
+    max-width: 100%;
+    height: auto;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    border-radius: 8px;
 }
 
+/* iframe inside views */
 .iframe-container {
     width: 100%;
     background: white;
@@ -455,8 +471,89 @@ body, html {
 .iframe-container iframe {
     display: block;
     width: 100%;
+    min-height: 500px;
     border: none;
     background: white;
+}
+
+/* Navigation Bar */
+.glass-nav {
+    position: fixed;
+    z-index: 3000;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid rgba(0,0,0,0.1);
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+}
+
+.nav-item {
+    background: transparent;
+    border: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    color: #666;
+    transition: all 0.2s;
+    flex: 1;
+}
+
+.nav-item:hover, .nav-item.active {
+    color: #4CAF50;
+}
+
+.nav-item.active svg {
+    stroke-width: 2.5;
+}
+
+.nav-item span {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+@media (min-width: 768px) {
+    .glass-nav {
+        bottom: 30px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 400px;
+        height: 70px;
+        border-radius: 35px;
+        border: 1px solid rgba(255,255,255,0.8);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    }
+    .nav-item {
+        height: 100%;
+    }
+    .ui-view {
+        padding-bottom: 110px;
+    }
+    .leaflet-control-zoom {
+        margin-bottom: 20px;
+    }
+}
+
+@media (max-width: 767px) {
+    .glass-nav {
+        bottom: 0;
+        left: 0;
+        width: 100vw;
+        height: 75px;
+        border-radius: 20px 20px 0 0;
+    }
+    .nav-item {
+        height: 100%;
+        padding-bottom: env(safe-area-inset-bottom, 10px);
+    }
+    .leaflet-bottom {
+        bottom: 90px !important;
+    }
 }
 
 /* Custom Marker CSS for Leaflet icons */
@@ -520,4 +617,49 @@ body, html {
     background-color: #1976D2;
     transform: translateY(-2px);
     box-shadow: 0 6px 14px rgba(33, 150, 243, 0.4);
+}
+
+/* Selected Pin State */
+.active-pin {
+    filter: brightness(1.5);
+    z-index: 1000 !important;
+}
+
+/* Social Icon Links */
+.social-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    color: #333;
+}
+.social-link:hover {
+    color: #4CAF50;
+}
+
+/* Custom slider */
+.custom-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(0,0,0,0.1);
+    outline: none;
+}
+.custom-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #4CAF50;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    transition: transform 0.1s;
+}
+.custom-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
 }
