@@ -1,3 +1,5 @@
+const APP_VERSION = 1;
+
 // Initialize map centered on the US
 const map = L.map('map', {
     zoomControl: false,
@@ -881,3 +883,33 @@ map.on('click', () => {
 document.getElementById('toggle-filter-btn').addEventListener('click', () => {
     document.getElementById('filter-panel').classList.toggle('collapsed');
 });
+
+// Update Manager 
+function checkForUpdates() {
+    if (!navigator.onLine || window.location.protocol === 'file:') return;
+    
+    fetch('version.json?cache_bypass=' + Date.now(), { cache: 'no-store' })
+    .then(res => {
+        if (!res.ok) throw new Error('version.json not found');
+        return res.json();
+    })
+    .then(data => {
+        if (data.version && data.version > APP_VERSION) {
+            const toast = document.getElementById('update-toast');
+            if (toast) {
+                toast.classList.add('show');
+            }
+        }
+    })
+    .catch(err => console.log('Skipping version check: ', err.message));
+}
+
+setInterval(checkForUpdates, 30000);
+setTimeout(checkForUpdates, 2000);
+
+const refreshBtn = document.getElementById('refresh-btn');
+if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => {
+        window.location.reload(true);
+    });
+}
