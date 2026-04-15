@@ -754,6 +754,22 @@ searchInput.addEventListener('input', (e) => {
     }, 300);
 });
 
+// Hide dropdown when clicking outside
+document.addEventListener('click', (e) => {
+    if (searchSuggestions && searchSuggestions.style.display === 'block') {
+        if (!searchSuggestions.contains(e.target) && e.target !== searchInput) {
+            searchSuggestions.style.display = 'none';
+        }
+    }
+});
+
+// Reshow dropdown when focusing search bar (if there are matches)
+searchInput.addEventListener('focus', () => {
+    if (searchSuggestions && searchSuggestions.innerHTML.trim() !== '' && activeSearchQuery.length > 0) {
+        searchSuggestions.style.display = 'block';
+    }
+});
+
 if (clearSearchBtn) {
     clearSearchBtn.addEventListener('click', () => {
         searchInput.value = '';
