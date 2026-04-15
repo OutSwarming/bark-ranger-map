@@ -158,6 +158,44 @@ body, html {
     box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.2);
 }
 
+/* Autocomplete Suggestions */
+.suggestions-container {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    max-height: 250px;
+    overflow-y: auto;
+    z-index: 2000;
+    margin-top: 5px;
+}
+
+.suggestion-item {
+    padding: 12px 16px;
+    font-size: 15px;
+    font-weight: 500;
+    color: #333;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+    transition: background 0.2s;
+    text-align: left;
+}
+
+.suggestion-item:last-child {
+    border-bottom: none;
+}
+
+.suggestion-item:hover, .suggestion-item.active {
+    background: rgba(33, 150, 243, 0.1);
+    color: #2196F3;
+}
+
 .filter-group {
     width: 100%;
     display: flex;
@@ -348,11 +386,10 @@ body, html {
 #panel-title { font-size: 26px; font-weight: 800; line-height: 1.2; }
 #panel-location { font-size: 16px; color: #555; font-weight: 700; }
 #panel-info { font-size: 16px; line-height: 1.6; color: #333; margin-top: 10px; padding: 20px; }
-#panel-website {
+.website-btn {
     display: block;
-    margin-top: 25px;
     background: #111;
-    color: white;
+    color: white !important;
     text-decoration: none;
     padding: 16px;
     text-align: center;
@@ -360,8 +397,9 @@ body, html {
     font-weight: 700;
     font-size: 16px;
     transition: background 0.2s;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
 }
-#panel-website:hover { background: #333; }
+.website-btn:hover { background: #333; }
 
 /* Navigation and UI Overlays */
 .ui-view {

@@ -1,6 +1,7 @@
 // Initialize map centered on the US
 const map = L.map('map', {
-    zoomControl: false
+    zoomControl: false,
+    worldCopyJump: true
 }).setView([39.8283, -98.5795], 4);
 
 L.control.zoom({
@@ -65,9 +66,53 @@ const markerLayer = L.layerGroup().addTo(map);
 
 let allPoints = [];
 let activePinMarker = null;
-let activeSwagFilters = new Set(['Tag', 'Bandana', 'Certificate', 'Other']);
+let activeSwagFilters = new Set();
 let activeSearchQuery = '';
 let activeTypeFilter = 'all';
+
+const normalizationDict = {
+    'ft': 'fort',
+    'mt': 'mount',
+    'st': 'saint',
+    'natl': 'national',
+    'np': 'national park',
+    'sp': 'state park',
+    'nf': 'national forest',
+    'nwr': 'national wildlife refuge',
+    'mem': 'memorial',
+    'rec': 'recreation',
+    'hist': 'historic'
+};
+
+function normalizeText(text) {
+    if (!text) return '';
+    let cleaned = String(text).toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").replace(/\s{2,}/g, " ").trim();
+    let words = cleaned.split(' ');
+    for (let i = 0; i < words.length; i++) {
+        if (normalizationDict[words[i]]) {
+            words[i] = normalizationDict[words[i]];
+        }
+    }
+    return words.join(' ');
+}
+
+function levenshtein(a, b) {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
 
 function formatSwagLinks(text) {
     if (!text) return '';
@@ -89,13 +134,14 @@ const locEl = document.getElementById('panel-location');
 const typeEl = document.getElementById('panel-swag-type');
 const infoSection = document.getElementById('panel-info-section');
 const infoEl = document.getElementById('panel-info');
-const websiteEl = document.getElementById('panel-website');
+const websitesContainer = document.getElementById('websites-container');
 const costContainer = document.getElementById('panel-swag-cost');
 const costValEl = document.getElementById('swag-cost-val');
 const picsEl = document.getElementById('panel-pics');
 const videoEl = document.getElementById('panel-video');
 const filterBtns = document.querySelectorAll('.filter-btn');
 const searchInput = document.getElementById('park-search');
+const clearSearchBtn = document.getElementById('clear-search-btn');
 const typeSelect = document.getElementById('type-filter');
 
 const closeSlideBtn = document.getElementById('close-slide-panel');
@@ -319,8 +365,14 @@ function processParsedResults(results) {
         const website = item['Website'];
         const pics = item['Swag Pics - If available, and may not be current.'];
         const video = item['Swearing-In Video. Not all sites do this, and ones that do only do it as time permits.'];
-        const lat = item['lat'];
-        const lng = item['lng'];
+        let lat = item['lat'];
+        let lng = item['lng'];
+        
+        // Fix incorrect geocoding for War in the Pacific (Guam) which defaults to Colorado
+        if (name && name.includes('War in the Pacific')) {
+            lat = 13.402746;
+            lng = 144.6632005;
+        }
 
         if (!lat || !lng) return;
 
@@ -389,11 +441,27 @@ function processParsedResults(results) {
                 videoEl.style.display = 'none';
             }
 
-            if (d.website && typeof d.website === 'string' && d.website.startsWith('http')) {
-                websiteEl.style.display = 'block';
-                websiteEl.href = d.website;
+            websitesContainer.innerHTML = '';
+            if (d.website && typeof d.website === 'string') {
+                const urlRegex = /(https?:\/\/[^\s]+)/g;
+                const urls = d.website.match(urlRegex);
+                if (urls && urls.length > 0) {
+                    websitesContainer.style.display = 'flex';
+                    urls.forEach((url, index) => {
+                        const link = document.createElement('a');
+                        // Remove trailing quotes or commas that might be captured by the regex
+                        link.href = url.replace(/['",]+$/, ''); 
+                        link.target = '_blank';
+                        link.className = 'website-btn';
+                        link.style.cssText = 'flex: 1; min-width: 120px;';
+                        link.textContent = urls.length > 1 ? `Website ${index + 1}` : 'Visit Official Website';
+                        websitesContainer.appendChild(link);
+                    });
+                } else {
+                    websitesContainer.style.display = 'none';
+                }
             } else {
-                websiteEl.style.display = 'none';
+                websitesContainer.style.display = 'none';
             }
 
             let dirContainer = document.getElementById('panel-directions');
@@ -581,8 +649,27 @@ setInterval(pollForUpdates, 3000);
 function updateMarkers() {
     markerLayer.clearLayers();
     allPoints.forEach(item => {
-        const matchesSwag = activeSwagFilters.has(item.swagType);
-        const matchesSearch = String(item.name).toLowerCase().includes(activeSearchQuery.toLowerCase());
+        const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
+        
+        const queryNorm = normalizeText(activeSearchQuery);
+        const nameNorm = normalizeText(item.name);
+        
+        let matchesSearch = false;
+        if (!queryNorm) {
+            matchesSearch = true;
+        } else if (nameNorm.includes(queryNorm)) {
+            matchesSearch = true;
+        } else {
+            let minDist = levenshtein(queryNorm, nameNorm);
+            const tokens = nameNorm.split(' ');
+            for (const word of tokens) {
+                if (queryNorm.length > 2) {
+                     minDist = Math.min(minDist, levenshtein(queryNorm, word));
+                }
+            }
+            if (minDist <= 2) matchesSearch = true;
+        }
+        
         const matchesType = activeTypeFilter === 'all' || item.category === activeTypeFilter;
 
         if (matchesSwag && matchesSearch && matchesType) {
@@ -592,10 +679,91 @@ function updateMarkers() {
 }
 
 // Event Listeners
+const searchSuggestions = document.getElementById('search-suggestions');
+let searchTimeout = null;
+
 searchInput.addEventListener('input', (e) => {
     activeSearchQuery = e.target.value;
-    updateMarkers();
+    
+    if (clearSearchBtn) {
+        clearSearchBtn.style.display = activeSearchQuery.length > 0 ? 'block' : 'none';
+    }
+    
+    if (searchTimeout) clearTimeout(searchTimeout);
+    
+    if (activeSearchQuery.trim() === '') {
+        if (searchSuggestions) searchSuggestions.style.display = 'none';
+        updateMarkers();
+        return;
+    }
+
+    searchTimeout = setTimeout(() => {
+        const queryNorm = normalizeText(activeSearchQuery);
+        let matches = [];
+        
+        allPoints.forEach(item => {
+            const nameNorm = normalizeText(item.name);
+            let score = 999;
+            
+            if (nameNorm.includes(queryNorm)) {
+                score = 0;
+            } else {
+                let minDist = levenshtein(queryNorm, nameNorm);
+                const tokens = nameNorm.split(' ');
+                for (const word of tokens) {
+                    if (queryNorm.length > 2) {
+                        minDist = Math.min(minDist, levenshtein(queryNorm, word));
+                    }
+                }
+                if (minDist <= 2) score = minDist;
+            }
+            
+            if (score <= 2) {
+                matches.push({ item: item, score: score });
+            }
+        });
+        
+        matches.sort((a, b) => a.score - b.score);
+        const topMatches = matches.slice(0, 10);
+        
+        if (topMatches.length > 0 && searchSuggestions) {
+            searchSuggestions.innerHTML = '';
+            topMatches.forEach(match => {
+                const div = document.createElement('div');
+                div.className = 'suggestion-item';
+                div.textContent = match.item.name + (match.item.state ? `, ${match.item.state}` : '');
+                div.addEventListener('click', () => {
+                    searchInput.value = match.item.name;
+                    activeSearchQuery = match.item.name;
+                    searchSuggestions.style.display = 'none';
+                    updateMarkers();
+                    
+                    if (match.item.marker && match.item.marker._parkData) {
+                        map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, { animate: true });
+                        match.item.marker.fire('click');
+                    }
+                });
+                searchSuggestions.appendChild(div);
+            });
+            searchSuggestions.style.display = 'block';
+        } else if (searchSuggestions) {
+            searchSuggestions.style.display = 'none';
+        }
+        
+        updateMarkers();
+    }, 300);
 });
+
+if (clearSearchBtn) {
+    clearSearchBtn.addEventListener('click', () => {
+        searchInput.value = '';
+        activeSearchQuery = '';
+        clearSearchBtn.style.display = 'none';
+        if (searchSuggestions) searchSuggestions.style.display = 'none';
+        updateMarkers();
+        searchInput.focus();
+    });
+}
 
 typeSelect.addEventListener('change', (e) => {
     activeTypeFilter = e.target.value;
@@ -605,13 +773,24 @@ typeSelect.addEventListener('change', (e) => {
 filterBtns.forEach(btn => {
     btn.addEventListener('click', () => {
         const type = btn.getAttribute('data-filter');
-        if (activeSwagFilters.has(type)) {
-            activeSwagFilters.delete(type);
-            btn.classList.remove('active');
-        } else {
+        
+        if (activeSwagFilters.size === 0) {
             activeSwagFilters.add(type);
             btn.classList.add('active');
+        } else {
+            if (activeSwagFilters.has(type)) {
+                activeSwagFilters.delete(type);
+                btn.classList.remove('active');
+            } else {
+                activeSwagFilters.add(type);
+                btn.classList.add('active');
+            }
         }
+        
+        if (activeSwagFilters.size === 0) {
+            filterBtns.forEach(b => b.classList.remove('active'));
+        }
+        
         updateMarkers();
     });
 });
@@ -683,6 +862,6 @@ map.on('click', () => {
 // (Removed outdated modal close handlers)
 
 // Toggle filter panel
-document.getElementById('panel-header').addEventListener('click', () => {
+document.getElementById('toggle-filter-btn').addEventListener('click', () => {
     document.getElementById('filter-panel').classList.toggle('collapsed');
 });
