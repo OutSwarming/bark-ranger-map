@@ -607,6 +607,40 @@ body, html {
     transform: scale(1.2);
 }
 
+.visited-pin {
+    filter: drop-shadow(0 0 6px #4CAF50);
+}
+
+.visited-pin img {
+    border: 3px solid #4CAF50;
+    border-radius: 8px;
+}
+
+#mark-visited-btn {
+    background-color: #2196F3 !important;
+    color: white !important;
+    border: none;
+    padding: 12px 20px;
+    box-shadow: 0 4px 10px rgba(33, 150, 243, 0.3);
+    transition: all 0.2s ease-in-out;
+}
+
+#mark-visited-btn .heart-icon {
+    stroke: white;
+}
+
+#mark-visited-btn.visited {
+    background-color: #4CAF50 !important;
+    color: white !important;
+    border: none;
+    box-shadow: 0 4px 10px rgba(76, 175, 80, 0.3);
+}
+
+#mark-visited-btn.visited .heart-icon {
+    fill: white;
+    stroke: white;
+}
+
 .swag-link-btn {
     display: inline-block;
     background-color: var(--color-tag, #2196F3);
