@@ -88,6 +88,7 @@ let activeSearchQuery = '';
 let activeTypeFilter = 'all';
 
 let userVisitedPlaces = new Map();
+let tripQueue = [];
 let visitedFilterState = 'all';
 
 const generatePinId = (lat, lng) => `${parseFloat(lat).toFixed(2)}_${parseFloat(lng).toFixed(2)}`;
@@ -160,6 +161,55 @@ function renderManagePortal() {
         li.appendChild(nameSpan);
         li.appendChild(removeBtn);
         listEl.appendChild(li);
+    });
+}
+
+function evaluateAchievements(visitedPlacesMap) {
+    const statesMap = {};
+    let totalUniqueStates = 0;
+    let maxStateVisits = 0;
+    
+    allPoints.forEach(p => {
+        if (visitedPlacesMap.has(p.id) && p.state) {
+            const st = p.state.toString().split(/[,/]/);
+            st.forEach(s => {
+                const trimmed = s.trim().toUpperCase();
+                if (trimmed) statesMap[trimmed] = (statesMap[trimmed] || 0) + 1;
+            });
+        }
+    });
+    
+    totalUniqueStates = Object.keys(statesMap).length;
+    for (let count of Object.values(statesMap)) {
+        if (count > maxStateVisits) maxStateVisits = count;
+    }
+    
+    let verifiedVisits = 0;
+    visitedPlacesMap.forEach((p) => {
+        if (p.verified) verifiedVisits++;
+    });
+    
+    const badges = [
+        { id: 'explorer', name: 'The Explorer', icon: '🗺️', desc: 'Visit 5+ unique states', unlocked: totalUniqueStates >= 5 },
+        { id: 'local-legend', name: 'The Local Legend', icon: '🏡', desc: 'Visit 3+ parks in a single state', unlocked: maxStateVisits >= 3 },
+        { id: 'golden-paw', name: 'The Golden Paw', icon: '🏆', desc: '10+ Verified Check-Ins', unlocked: verifiedVisits >= 10 }
+    ];
+    
+    const grid = document.getElementById('trophy-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    
+    badges.forEach(b => {
+        const card = document.createElement('div');
+        card.className = `trophy-card ${b.unlocked ? 'unlocked' : 'locked'}`;
+        card.innerHTML = `
+            <div class="trophy-icon">${b.icon}</div>
+            <div class="trophy-info">
+                <div class="trophy-name">${b.name} ${b.unlocked ? '' : '🔒'}</div>
+                <div class="trophy-desc">${b.desc}</div>
+            </div>
+        `;
+        grid.appendChild(card);
     });
 }
 
@@ -236,6 +286,7 @@ function updateStatsUI() {
         }, { merge: true }).catch(err => console.log('Leaderboard sync error:', err));
     }
     
+    evaluateAchievements(userVisitedPlaces);
     renderManagePortal();
 }
 
@@ -651,7 +702,25 @@ function processParsedResults(results) {
             dirContainer.innerHTML = `
                 <a href="https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}" target="_blank" class="dir-btn">🗺️ Google Maps</a>
                 <a href="http://maps.apple.com/?daddr=${d.lat},${d.lng}" target="_blank" class="dir-btn">🧭 Apple Maps</a>
+                <button class="glass-btn btn-trip" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; color: #1976D2; border: 2px solid #1976D2; background: white; padding: 10px; border-radius: 50px; margin-top: 10px; font-size: 14px; cursor: pointer;">📍 Add to Trip</button>
             `;
+
+            const btnTrip = dirContainer.querySelector('.btn-trip');
+            if (btnTrip) {
+                btnTrip.onclick = (e) => {
+                    e.preventDefault();
+                    if (tripQueue.length >= 5) {
+                        alert("Trip limit reached! Maximum 5 stops allowed.");
+                        return;
+                    }
+                    if (tripQueue.find(stop => stop.lat === d.lat && stop.lng === d.lng)) {
+                        alert("This location is already in your trip!");
+                        return;
+                    }
+                    tripQueue.push({ id: d.id, name: d.name, lat: d.lat, lng: d.lng });
+                    updateTripUI();
+                };
+            }
 
             const visitedSection = document.getElementById('panel-visited-section');
             const markVisitedBtn = document.getElementById('mark-visited-btn');
@@ -1424,4 +1493,77 @@ if (shareSelect && qrContainer && typeof QRCode !== 'undefined') {
             }
         });
     }
+}
+
+// ====== TRIP BUILDER LOGIC ======
+const tripFab = document.getElementById('trip-fab');
+const tripBadge = document.getElementById('trip-badge');
+const tripModal = document.getElementById('trip-modal');
+const tripQueueList = document.getElementById('trip-queue-list');
+const closeTripModal = document.getElementById('close-trip-modal');
+const clearTripBtn = document.getElementById('clear-trip-btn');
+const startRouteBtn = document.getElementById('start-route-btn');
+
+function updateTripUI() {
+    if (!tripFab || !tripBadge || !tripQueueList) return;
+    
+    if (tripQueue.length > 0) {
+        tripFab.style.display = 'flex';
+        tripBadge.textContent = `${tripQueue.length}/5`;
+    } else {
+        tripFab.style.display = 'none';
+        if (tripModal) tripModal.style.display = 'none';
+    }
+    
+    tripQueueList.innerHTML = '';
+    tripQueue.forEach((stop, index) => {
+        const li = document.createElement('li');
+        li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0,0,0,0.05); padding: 10px 0;';
+        li.innerHTML = `
+            <div style="display: flex; align-items: center;">
+                <span style="background: #1976D2; color: white; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; justify-content: center; align-items: center; font-size: 11px; margin-right: 8px;">${index + 1}</span>
+                <span style="font-weight: 600; color: #333; font-size: 13px;">${stop.name}</span>
+            </div>
+            <button class="remove-stop-btn" data-index="${index}" style="background: none; border: none; color: #d32f2f; font-weight: bold; font-size: 16px; cursor: pointer; padding: 5px;">&times;</button>
+        `;
+        tripQueueList.appendChild(li);
+    });
+    
+    document.querySelectorAll('.remove-stop-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            const idx = parseInt(e.target.getAttribute('data-index'));
+            tripQueue.splice(idx, 1);
+            updateTripUI();
+        };
+    });
+}
+
+if (tripFab) {
+    tripFab.onclick = () => {
+        tripModal.style.display = 'flex';
+    };
+}
+
+if (closeTripModal) {
+    closeTripModal.onclick = () => {
+        tripModal.style.display = 'none';
+    };
+}
+
+if (clearTripBtn) {
+    clearTripBtn.onclick = () => {
+        tripQueue = [];
+        updateTripUI();
+    };
+}
+
+if (startRouteBtn) {
+    startRouteBtn.onclick = () => {
+        if (tripQueue.length === 0) return;
+        let routeUrl = "https://www.google.com/maps/dir/";
+        tripQueue.forEach(stop => {
+            routeUrl += `${stop.lat},${stop.lng}/`;
+        });
+        window.open(routeUrl, '_blank');
+    };
 }
