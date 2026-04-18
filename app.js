@@ -577,6 +577,13 @@ function processParsedResults(results) {
             typeEl.textContent = d.swagType;
             typeEl.className = `badge ${getBadgeClass(d.swagType)}`;
 
+            const suggestEditBtn = document.getElementById('suggest-edit-btn');
+            if (suggestEditBtn) {
+                const subject = encodeURIComponent(`B.A.R.K. Map Edit: ${d.name}`);
+                const body = encodeURIComponent(`Park Name: ${d.name}\nID: ${d.id}\n\n--- Please describe the update below ---\n`);
+                suggestEditBtn.href = `mailto:junior.ranger.423@gmail.com?subject=${subject}&body=${body}`;
+            }
+
             if (d.cost) {
                 costContainer.style.display = 'block';
                 costValEl.textContent = d.cost;
@@ -1377,7 +1384,7 @@ const downloadQrBtn = document.getElementById('download-qr-btn');
 
 if (shareSelect && qrContainer && typeof QRCode !== 'undefined') {
     let qrcode = new QRCode(qrContainer, {
-        text: window.location.href,
+        text: "https://usbarkrangers.github.io/USBarkRangers/",
         width: 160,
         height: 160,
         colorDark : "#1976D2",
@@ -1387,7 +1394,7 @@ if (shareSelect && qrContainer && typeof QRCode !== 'undefined') {
 
     shareSelect.addEventListener('change', (e) => {
         let val = e.target.value;
-        if (val === 'app') val = window.location.href;
+        if (val === 'app') val = "https://usbarkrangers.github.io/USBarkRangers/";
         
         qrcode.clear();
         qrcode.makeCode(val);
