@@ -938,7 +938,15 @@ let latestRequestId = 0; // Incremented each poll to track newest fetch
 let seenHashes = new Map(); // tracks first-seen timestamp of each data hash
 
 function pollForUpdates() {
-    if (!navigator.onLine || pollInFlight) return;
+    if (!navigator.onLine || pollInFlight) return Promise.resolve();
+    
+    try {
+        incrementRequestCount(); // Count the data poll request
+    } catch (e) {
+        // Propagate the kill-switch error to safeDataPoll
+        return Promise.reject(e);
+    }
+
     pollInFlight = true;
 
     const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRMM2ZRU5lmT-ncrsil4W3qhrbo8NBxnQ-xC877TNkhLYOpTlnCocYA9gNg-dPRyaQr_8e0CWZ0WB2F/pub?output=csv';
@@ -1002,6 +1010,31 @@ function pollForUpdates() {
         });
 }
 
+// ── Safe Background Data Polling ──
+let dataPollErrorCount = 0;
+async function safeDataPoll() {
+    // 1. Check Visibility API (Save costs when tab is inactive)
+    if (document.hidden) {
+        setTimeout(safeDataPoll, 15000); // 15s when inactive
+        return;
+    }
+    try {
+        await pollForUpdates();
+        dataPollErrorCount = 0;
+    } catch (err) {
+        if (err.message && err.message.includes("Safety Shutdown")) {
+            console.error("KILL SWITCH: Terminating Data Poll.");
+            return; // STOP THE LOOP
+        }
+        dataPollErrorCount++;
+        console.error("Data poll failed, backing off...");
+    }
+    // 2. Adaptive Back-off: If it fails 5 times, slow down to 1 minute
+    const interval = dataPollErrorCount > 5 ? 60000 : 3000;
+    setTimeout(safeDataPoll, interval);
+}
+safeDataPoll();
+
 function loadData() {
     const cachedCsv = localStorage.getItem('barkCSV');
     const cachedTime = localStorage.getItem('barkCSV_time');
@@ -1028,8 +1061,7 @@ function loadData() {
     pollForUpdates();
 }
 
-// Poll every 3 seconds for fastest possible Google Sheets sync
-setInterval(pollForUpdates, 3000);
+// (Replaced by safeDataPoll above)
 
 function updateMarkers() {
     markerLayer.clearLayers();
@@ -1443,6 +1475,10 @@ async function safePoll() {
         await checkForUpdates(); 
         pollErrorCount = 0; 
     } catch (err) {
+        if (err.message && err.message.includes("Safety Shutdown")) {
+            console.error("KILL SWITCH: Terminating Version Poll.");
+            return; // STOP THE LOOP
+        }
         pollErrorCount++;
         console.error("Update check failed, backing off...", err);
     }
