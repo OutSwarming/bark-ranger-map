@@ -1,5 +1,18 @@
 const APP_VERSION = 1;
 
+// ====== SAFETY & COST CONTROLS ======
+let globalRequestCounter = 0;
+const SESSION_MAX_REQUESTS = 500; // Auto-shutdown background activity if hit
+
+function incrementRequestCount() {
+    globalRequestCounter++;
+    if (globalRequestCounter > SESSION_MAX_REQUESTS) {
+        console.error("CRITICAL: Session request limit reached. Background sync disabled.");
+        throw new Error("Safety Shutdown: API limit reached for this session.");
+    }
+}
+
+
 // Initialize map centered on the US
 const map = L.map('map', {
     zoomControl: false,
@@ -1416,28 +1429,46 @@ document.getElementById('toggle-filter-btn').addEventListener('click', () => {
     document.getElementById('filter-panel').classList.toggle('collapsed');
 });
 
-// Update Manager 
-function checkForUpdates() {
-    if (!navigator.onLine || window.location.protocol === 'file:') return;
+// Update Manager (Safety Net Refactor)
+let pollErrorCount = 0;
 
-    fetch('version.json?cache_bypass=' + Date.now(), { cache: 'no-store' })
-        .then(res => {
-            if (!res.ok) throw new Error('version.json not found');
-            return res.json();
-        })
-        .then(data => {
-            if (data.version && data.version > APP_VERSION) {
-                const toast = document.getElementById('update-toast');
-                if (toast) {
-                    toast.classList.add('show');
-                }
-            }
-        })
-        .catch(err => console.log('Skipping version check: ', err.message));
+async function safePoll() {
+    // 1. Check Visibility API (Save costs when tab is inactive)
+    if (document.hidden) {
+        setTimeout(safePoll, 10000); // Slow down to 10s when inactive
+        return;
+    }
+
+    try {
+        await checkForUpdates(); 
+        pollErrorCount = 0; 
+    } catch (err) {
+        pollErrorCount++;
+        console.error("Update check failed, backing off...", err);
+    }
+
+    // 2. Adaptive Back-off: If it fails 5 times, slow down significantly (1 min)
+    const nextInterval = pollErrorCount > 5 ? 60000 : 30000; 
+    setTimeout(safePoll, nextInterval); 
 }
 
-setInterval(checkForUpdates, 30000);
-setTimeout(checkForUpdates, 2000);
+async function checkForUpdates() {
+    if (!navigator.onLine || window.location.protocol === 'file:') return;
+    
+    incrementRequestCount(); // Track background activity
+
+    const res = await fetch('version.json?cache_bypass=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error('version.json not found');
+    
+    const data = await res.json();
+    if (data.version && data.version > APP_VERSION) {
+        const toast = document.getElementById('update-toast');
+        if (toast) toast.classList.add('show');
+    }
+}
+
+// Start the loop
+setTimeout(safePoll, 2000);
 
 const refreshBtn = document.getElementById('refresh-btn');
 if (refreshBtn) {
@@ -1557,6 +1588,7 @@ function renderLeaderboard(topUsers) {
 async function loadLeaderboard() {
     if (typeof firebase === 'undefined') return;
     try {
+        incrementRequestCount(); // Track Firestore Doc Read
         const docSnap = await firebase.firestore().collection('system').doc('leaderboardData').get();
         if (docSnap.exists) {
             const data = docSnap.data();
@@ -1914,21 +1946,56 @@ if (addTownBtn && townSearchInput) {
             return;
         }
         try {
+            incrementRequestCount(); // Count API request
             addTownBtn.textContent = 'Searching...';
             addTownBtn.disabled = true;
+            
+            const disambiguationContainer = document.getElementById('town-disambiguation-container');
+            if (disambiguationContainer) disambiguationContainer.style.display = 'none';
+
             const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
-            const url = `https://api.openrouteservice.org/geocode/search?api_key=${hardcodedApiKey}&text=${encodeURIComponent(query)}&size=1`;
+            const url = `https://api.openrouteservice.org/geocode/search?api_key=${hardcodedApiKey}&text=${encodeURIComponent(query)}&size=5&boundary.country=US`;
             const response = await fetch(url);
             if (!response.ok) throw new Error("Search failed");
             const data = await response.json();
+            
             if (data.features && data.features.length > 0) {
-                const feature = data.features[0];
-                const coords = feature.geometry.coordinates;
-                activeDay.stops.push({ name: feature.properties.label || query, lat: coords[1], lng: coords[0] });
-                townSearchInput.value = '';
-                updateTripUI();
+                if (data.features.length === 1) {
+                    const feature = data.features[0];
+                    const coords = feature.geometry.coordinates;
+                    activeDay.stops.push({ name: feature.properties.label || query, lat: coords[1], lng: coords[0] });
+                    townSearchInput.value = '';
+                    updateTripUI();
+                } else {
+                    // Show "Did you mean?" UI
+                    if (disambiguationContainer) {
+                        disambiguationContainer.innerHTML = `<p style="margin:5px; font-size:11px; color:#666; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">📍 Did you mean?</p>`;
+                        data.features.forEach(f => {
+                            const btn = document.createElement('button');
+                            btn.style.cssText = 'width:calc(100% - 10px); text-align:left; padding:10px; font-size:12px; border:none; background:none; cursor:pointer; border-radius:8px; transition:all 0.2s; margin:2px 5px; color:#333; font-weight:500; border:1px solid transparent;';
+                            btn.onmouseover = () => {
+                                btn.style.background = 'rgba(25,118,210,0.05)';
+                                btn.style.borderColor = 'rgba(25,118,210,0.1)';
+                            };
+                            btn.onmouseout = () => {
+                                btn.style.background = 'none';
+                                btn.style.borderColor = 'transparent';
+                            };
+                            btn.textContent = f.properties.label;
+                            btn.onclick = () => {
+                                const coords = f.geometry.coordinates;
+                                activeDay.stops.push({ name: f.properties.label, lat: coords[1], lng: coords[0] });
+                                townSearchInput.value = '';
+                                disambiguationContainer.style.display = 'none';
+                                updateTripUI();
+                            };
+                            disambiguationContainer.appendChild(btn);
+                        });
+                        disambiguationContainer.style.display = 'block';
+                    }
+                }
             } else {
-                alert("Could not find that location. Try 'Gainesville, FL'");
+                alert("Could not find that location in the US. Try adding the state (e.g. 'Gainesville, FL')");
             }
         } catch (err) {
             console.error(err);
@@ -1948,6 +2015,7 @@ async function saveCurrentTrip() {
         alert('Please sign in to save routes. Tap the Profile tab to log in.');
         return false;
     }
+    incrementRequestCount(); // Track Firestore Write
     if (getTotalStops() === 0) {
         alert('Nothing to save — add some stops first!');
         return false;
@@ -2035,6 +2103,8 @@ async function generateAndRenderTripRoute() {
         alert("Please sign in to generate and save routes. Tap the Profile tab to log in.");
         return;
     }
+    incrementRequestCount(); // Track High-Cost Routing Request
+
 
     const daysWithStops = tripDays.filter(d => d.stops.length >= 2);
 
