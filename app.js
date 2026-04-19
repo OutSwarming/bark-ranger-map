@@ -12,6 +12,54 @@ function incrementRequestCount() {
     }
 }
 
+// ====== iOS KEYBOARD LAYOUT FIX ======
+// iOS Safari resizes the visual viewport when the keyboard opens,
+// but position:fixed elements (like the nav bar) don't move with it.
+// This causes the nav bar to float over or under the screen.
+(function() {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+    // Method 1: visualViewport resize detection (most reliable)
+    if (window.visualViewport) {
+        let initialHeight = window.visualViewport.height;
+        window.visualViewport.addEventListener('resize', () => {
+            const currentHeight = window.visualViewport.height;
+            // If viewport shrunk by more than 150px, keyboard is probably open
+            if (initialHeight - currentHeight > 150) {
+                document.body.classList.add('keyboard-open');
+            } else {
+                document.body.classList.remove('keyboard-open');
+            }
+        });
+        // Update baseline on orientation change
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => { initialHeight = window.visualViewport.height; }, 500);
+        });
+    }
+
+    // Method 2: Focus/blur on input elements (fallback)
+    document.addEventListener('focusin', (e) => {
+        if (e.target.matches('input, textarea, select')) {
+            document.body.classList.add('keyboard-open');
+            // Scroll the focused element into view after a short delay
+            if (isIOS) {
+                setTimeout(() => {
+                    e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 300);
+            }
+        }
+    });
+    document.addEventListener('focusout', (e) => {
+        if (e.target.matches('input, textarea, select')) {
+            document.body.classList.remove('keyboard-open');
+            // Force iOS to recalculate layout
+            if (isIOS) {
+                window.scrollTo(0, 0);
+            }
+        }
+    });
+})();
 
 // Initialize map centered on the US
 const map = L.map('map', {
