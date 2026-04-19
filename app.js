@@ -1553,6 +1553,11 @@ if (closeTripModal) {
 if (clearTripBtn) {
     clearTripBtn.onclick = () => {
         tripQueue = [];
+        // Clear the visual route line from the map
+        if (currentRouteLayer) {
+            map.removeLayer(currentRouteLayer);
+            currentRouteLayer = null;
+        }
         updateTripUI();
     };
 }
@@ -1584,7 +1589,11 @@ async function generateAndRenderTripRoute(waypoints, mapInstance) {
                 "Content-Type": "application/json",
                 "Accept": "application/json, application/geo+json; charset=utf-8"
             },
-            body: JSON.stringify({ coordinates: orsCoordinates })
+            body: JSON.stringify({ 
+                coordinates: orsCoordinates,
+                // The -1 value tells ORS to find the nearest road no matter the distance
+                radiuses: new Array(orsCoordinates.length).fill(-1) 
+            })
         });
 
         if (!response.ok) {
