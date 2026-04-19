@@ -482,6 +482,7 @@ navItems.forEach(btn => {
 const wmSliderContainer = document.getElementById('wm-slider-container');
 const wmLogoSize = document.getElementById('wm-logo-size');
 const wmLogoSizeVal = document.getElementById('wm-logo-size-val');
+const wmHighRes = document.getElementById('wm-high-res');
 let currentPhotoImg = null;
 let currentLogoImg = null;
 
@@ -493,13 +494,18 @@ if (wmUpload) {
         if (!currentPhotoImg || !currentLogoImg) return;
 
         const ctx = wmCanvas.getContext('2d');
-        const MAX_WIDTH = 4096;
+        const isFullRes = wmHighRes && wmHighRes.checked;
+        
+        // 1200px is a great sharp balance for social sharing.
+        // Full resolution is used for printing.
+        const PREVIEW_WIDTH = 1200; 
+        
         let width = currentPhotoImg.width;
         let height = currentPhotoImg.height;
 
-        if (width > MAX_WIDTH) {
-            height = height * (MAX_WIDTH / width);
-            width = MAX_WIDTH;
+        if (!isFullRes && width > PREVIEW_WIDTH) {
+            height = height * (PREVIEW_WIDTH / width);
+            width = PREVIEW_WIDTH;
         }
 
         const borderSize = Math.max(width, height) * 0.08;
@@ -523,7 +529,7 @@ if (wmUpload) {
 
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(currentLogoImg, logoX, logoY, logoWidthPx, logoHeightPx); // Eliminated expensive real-time JPEG encoding to fix slider lag
+        ctx.drawImage(currentLogoImg, logoX, logoY, logoWidthPx, logoHeightPx);
 
         document.getElementById('wm-preview-container').style.display = 'block';
         if (wmSliderContainer) wmSliderContainer.style.display = 'block';
@@ -542,32 +548,45 @@ if (wmUpload) {
         const file = e.target.files[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const img = new Image();
-            img.onload = () => {
-                currentPhotoImg = img;
-                if (wmLogoSize) {
-                    wmLogoSize.value = 10;
-                    wmLogoSizeVal.textContent = '10%';
-                }
-                drawWatermark(10);
-            };
-            img.src = event.target.result;
+        // Cleanup old ObjectURL to free memory
+        if (currentPhotoImg && currentPhotoImg.src && currentPhotoImg.src.startsWith('blob:')) {
+            URL.revokeObjectURL(currentPhotoImg.src);
+        }
+
+        const img = new Image();
+        img.onload = () => {
+            currentPhotoImg = img;
+            if (wmLogoSize) {
+                wmLogoSize.value = 10;
+                wmLogoSizeVal.textContent = '10%';
+            }
+            drawWatermark(10);
         };
-        reader.readAsDataURL(file);
+        img.src = URL.createObjectURL(file);
     });
 
     wmDownload.addEventListener('click', () => {
+        const isFullRes = wmHighRes && wmHighRes.checked;
         const link = document.createElement('a');
         link.download = 'bark-ranger-swag-polaroid.jpg';
+        
+        // Final export at maximum quality (1.0 is lossless compression)
         link.href = wmCanvas.toDataURL('image/jpeg', 1.0);
         link.click();
     });
 
+    if (wmHighRes) {
+        wmHighRes.addEventListener('change', () => {
+             drawWatermark(parseInt(wmLogoSize.value, 10));
+        });
+    }
+
     const wmClearBtn = document.getElementById('wm-clear');
     if (wmClearBtn) {
         wmClearBtn.addEventListener('click', () => {
+            if (currentPhotoImg && currentPhotoImg.src && currentPhotoImg.src.startsWith('blob:')) {
+                URL.revokeObjectURL(currentPhotoImg.src);
+            }
             wmUpload.value = '';
             const ctx = wmCanvas.getContext('2d');
             ctx.clearRect(0, 0, wmCanvas.width, wmCanvas.height);
@@ -2106,6 +2125,14 @@ if (addTownBtn && townSearchInput) {
                             };
                             disambiguationContainer.appendChild(btn);
                         });
+                         
+                        // Add a Cancel / Close button to disambiguation list
+                        const cancelBtn = document.createElement('button');
+                        cancelBtn.textContent = '✕ Close Suggestions';
+                        cancelBtn.style.cssText = 'width:calc(100% - 10px); text-align:center; padding:8px; font-size:11px; border:none; background:rgba(0,0,0,0.03); cursor:pointer; border-radius:8px; margin:10px 5px 5px 5px; color:#888; font-weight:700; text-transform:uppercase;';
+                        cancelBtn.onclick = () => { disambiguationContainer.style.display = 'none'; };
+                        disambiguationContainer.appendChild(cancelBtn);
+
                         disambiguationContainer.style.display = 'block';
                     }
                 }

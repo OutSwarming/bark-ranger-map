@@ -375,6 +375,20 @@ body, html {
     width: 44px;
     height: 44px; /* Mobile accessibility minimum */
 }
+
+/* Phantom Hit Area for "Big Fingers" / Shaky hands */
+.close-btn::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 70px;
+    height: 70px;
+    transform: translate(-50%, -50%);
+    background: transparent;
+    border-radius: 50%;
+}
+
 .close-btn:hover, .close-btn:active {
     background: #e1e1e1;
 }

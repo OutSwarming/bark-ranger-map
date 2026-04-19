@@ -139,7 +139,7 @@
                 <input type="file" id="wm-upload" accept="image/*" class="custom-file-input" hidden>
                 <label for="wm-upload" class="glass-btn primary-btn">Select Photo</label>
                 <div class="canvas-preview-container" id="wm-preview-container" style="display:none; position:relative; max-width: 100%;">
-                    <button id="wm-clear" class="close-btn" style="position:absolute; top: 15px; right: 15px; width: 32px; height: 32px; font-size: 20px; z-index: 10;" aria-label="Clear Photo">&times;</button>
+                    <button id="wm-clear" class="close-btn" style="position:absolute; top: 15px; right: 15px; z-index: 10;" aria-label="Clear Photo">&times;</button>
                     <canvas id="wm-canvas" style="display:block; max-width: 100%; height: auto; border-radius: 8px;"></canvas>
                     
                     <div id="wm-slider-container" style="display:none; width: 100%; margin-top: 15px;">
@@ -148,6 +148,11 @@
                             <span id="wm-logo-size-val" style="font-weight: 800; color: #4CAF50; font-size: 14px;">10%</span>
                         </div>
                         <input type="range" id="wm-logo-size" min="1" max="50" value="10" class="custom-slider">
+                        
+                        <div style="display: flex; align-items: center; gap: 10px; margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.03); border-radius: 8px;">
+                            <input type="checkbox" id="wm-high-res" style="width: 20px; height: 20px; cursor: pointer;">
+                            <label for="wm-high-res" style="font-size: 13px; font-weight: 600; color: #333; cursor: pointer;">Original Resolution (Print Quality)</label>
+                        </div>
                     </div>
                 </div>
                 
