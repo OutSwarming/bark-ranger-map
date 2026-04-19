@@ -154,6 +154,7 @@ function renderManagePortal() {
         removeBtn.onclick = () => {
             if (window.confirm(`Are you sure you want to remove "${place.name}" from your visited list?`)) {
                 if (firebase.auth().currentUser) {
+                    incrementRequestCount(); // Count Deletion Request
                     const docRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
                     docRef.set({ visitedPlaces: firebase.firestore.FieldValue.arrayRemove(place) }, { merge: true });
                     
@@ -292,6 +293,7 @@ function updateStatsUI() {
     // Leaderboard sync
     if (typeof firebase !== 'undefined' && firebase.auth().currentUser && totalScore > 0) {
         const u = firebase.auth().currentUser;
+        incrementRequestCount(); // Count Achievement Sync
         firebase.firestore().collection('leaderboard').doc(u.uid).set({
             displayName: u.displayName || 'Bark Ranger',
             photoURL: u.photoURL || '',
@@ -799,6 +801,7 @@ function processParsedResults(results) {
                                 alert(`Check-in Verified! You earned 2 points.`);
                                 const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: true };
                                 
+                                incrementRequestCount(); // Count Firestore Write
                                 const docRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
                                 if (userVisitedPlaces.has(d.id)) {
                                     const oldObj = userVisitedPlaces.get(d.id);
@@ -839,6 +842,7 @@ function processParsedResults(results) {
                     markVisitedBtn.onclick = () => {
                         if (userVisitedPlaces.has(d.id)) return; // Prevent deletion
                         
+                        incrementRequestCount(); // Count Firestore Write
                         const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: false };
                         const docRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
                         
@@ -1257,6 +1261,7 @@ async function loadSavedRoutes(uid) {
 
     savedList.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Loading...</p>';
     try {
+        incrementRequestCount(); // Count Firestore Route Fetch
         const snapshot = await firebase.firestore()
             .collection('users').doc(uid)
             .collection('savedRoutes')
@@ -1314,6 +1319,7 @@ async function loadSavedRoutes(uid) {
         savedList.querySelectorAll('.load-route-btn').forEach(btn => {
             btn.onclick = async () => {
                 const docId = btn.getAttribute('data-id');
+                incrementRequestCount(); // Count Firestore Document Get
                 const docSnap = await firebase.firestore()
                     .collection('users').doc(uid)
                     .collection('savedRoutes').doc(docId).get();
@@ -1335,6 +1341,7 @@ async function loadSavedRoutes(uid) {
             btn.onclick = async () => {
                 if (!confirm('Delete this saved route?')) return;
                 const docId = btn.getAttribute('data-id');
+                incrementRequestCount(); // Count Firestore Delete
                 await firebase.firestore()
                     .collection('users').doc(uid)
                     .collection('savedRoutes').doc(docId).delete();
@@ -1369,6 +1376,7 @@ if (typeof firebase !== 'undefined') {
             if (offlineStatusContainer) offlineStatusContainer.style.display = 'block';
             if (profileName) profileName.textContent = user.displayName || user.email || 'Bark Ranger';
 
+            incrementRequestCount(); // Count initial snapshot fetch
             visitedSnapshotUnsubscribe = firebase.firestore().collection('users').doc(user.uid)
                 .onSnapshot((doc) => {
                     if (doc.exists) {
@@ -1425,6 +1433,7 @@ if (typeof firebase !== 'undefined') {
     if (googleBtn) {
         googleBtn.addEventListener('click', () => {
             const provider = new firebase.auth.GoogleAuthProvider();
+            incrementRequestCount(); // Count Login Attempt
             firebase.auth().signInWithPopup(provider).catch(err => {
                 console.error("Login Error:", err);
                 alert("Login Error: " + err.message);
@@ -1679,6 +1688,7 @@ if (submitFeedbackBtn && typeof firebase !== 'undefined') {
         submitFeedbackBtn.textContent = 'Submitting...';
         submitFeedbackBtn.disabled = true;
         
+        incrementRequestCount(); // Count Feedback Write
         firebase.firestore().collection('feedback').add({
             text: text,
             sender: sender,
