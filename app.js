@@ -697,7 +697,7 @@ function processParsedResults(results) {
             if (suggestEditBtn) {
                 const subject = encodeURIComponent(`B.A.R.K. Map Edit: ${d.name}`);
                 const body = encodeURIComponent(`Park Name: ${d.name}\nID: ${d.id}\n\n--- Please describe the update below ---\n`);
-                suggestEditBtn.href = `mailto:junior.ranger.423@gmail.com?subject=${subject}&body=${body}`;
+                suggestEditBtn.href = `mailto:usbarkrangers@gmail.com?subject=${subject}&body=${body}`;
             }
 
             if (d.cost) {
@@ -1493,6 +1493,27 @@ if (typeof firebase !== 'undefined') {
         logoutBtn.addEventListener('click', () => {
             firebase.auth().signOut().catch(err => console.error("Logout Error:", err));
         });
+    }
+
+    // Initialize Email Suggestion Template
+    const emailSuggestBtn = document.getElementById('email-suggest-btn');
+    if (emailSuggestBtn) {
+        const subject = encodeURIComponent("B.A.R.K. Map: Suggest a New Place");
+        const bodyTemplate = [
+            "--- B.A.R.K. Ranger Map Suggestion ---",
+            "Park Name:",
+            "State:",
+            "Swag Available (Tag/Bandana/Certificate/Other):",
+            "Cost (Free/$$/Other):",
+            "Park Entrance Fee:",
+            "ADA Accessibility Areas:",
+            "Useful Info / Rules:",
+            "Official Website Link:",
+            "",
+            "--- IMPORTANT ---",
+            "Please attach photos of the swag, the park entrance, or any relevant signage to help us verify this location! 🐾"
+        ].join("\n");
+        emailSuggestBtn.href = `mailto:usbarkrangers@gmail.com?subject=${subject}&body=${encodeURIComponent(bodyTemplate)}`;
     }
 }
 
