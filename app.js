@@ -1337,6 +1337,8 @@ if (typeof firebase !== 'undefined') {
 
             // Load saved routes for this user
             loadSavedRoutes(user.uid);
+            // Refresh leaderboard to show personal rank
+            loadLeaderboard();
         } else {
             if (loginContainer) loginContainer.style.display = 'block';
             if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
@@ -1347,6 +1349,8 @@ if (typeof firebase !== 'undefined') {
             }
             updateMarkers();
             updateStatsUI();
+            // Refresh leaderboard to clear personal rank
+            loadLeaderboard();
             // Clear saved routes panel on logout
             const savedList = document.getElementById('saved-routes-list');
             const savedCount = document.getElementById('saved-routes-count');
@@ -1462,51 +1466,92 @@ if (exportCsvBtn) {
     });
 }
 
-// Leaderboard Top 5 Listener
-if (typeof firebase !== 'undefined') {
-    firebase.firestore().collection('leaderboard')
-        .orderBy('totalVisited', 'desc')
-        .limit(50)
-        .onSnapshot(snapshot => {
-            const listEl = document.getElementById('leaderboard-list');
-            const rankEl = document.getElementById('personal-rank-display');
-            if (!listEl || !rankEl) return;
+/**
+ * Leaderboard System (Optimized)
+ * Fetches the pre-calculated leaderboard from the 'system' collection
+ * to minimize read costs while maintaining high performance.
+ */
+function renderLeaderboard(topUsers) {
+    const listEl = document.getElementById('leaderboard-list');
+    const rankEl = document.getElementById('personal-rank-display');
+    if (!listEl || !rankEl) return;
+
+    listEl.innerHTML = '';
+    const uid = (typeof firebase !== 'undefined' && firebase.auth().currentUser) ? firebase.auth().currentUser.uid : null;
+    let personalRank = '--';
+
+    topUsers.forEach((user, index) => {
+        const rank = index + 1;
+        if (user.uid === uid) personalRank = rank;
+
+        if (rank <= 10) { // Show top 10 instead of just 5 for better UX
+            const li = document.createElement('li');
+            li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,0.05);';
             
-            listEl.innerHTML = '';
-            let rank = 1;
-            let personalRank = '--';
-            const uid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : null;
+            const isMe = user.uid === uid;
+            const nameSpan = document.createElement('span');
+            nameSpan.style.cssText = `font-weight: ${isMe ? '800; color: #1976D2;' : '600; color: #444;'}`;
+            nameSpan.textContent = `#${rank} ${user.displayName} ${user.hasVerified ? '🐾' : ''}`;
             
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                if (doc.id === uid) personalRank = rank;
-                
-                if (rank <= 5) {
-                    const li = document.createElement('li');
-                    li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,0.05);';
-                    
-                    const nameSpan = document.createElement('span');
-                    nameSpan.style.cssText = 'font-weight: ' + (doc.id === uid ? '800; color: #2196F3;' : '600; color: #444;');
-                    nameSpan.textContent = `#${rank} ${data.displayName} ${data.hasVerified ? '🐾' : ''}`;
-                    
-                    const scoreSpan = document.createElement('span');
-                    scoreSpan.style.cssText = 'background: rgba(76, 175, 80, 0.1); color: #2E7D32; padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;';
-                    scoreSpan.textContent = data.totalVisited;
-                    
-                    li.appendChild(nameSpan);
-                    li.appendChild(scoreSpan);
-                    listEl.appendChild(li);
-                }
-                rank++;
-            });
+            const scoreSpan = document.createElement('span');
+            scoreSpan.style.cssText = 'background: rgba(76, 175, 80, 0.1); color: #2E7D32; padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;';
+            scoreSpan.textContent = user.totalVisited;
             
-            if (snapshot.empty) {
-                listEl.innerHTML = '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">No leaders yet. Be the first!</li>';
-            }
-            
-            rankEl.textContent = 'Rank: ' + personalRank;
-        }, err => console.log('Leaderboard err:', err));
+            li.appendChild(nameSpan);
+            li.appendChild(scoreSpan);
+            listEl.appendChild(li);
+        }
+    });
+
+    if (topUsers.length === 0) {
+        listEl.innerHTML = '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">Leaderboard generating tonight...</li>';
+    }
+
+    rankEl.textContent = 'Rank: ' + personalRank;
 }
+
+async function loadLeaderboard() {
+    if (typeof firebase === 'undefined') return;
+    try {
+        const docSnap = await firebase.firestore().collection('system').doc('leaderboardData').get();
+        if (docSnap.exists) {
+            const data = docSnap.data();
+            renderLeaderboard(data.topUsers || []);
+        } else {
+            // ── FALLBACK: Use legacy collection until the first hourly run ──
+            const snapshot = await firebase.firestore().collection('leaderboard')
+                .orderBy('totalVisited', 'desc')
+                .limit(10)
+                .get();
+            
+            const legacyUsers = [];
+            snapshot.forEach(doc => {
+                const d = doc.data();
+                legacyUsers.push({
+                    uid: doc.id,
+                    displayName: d.displayName || 'Bark Ranger',
+                    totalVisited: d.totalVisited || 0,
+                    hasVerified: !!d.hasVerified
+                });
+            });
+            renderLeaderboard(legacyUsers);
+        }
+    } catch (err) {
+        console.log('Leaderboard load error:', err);
+    }
+}
+
+// Trigger initial load
+loadLeaderboard();
+
+// Optional: Refresh leaderboard whenever user switches to the profile tab
+document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+        if (btn.getAttribute('data-target') === 'profile-view') {
+            loadLeaderboard();
+        }
+    });
+});
 
 // Public Feedback Portal Logic
 const submitFeedbackBtn = document.getElementById('submit-feedback-btn');
