@@ -88,7 +88,9 @@ let activeSearchQuery = '';
 let activeTypeFilter = 'all';
 
 let userVisitedPlaces = new Map();
-let tripQueue = [];
+const DAY_COLORS = ['#1976D2', '#2E7D32', '#E65100', '#6A1B9A', '#C62828'];
+let tripDays = [{ color: DAY_COLORS[0], stops: [] }];
+let activeDayIdx = 0;
 let visitedFilterState = 'all';
 
 const generatePinId = (lat, lng) => `${parseFloat(lat).toFixed(2)}_${parseFloat(lng).toFixed(2)}`;
@@ -709,15 +711,16 @@ function processParsedResults(results) {
             if (btnTrip) {
                 btnTrip.onclick = (e) => {
                     e.preventDefault();
-                    if (tripQueue.length >= 5) {
-                        alert("Trip limit reached! Maximum 5 stops allowed.");
+                    const activeDay = tripDays[activeDayIdx];
+                    if (activeDay.stops.length >= 5) {
+                        alert(`Day ${activeDayIdx + 1} is full! (Max 5 stops per day)`);
                         return;
                     }
-                    if (tripQueue.find(stop => stop.lat === d.lat && stop.lng === d.lng)) {
+                    if (activeDay.stops.find(stop => stop.lat === d.lat && stop.lng === d.lng)) {
                         alert("This location is already in your trip!");
                         return;
                     }
-                    tripQueue.push({ id: d.id, name: d.name, lat: d.lat, lng: d.lng });
+                    activeDay.stops.push({ id: d.id, name: d.name, lat: d.lat, lng: d.lng });
                     updateTripUI();
                 };
             }
@@ -1199,6 +1202,90 @@ const logoutBtn = document.getElementById('logout-btn');
 
 let visitedSnapshotUnsubscribe = null;
 
+// ── Module-level saved routes loader (needs firebase globally available) ──
+async function loadSavedRoutes(uid) {
+    const savedList = document.getElementById('saved-routes-list');
+    const savedCount = document.getElementById('saved-routes-count');
+    if (!savedList) return;
+
+    savedList.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Loading...</p>';
+    try {
+        const snapshot = await firebase.firestore()
+            .collection('users').doc(uid)
+            .collection('savedRoutes')
+            .orderBy('createdAt', 'desc')
+            .limit(20)
+            .get();
+
+        if (savedCount) savedCount.textContent = snapshot.size;
+
+        if (snapshot.empty) {
+            savedList.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">No saved routes yet. Generate a route to save it here!</p>';
+            return;
+        }
+
+        savedList.innerHTML = '';
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const date = data.createdAt ? new Date(data.createdAt.seconds * 1000).toLocaleDateString() : 'Unknown date';
+            const dayCount = data.tripDays ? data.tripDays.length : 0;
+            const stopCount = data.tripDays ? data.tripDays.reduce((s, d) => s + (d.stops ? d.stops.length : 0), 0) : 0;
+
+            const colorDots = (data.tripDays || []).map(d =>
+                `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${d.color || '#999'}; margin-right:2px;"></span>`
+            ).join('');
+
+            const card = document.createElement('div');
+            card.style.cssText = 'background:#f9f9f9; border-radius:10px; padding:10px 12px; margin-bottom:8px; border:1px solid rgba(0,0,0,0.06);';
+            card.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
+                    <div>
+                        <div style="font-weight:700; font-size:13px; color:#333; margin-bottom:4px;">
+                            ${colorDots} ${dayCount} day${dayCount !== 1 ? 's' : ''} · ${stopCount} stop${stopCount !== 1 ? 's' : ''}
+                        </div>
+                        <div style="font-size:11px; color:#888;">${date}</div>
+                    </div>
+                    <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
+                        <button class="load-route-btn" data-id="${doc.id}" style="background:#1976D2; color:white; border:none; border-radius:8px; padding:5px 10px; font-size:12px; cursor:pointer; font-weight:600;">Load</button>
+                        <button class="delete-route-btn" data-id="${doc.id}" style="background:none; border:none; color:#d32f2f; font-size:14px; cursor:pointer; font-weight:bold;" title="Delete">×</button>
+                    </div>
+                </div>
+            `;
+            savedList.appendChild(card);
+        });
+
+        savedList.querySelectorAll('.load-route-btn').forEach(btn => {
+            btn.onclick = async () => {
+                const docId = btn.getAttribute('data-id');
+                const docSnap = await firebase.firestore()
+                    .collection('users').doc(uid)
+                    .collection('savedRoutes').doc(docId).get();
+                if (!docSnap.exists) return;
+                const data = docSnap.data();
+                tripDays = data.tripDays.map(d => ({ color: d.color, stops: d.stops }));
+                activeDayIdx = 0;
+                updateTripUI();
+                document.querySelector('[data-target="map-view"]')?.click();
+            };
+        });
+
+        savedList.querySelectorAll('.delete-route-btn').forEach(btn => {
+            btn.onclick = async () => {
+                if (!confirm('Delete this saved route?')) return;
+                const docId = btn.getAttribute('data-id');
+                await firebase.firestore()
+                    .collection('users').doc(uid)
+                    .collection('savedRoutes').doc(docId).delete();
+                loadSavedRoutes(uid);
+            };
+        });
+
+    } catch (err) {
+        console.error("Error loading saved routes:", err);
+        savedList.innerHTML = '<p style="color:#c00; text-align:center; padding:10px 0;">Error loading routes.</p>';
+    }
+}
+
 if (typeof firebase !== 'undefined') {
     const firebaseConfig = {
         apiKey: "AIzaSyDcBn2YQCAFrAjN27gIM9lBiu0PZsComO4",
@@ -1247,6 +1334,9 @@ if (typeof firebase !== 'undefined') {
                         }
                     }
                 });
+
+            // Load saved routes for this user
+            loadSavedRoutes(user.uid);
         } else {
             if (loginContainer) loginContainer.style.display = 'block';
             if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
@@ -1257,6 +1347,11 @@ if (typeof firebase !== 'undefined') {
             }
             updateMarkers();
             updateStatsUI();
+            // Clear saved routes panel on logout
+            const savedList = document.getElementById('saved-routes-list');
+            const savedCount = document.getElementById('saved-routes-count');
+            if (savedList) savedList.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Sign in to view saved routes.</p>';
+            if (savedCount) savedCount.textContent = '0';
         }
     });
 
@@ -1504,142 +1599,401 @@ const closeTripModal = document.getElementById('close-trip-modal');
 const clearTripBtn = document.getElementById('clear-trip-btn');
 const startRouteBtn = document.getElementById('start-route-btn');
 
+function getTotalStops() {
+    return tripDays.reduce((sum, d) => sum + d.stops.length, 0);
+}
+
 function updateTripUI() {
     if (!tripFab || !tripBadge || !tripQueueList) return;
-    
-    if (tripQueue.length > 0) {
+
+    const total = getTotalStops();
+    if (total > 0) {
         tripFab.style.display = 'flex';
-        tripBadge.textContent = `${tripQueue.length}/5`;
+        tripBadge.textContent = `${total}`;
     } else {
         tripFab.style.display = 'none';
         if (tripModal) tripModal.style.display = 'none';
     }
-    
+
+    // ── Render Day Tabs ──
+    let tabContainer = document.getElementById('trip-day-tabs');
+    if (!tabContainer) {
+        tabContainer = document.createElement('div');
+        tabContainer.id = 'trip-day-tabs';
+        tabContainer.style.cssText = 'display:flex; gap:6px; flex-wrap: wrap; margin-bottom:14px; align-items:center;';
+        tripQueueList.parentElement.insertBefore(tabContainer, tripQueueList);
+    }
+    tabContainer.innerHTML = '';
+
+    tripDays.forEach((day, di) => {
+        const tab = document.createElement('div');
+        tab.style.cssText = `display:inline-flex; align-items:center; gap:5px; padding:6px 12px; border-radius:20px; cursor:pointer; font-size:13px; font-weight:600; border: 2px solid ${di === activeDayIdx ? day.color : '#ddd'}; background:${di === activeDayIdx ? day.color : '#f5f5f5'}; color:${di === activeDayIdx ? 'white' : '#555'}; transition: all 0.2s;`;
+
+        // Color picker swatch
+        const swatch = document.createElement('input');
+        swatch.type = 'color';
+        swatch.value = day.color;
+        swatch.title = 'Change day color';
+        swatch.style.cssText = 'width:14px; height:14px; border:none; padding:0; background:none; cursor:pointer; border-radius:50%; outline:none;';
+        swatch.onclick = (e) => e.stopPropagation();
+        swatch.oninput = (e) => {
+            tripDays[di].color = e.target.value;
+            updateTripUI();
+        };
+
+        const label = document.createElement('span');
+        label.textContent = `Day ${di + 1} (${day.stops.length})`;
+
+        tab.appendChild(swatch);
+        tab.appendChild(label);
+
+        // Delete day button (only if > 1 day and day is empty)
+        if (tripDays.length > 1 && day.stops.length === 0) {
+            const delBtn = document.createElement('span');
+            delBtn.textContent = '×';
+            delBtn.title = 'Remove day';
+            delBtn.style.cssText = 'font-size:14px; cursor:pointer; margin-left:2px;';
+            delBtn.onclick = (e) => {
+                e.stopPropagation();
+                tripDays.splice(di, 1);
+                if (activeDayIdx >= tripDays.length) activeDayIdx = tripDays.length - 1;
+                updateTripUI();
+            };
+            tab.appendChild(delBtn);
+        }
+
+        tab.onclick = () => { activeDayIdx = di; updateTripUI(); };
+        tabContainer.appendChild(tab);
+    });
+
+    // Add Day button
+    if (tripDays.length < 5) {
+        const addDayBtn = document.createElement('button');
+        addDayBtn.textContent = '+ Add Day';
+        addDayBtn.style.cssText = 'padding:6px 12px; border-radius:20px; border:2px dashed #bbb; background:none; color:#888; font-size:13px; font-weight:600; cursor:pointer;';
+        addDayBtn.onclick = () => {
+            tripDays.push({ color: DAY_COLORS[tripDays.length % DAY_COLORS.length], stops: [] });
+            activeDayIdx = tripDays.length - 1;
+            updateTripUI();
+        };
+        tabContainer.appendChild(addDayBtn);
+    }
+
+    // ── Render Stops for Active Day ──
+    const activeDay = tripDays[activeDayIdx];
     tripQueueList.innerHTML = '';
-    tripQueue.forEach((stop, index) => {
+
+    if (activeDay.stops.length === 0) {
+        const empty = document.createElement('li');
+        empty.style.cssText = 'color:#aaa; font-size:13px; text-align:center; padding:18px 0;';
+        empty.textContent = 'No stops yet. Add parks or a town above!';
+        tripQueueList.appendChild(empty);
+    }
+
+    activeDay.stops.forEach((stop, index) => {
         const li = document.createElement('li');
         li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0,0,0,0.05); padding: 10px 0;';
+
+        // Build "Move to Day" options
+        const moveToDayOptions = tripDays
+            .map((d, di) => di !== activeDayIdx && d.stops.length < 5 ? `<option value="${di}">Day ${di + 1}</option>` : '')
+            .join('');
+        const moveSelect = moveToDayOptions 
+            ? `<select class="move-to-day-select" data-index="${index}" style="border:1px solid #ddd; border-radius:6px; font-size:11px; padding:3px; cursor:pointer; background:white; color:#333;">
+                 <option value="">Move→</option>${moveToDayOptions}
+               </select>` 
+            : '';
+
         li.innerHTML = `
-            <div style="display: flex; align-items: center;">
-                <span style="background: #1976D2; color: white; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; justify-content: center; align-items: center; font-size: 11px; margin-right: 8px;">${index + 1}</span>
-                <span style="font-weight: 600; color: #333; font-size: 13px;">${stop.name}</span>
+            <div style="display: flex; align-items: center; flex: 1; min-width: 0;">
+                <span style="background:${activeDay.color}; color:white; border-radius: 50%; width: 22px; height: 22px; min-width: 22px; display: inline-flex; justify-content: center; align-items: center; font-size: 11px; margin-right: 8px;">${index + 1}</span>
+                <span style="font-weight: 600; color: #333; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${stop.name}">${stop.name}</span>
             </div>
-            <button class="remove-stop-btn" data-index="${index}" style="background: none; border: none; color: #d32f2f; font-weight: bold; font-size: 16px; cursor: pointer; padding: 5px;">&times;</button>
+            <div style="display: flex; gap: 4px; align-items: center;">
+                ${moveSelect}
+                <button class="move-up-btn" data-index="${index}" style="background:#f0f0f0; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; ${index === 0 ? 'visibility:hidden;' : ''}" title="Move Up">↑</button>
+                <button class="move-down-btn" data-index="${index}" style="background:#f0f0f0; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; ${index === activeDay.stops.length - 1 ? 'visibility:hidden;' : ''}" title="Move Down">↓</button>
+                <button class="remove-stop-btn" data-index="${index}" style="background:none; border:none; color:#d32f2f; font-weight:bold; font-size:16px; cursor:pointer; padding:5px;" title="Remove">&times;</button>
+            </div>
         `;
         tripQueueList.appendChild(li);
     });
-    
+
+    // Wire up buttons
     document.querySelectorAll('.remove-stop-btn').forEach(btn => {
         btn.onclick = (e) => {
-            const idx = parseInt(e.target.getAttribute('data-index'));
-            tripQueue.splice(idx, 1);
+            const idx = parseInt(e.currentTarget.getAttribute('data-index'));
+            tripDays[activeDayIdx].stops.splice(idx, 1);
+            updateTripUI();
+        };
+    });
+    document.querySelectorAll('.move-up-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            const idx = parseInt(e.currentTarget.getAttribute('data-index'));
+            if (idx > 0) {
+                const stops = tripDays[activeDayIdx].stops;
+                [stops[idx], stops[idx - 1]] = [stops[idx - 1], stops[idx]];
+                updateTripUI();
+            }
+        };
+    });
+    document.querySelectorAll('.move-down-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            const idx = parseInt(e.currentTarget.getAttribute('data-index'));
+            const stops = tripDays[activeDayIdx].stops;
+            if (idx < stops.length - 1) {
+                [stops[idx], stops[idx + 1]] = [stops[idx + 1], stops[idx]];
+                updateTripUI();
+            }
+        };
+    });
+    document.querySelectorAll('.move-to-day-select').forEach(sel => {
+        sel.onchange = (e) => {
+            const fromIdx = parseInt(e.currentTarget.getAttribute('data-index'));
+            const toDayIdx = parseInt(e.target.value);
+            if (isNaN(toDayIdx)) return;
+            const stop = tripDays[activeDayIdx].stops.splice(fromIdx, 1)[0];
+            tripDays[toDayIdx].stops.push(stop);
             updateTripUI();
         };
     });
 }
 
 if (tripFab) {
-    tripFab.onclick = () => {
-        tripModal.style.display = 'flex';
-    };
+    tripFab.onclick = () => { tripModal.style.display = 'flex'; };
 }
 
 if (closeTripModal) {
-    closeTripModal.onclick = () => {
-        tripModal.style.display = 'none';
+    closeTripModal.onclick = () => { tripModal.style.display = 'none'; };
+}
+
+// Add Current Location Handler
+const addCurrentLocBtn = document.getElementById('add-current-loc-btn');
+if (addCurrentLocBtn) {
+    addCurrentLocBtn.onclick = () => {
+        const activeDay = tripDays[activeDayIdx];
+        if (activeDay.stops.length >= 5) {
+            alert(`Day ${activeDayIdx + 1} is full! (Max 5 stops per day)`);
+            return;
+        }
+        const addLocStop = (lat, lng) => {
+            activeDay.stops.push({ name: "My Current Location", lat, lng });
+            updateTripUI();
+        };
+        if (userLocationMarker) {
+            const ll = userLocationMarker.getLatLng();
+            addLocStop(ll.lat, ll.lng);
+        } else {
+            alert("Getting your location... please wait.");
+            map.locate({ setView: false });
+            map.once('locationfound', (e) => addLocStop(e.latlng.lat, e.latlng.lng));
+            map.once('locationerror', () => alert("Could not find your location. Please ensure GPS is active."));
+        }
     };
+}
+
+// Add Town Search Handler
+const addTownBtn = document.getElementById('add-town-btn');
+const townSearchInput = document.getElementById('town-search-input');
+if (addTownBtn && townSearchInput) {
+    addTownBtn.onclick = async () => {
+        const query = townSearchInput.value.trim();
+        if (!query) return;
+        const activeDay = tripDays[activeDayIdx];
+        if (activeDay.stops.length >= 5) {
+            alert(`Day ${activeDayIdx + 1} is full! (Max 5 stops per day)`);
+            return;
+        }
+        try {
+            addTownBtn.textContent = 'Searching...';
+            addTownBtn.disabled = true;
+            const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
+            const url = `https://api.openrouteservice.org/geocoding/search?text=${encodeURIComponent(query)}&size=1`;
+            const response = await fetch(url, { headers: { "Authorization": hardcodedApiKey } });
+            if (!response.ok) throw new Error("Search failed");
+            const data = await response.json();
+            if (data.features && data.features.length > 0) {
+                const feature = data.features[0];
+                const coords = feature.geometry.coordinates;
+                activeDay.stops.push({ name: feature.properties.label || query, lat: coords[1], lng: coords[0] });
+                townSearchInput.value = '';
+                updateTripUI();
+            } else {
+                alert("Could not find that location. Try 'Gainesville, FL'");
+            }
+        } catch (err) {
+            console.error(err);
+            alert("Search service unavailable. Please try again later.");
+        } finally {
+            addTownBtn.textContent = 'Add';
+            addTownBtn.disabled = false;
+        }
+    };
+    townSearchInput.onkeypress = (e) => { if (e.key === 'Enter') addTownBtn.click(); };
+}
+
+// Helper: save current tripDays to Firestore without routing
+async function saveCurrentTrip() {
+    const user = (typeof firebase !== 'undefined') ? firebase.auth().currentUser : null;
+    if (!user) {
+        alert('Please sign in to save routes. Tap the Profile tab to log in.');
+        return false;
+    }
+    if (getTotalStops() === 0) {
+        alert('Nothing to save — add some stops first!');
+        return false;
+    }
+
+    const nameInput = document.getElementById('tripNameInput');
+    const tripName = nameInput ? nameInput.value.trim() : "";
+    if (!tripName) {
+        alert('Please enter a name for your trip.');
+        if (nameInput) nameInput.focus();
+        return false;
+    }
+
+    try {
+        const routeData = {
+            tripName: tripName,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            tripDays: tripDays.map(d => ({
+                color: d.color,
+                stops: d.stops.map(s => ({ name: s.name, lat: s.lat, lng: s.lng }))
+            }))
+        };
+        await firebase.firestore()
+            .collection('users').doc(user.uid)
+            .collection('savedRoutes').add(routeData);
+        // Refresh the saved routes panel immediately
+        loadSavedRoutes(user.uid);
+        return true;
+    } catch (err) {
+        console.error('Save failed:', err);
+        alert('Could not save route: ' + err.message);
+        return false;
+    }
 }
 
 if (clearTripBtn) {
     clearTripBtn.onclick = () => {
-        tripQueue = [];
-        // Clear the visual route line from the map
-        if (currentRouteLayer) {
-            map.removeLayer(currentRouteLayer);
-            currentRouteLayer = null;
+        if (getTotalStops() > 0) {
+            const proceed = confirm("Are you sure you want to clear your trip? Make sure you've saved your route first if you want to keep it!");
+            if (!proceed) return;
         }
+
+        // Wipe local state
+        tripDays = [{ color: DAY_COLORS[0], stops: [] }];
+        activeDayIdx = 0;
+        
+        // Remove map layers
+        currentRouteLayers.forEach(layer => map.removeLayer(layer));
+        currentRouteLayers = [];
+        
+        // Clear name input
+        const nameInput = document.getElementById('tripNameInput');
+        if (nameInput) nameInput.value = '';
+        
         updateTripUI();
     };
 }
 
-let currentRouteLayer = null;
+const saveRouteBtn = document.getElementById('save-route-btn');
+if (saveRouteBtn) {
+    saveRouteBtn.onclick = async () => {
+        saveRouteBtn.textContent = 'Saving...';
+        saveRouteBtn.disabled = true;
+        const saved = await saveCurrentTrip();
+        saveRouteBtn.textContent = '💾 Save';
+        saveRouteBtn.disabled = false;
+        if (saved) alert('✅ Trip saved! Check Profile → Saved Routes.');
+    };
+}
 
-async function generateAndRenderTripRoute(waypoints, mapInstance) {
-    if (!waypoints || waypoints.length < 2) {
-        alert("Please add at least 2 parks to your trip cart to route.");
+let currentRouteLayers = [];
+
+async function generateAndRenderTripRoute() {
+    // ── Auth Gate ──
+    const user = (typeof firebase !== 'undefined') ? firebase.auth().currentUser : null;
+    if (!user) {
+        alert("Please sign in to generate and save routes. Tap the Profile tab to log in.");
         return;
     }
 
-    const orsCoordinates = waypoints.map(coord => [Number(coord.lng), Number(coord.lat)]);
+    const daysWithStops = tripDays.filter(d => d.stops.length >= 2);
 
-    try {
-        console.log("Requesting route directly from ORS...");
-        if (startRouteBtn) {
-            startRouteBtn.textContent = 'Calculating...';
-            startRouteBtn.disabled = true;
-        }
+    if (daysWithStops.length === 0) {
+        alert("Each day needs at least 2 stops to generate a route. Days with a single stop are skipped.");
+        return;
+    }
 
-        // Moving the API key to the frontend to bypass the Google Cloud IP block
-        const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
+    // Clear old route layers
+    currentRouteLayers.forEach(layer => map.removeLayer(layer));
+    currentRouteLayers = [];
 
-        const response = await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson", {
-            method: "POST",
-            headers: {
-                "Authorization": hardcodedApiKey,
-                "Content-Type": "application/json",
-                "Accept": "application/json, application/geo+json; charset=utf-8"
-            },
-            body: JSON.stringify({ 
-                coordinates: orsCoordinates,
-                // The -1 value tells ORS to find the nearest road no matter the distance
-                radiuses: new Array(orsCoordinates.length).fill(-1) 
-            })
-        });
+    if (startRouteBtn) {
+        startRouteBtn.textContent = 'Calculating...';
+        startRouteBtn.disabled = true;
+    }
 
-        if (!response.ok) {
-            const errData = await response.json();
-            throw new Error(errData.error?.message || "Failed to fetch route from ORS.");
-        }
+    const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
+    const allBounds = [];
+    let anySucceeded = false;
 
-        const geoJSONData = await response.json();
-        
-        if (currentRouteLayer) {
-            mapInstance.removeLayer(currentRouteLayer);
-        }
+    for (const day of daysWithStops) {
+        try {
+            const orsCoordinates = day.stops.map(s => [Number(s.lng), Number(s.lat)]);
+            console.log(`Routing Day (${day.color})...`, orsCoordinates);
 
-        currentRouteLayer = L.geoJSON(geoJSONData, {
-            style: function (feature) {
-                return {
-                    color: '#2E7D32',
-                    weight: 5,
-                    opacity: 0.8,
-                    dashArray: '10, 10'
-                };
+            const response = await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson", {
+                method: "POST",
+                headers: {
+                    "Authorization": hardcodedApiKey,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, application/geo+json; charset=utf-8"
+                },
+                body: JSON.stringify({
+                    coordinates: orsCoordinates,
+                    radiuses: new Array(orsCoordinates.length).fill(-1)
+                })
+            });
+
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.error?.message || "ORS error");
             }
-        });
-        
-        currentRouteLayer.addTo(mapInstance);
-        mapInstance.fitBounds(currentRouteLayer.getBounds(), { padding: [50, 50] });
-        
-        if (tripModal) {
-            tripModal.style.display = 'none';
-        }
-        console.log("Trip rendered successfully!");
 
-    } catch (error) {
-        console.error("Routing Error:", error);
-        alert("Trip calculation failed: " + (error.message || error));
-    } finally {
-        if (startRouteBtn) {
-            startRouteBtn.textContent = 'Generate Premium Route';
-            startRouteBtn.disabled = false;
+            const geoJSONData = await response.json();
+            const layer = L.geoJSON(geoJSONData, {
+                style: () => ({ color: day.color, weight: 5, opacity: 0.85, dashArray: '10, 8' })
+            }).addTo(map);
+
+            currentRouteLayers.push(layer);
+            allBounds.push(layer.getBounds());
+            anySucceeded = true;
+
+        } catch (err) {
+            console.error(`Route failed for day (${day.color}):`, err);
+            alert(`A day's route failed: ${err.message}`);
         }
+    }
+
+    if (allBounds.length > 0) {
+        const combined = allBounds.reduce((acc, b) => acc.extend(b), allBounds[0]);
+        map.fitBounds(combined, { padding: [50, 50] });
+    }
+
+    if (tripModal) tripModal.style.display = 'none';
+
+    if (startRouteBtn) {
+        startRouteBtn.textContent = 'Generate Route';
+        startRouteBtn.disabled = false;
     }
 }
 
 if (startRouteBtn) {
     startRouteBtn.onclick = () => {
-        if (tripQueue.length === 0) return;
-        generateAndRenderTripRoute(tripQueue, map);
+        if (getTotalStops() === 0) return;
+        generateAndRenderTripRoute();
     };
 }
+
