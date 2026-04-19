@@ -89,7 +89,7 @@ let activeTypeFilter = 'all';
 
 let userVisitedPlaces = new Map();
 const DAY_COLORS = ['#1976D2', '#2E7D32', '#E65100', '#6A1B9A', '#C62828'];
-let tripDays = [{ color: DAY_COLORS[0], stops: [] }];
+let tripDays = [{ color: DAY_COLORS[0], stops: [], notes: "" }];
 let activeDayIdx = 0;
 let visitedFilterState = 'all';
 
@@ -722,6 +722,8 @@ function processParsedResults(results) {
                     }
                     activeDay.stops.push({ id: d.id, name: d.name, lat: d.lat, lng: d.lng });
                     updateTripUI();
+                    // Switch to Planner tab so they see it added
+                    document.querySelector('[data-target="planner-view"]')?.click();
                 };
             }
 
@@ -1230,17 +1232,27 @@ async function loadSavedRoutes(uid) {
             const date = data.createdAt ? new Date(data.createdAt.seconds * 1000).toLocaleDateString() : 'Unknown date';
             const dayCount = data.tripDays ? data.tripDays.length : 0;
             const stopCount = data.tripDays ? data.tripDays.reduce((s, d) => s + (d.stops ? d.stops.length : 0), 0) : 0;
+            
+            // Ensure notes are loaded back
+            const loadedDays = data.tripDays.map(d => ({
+                color: d.color,
+                stops: d.stops.map(s => ({ name: s.name, lat: s.lat, lng: s.lng })),
+                notes: d.notes || ""
+            }));
 
             const colorDots = (data.tripDays || []).map(d =>
                 `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${d.color || '#999'}; margin-right:2px;"></span>`
             ).join('');
+
+            const tripName = data.tripName || "Untitled Route";
 
             const card = document.createElement('div');
             card.style.cssText = 'background:#f9f9f9; border-radius:10px; padding:10px 12px; margin-bottom:8px; border:1px solid rgba(0,0,0,0.06);';
             card.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
                     <div>
-                        <div style="font-weight:700; font-size:13px; color:#333; margin-bottom:4px;">
+                        <div style="font-weight:800; font-size:14px; color:#1a1a1a; margin-bottom:2px;">${tripName}</div>
+                        <div style="font-weight:600; font-size:12px; color:#555; margin-bottom:4px;">
                             ${colorDots} ${dayCount} day${dayCount !== 1 ? 's' : ''} · ${stopCount} stop${stopCount !== 1 ? 's' : ''}
                         </div>
                         <div style="font-size:11px; color:#888;">${date}</div>
@@ -1262,8 +1274,13 @@ async function loadSavedRoutes(uid) {
                     .collection('savedRoutes').doc(docId).get();
                 if (!docSnap.exists) return;
                 const data = docSnap.data();
-                tripDays = data.tripDays.map(d => ({ color: d.color, stops: d.stops }));
+                tripDays = data.tripDays.map(d => ({ color: d.color, stops: d.stops, notes: d.notes || "" }));
                 activeDayIdx = 0;
+                
+                // Restore Trip Name
+                const tripNameInput = document.getElementById('tripNameInput');
+                if (tripNameInput) tripNameInput.value = data.tripName || "";
+                
                 updateTripUI();
                 document.querySelector('[data-target="map-view"]')?.click();
             };
@@ -1467,24 +1484,29 @@ if (exportCsvBtn) {
 }
 
 /**
- * Leaderboard System (Optimized)
- * Fetches the pre-calculated leaderboard from the 'system' collection
- * to minimize read costs while maintaining high performance.
+ * Leaderboard System (Optimized & Paginated)
  */
+let leaderboardVisibleLimit = 5;
+let cachedLeaderboardData = [];
+
 function renderLeaderboard(topUsers) {
+    if (topUsers) cachedLeaderboardData = topUsers;
+    const data = cachedLeaderboardData;
+
     const listEl = document.getElementById('leaderboard-list');
     const rankEl = document.getElementById('personal-rank-display');
-    if (!listEl || !rankEl) return;
+    const controlsEl = document.getElementById('leaderboard-controls');
+    if (!listEl || !rankEl || !controlsEl) return;
 
     listEl.innerHTML = '';
     const uid = (typeof firebase !== 'undefined' && firebase.auth().currentUser) ? firebase.auth().currentUser.uid : null;
     let personalRank = '--';
 
-    topUsers.forEach((user, index) => {
+    data.forEach((user, index) => {
         const rank = index + 1;
         if (user.uid === uid) personalRank = rank;
 
-        if (rank <= 10) { // Show top 10 instead of just 5 for better UX
+        if (rank <= leaderboardVisibleLimit) {
             const li = document.createElement('li');
             li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,0.05);';
             
@@ -1503,8 +1525,30 @@ function renderLeaderboard(topUsers) {
         }
     });
 
-    if (topUsers.length === 0) {
-        listEl.innerHTML = '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">Leaderboard generating tonight...</li>';
+    // Handle "Show More" button
+    controlsEl.innerHTML = '';
+    if (data.length > leaderboardVisibleLimit) {
+        const showMoreBtn = document.createElement('button');
+        showMoreBtn.textContent = 'Show More (+5)';
+        showMoreBtn.style.cssText = 'background: rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; padding: 6px 15px; font-size: 12px; cursor: pointer; color: #666; font-weight: 600;';
+        showMoreBtn.onclick = () => {
+            leaderboardVisibleLimit += 5;
+            renderLeaderboard();
+        };
+        controlsEl.appendChild(showMoreBtn);
+    } else if (data.length > 5 && leaderboardVisibleLimit > 5) {
+        const showLessBtn = document.createElement('button');
+        showLessBtn.textContent = 'Show Less';
+        showLessBtn.style.cssText = 'background: none; border: none; font-size: 11px; cursor: pointer; color: #1976D2; font-weight: 600; text-decoration: underline;';
+        showLessBtn.onclick = () => {
+            leaderboardVisibleLimit = 5;
+            renderLeaderboard();
+        };
+        controlsEl.appendChild(showLessBtn);
+    }
+
+    if (data.length === 0) {
+        listEl.innerHTML = '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">Leaderboard updates hourly.</li>';
     }
 
     rankEl.textContent = 'Rank: ' + personalRank;
@@ -1636,11 +1680,8 @@ if (shareSelect && qrContainer && typeof QRCode !== 'undefined') {
 }
 
 // ====== TRIP BUILDER LOGIC ======
-const tripFab = document.getElementById('trip-fab');
-const tripBadge = document.getElementById('trip-badge');
-const tripModal = document.getElementById('trip-modal');
 const tripQueueList = document.getElementById('trip-queue-list');
-const closeTripModal = document.getElementById('close-trip-modal');
+const plannerBadge = document.getElementById('planner-badge');
 const clearTripBtn = document.getElementById('clear-trip-btn');
 const startRouteBtn = document.getElementById('start-route-btn');
 
@@ -1649,16 +1690,18 @@ function getTotalStops() {
 }
 
 function updateTripUI() {
-    if (!tripFab || !tripBadge || !tripQueueList) return;
+    if (!tripQueueList) return;
 
     const total = getTotalStops();
-    if (total > 0) {
-        tripFab.style.display = 'flex';
-        tripBadge.textContent = `${total}`;
-    } else {
-        tripFab.style.display = 'none';
-        if (tripModal) tripModal.style.display = 'none';
+    if (plannerBadge) {
+        if (total > 0) {
+            plannerBadge.style.display = 'block';
+            plannerBadge.textContent = total;
+        } else {
+            plannerBadge.style.display = 'none';
+        }
     }
+    // (Badge logic moved to Planner tab)
 
     // ── Render Day Tabs ──
     let tabContainer = document.getElementById('trip-day-tabs');
@@ -1717,7 +1760,7 @@ function updateTripUI() {
         addDayBtn.textContent = '+ Add Day';
         addDayBtn.style.cssText = 'padding:6px 12px; border-radius:20px; border:2px dashed #bbb; background:none; color:#888; font-size:13px; font-weight:600; cursor:pointer;';
         addDayBtn.onclick = () => {
-            tripDays.push({ color: DAY_COLORS[tripDays.length % DAY_COLORS.length], stops: [] });
+            tripDays.push({ color: DAY_COLORS[tripDays.length % DAY_COLORS.length], stops: [], notes: "" });
             activeDayIdx = tripDays.length - 1;
             updateTripUI();
         };
@@ -1764,6 +1807,35 @@ function updateTripUI() {
         tripQueueList.appendChild(li);
     });
 
+    // ── Render Notes for Active Day ──
+    const notesContainer = document.getElementById('day-notes-container');
+    if (notesContainer) {
+        notesContainer.innerHTML = `
+            <label style="display:block; font-size:12px; font-weight:700; color:#555; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px;">📋 Day ${activeDayIdx + 1} Notes & Planning</label>
+            <textarea id="day-notes-textarea" 
+                placeholder="Type your notes for Day ${activeDayIdx + 1} here... (e.g., Hiking trails to check out, campsite confirmation #, or lunch spots)" 
+                style="width:100%; height:80px; padding:12px; border-radius:12px; border:1px solid rgba(0,0,0,0.1); font-size:13px; outline:none; transition:border-color 0.2s; resize:none; font-family:inherit;"
+                onfocus="this.style.borderColor='${activeDay.color}'"
+                onblur="this.style.borderColor='rgba(0,0,0,0.1)'"
+            >${activeDay.notes || ""}</textarea>
+            <div style="text-align:right; font-size:11px; color:#aaa; margin-top:4px;">
+                <span id="char-count">${(activeDay.notes || "").length}</span> / 1000
+            </div>
+        `;
+
+        const textarea = document.getElementById('day-notes-textarea');
+        const charCount = document.getElementById('char-count');
+        textarea.oninput = (e) => {
+            let val = e.target.value;
+            if (val.length > 1000) {
+                val = val.substring(0, 1000);
+                e.target.value = val;
+            }
+            activeDay.notes = val;
+            charCount.textContent = val.length;
+        };
+    }
+
     // Wire up buttons
     document.querySelectorAll('.remove-stop-btn').forEach(btn => {
         btn.onclick = (e) => {
@@ -1802,14 +1874,6 @@ function updateTripUI() {
             updateTripUI();
         };
     });
-}
-
-if (tripFab) {
-    tripFab.onclick = () => { tripModal.style.display = 'flex'; };
-}
-
-if (closeTripModal) {
-    closeTripModal.onclick = () => { tripModal.style.display = 'none'; };
 }
 
 // Add Current Location Handler
@@ -1903,7 +1967,8 @@ async function saveCurrentTrip() {
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             tripDays: tripDays.map(d => ({
                 color: d.color,
-                stops: d.stops.map(s => ({ name: s.name, lat: s.lat, lng: s.lng }))
+                stops: d.stops.map(s => ({ name: s.name, lat: s.lat, lng: s.lng })),
+                notes: d.notes || ""
             }))
         };
         await firebase.firestore()
@@ -1937,6 +2002,13 @@ if (clearTripBtn) {
         // Clear name input
         const nameInput = document.getElementById('tripNameInput');
         if (nameInput) nameInput.value = '';
+
+        // Clear telemetry
+        const telemetryEl = document.getElementById('route-telemetry');
+        if (telemetryEl) {
+            telemetryEl.style.display = 'none';
+            telemetryEl.innerHTML = '';
+        }
         
         updateTripUI();
     };
@@ -1983,6 +2055,8 @@ async function generateAndRenderTripRoute() {
     const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
     const allBounds = [];
     let anySucceeded = false;
+    let totalDistMeters = 0;
+    let totalDurSeconds = 0;
 
     for (const day of daysWithStops) {
         try {
@@ -2016,6 +2090,12 @@ async function generateAndRenderTripRoute() {
             allBounds.push(layer.getBounds());
             anySucceeded = true;
 
+            const summary = geoJSONData.features[0].properties.summary;
+            if (summary) {
+                totalDistMeters += summary.distance;
+                totalDurSeconds += summary.duration;
+            }
+
         } catch (err) {
             console.error(`Route failed for day (${day.color}):`, err);
             alert(`A day's route failed: ${err.message}`);
@@ -2027,7 +2107,23 @@ async function generateAndRenderTripRoute() {
         map.fitBounds(combined, { padding: [50, 50] });
     }
 
-    if (tripModal) tripModal.style.display = 'none';
+    const telemetryEl = document.getElementById('route-telemetry');
+    if (telemetryEl) {
+        if (anySucceeded) {
+            const miles = (totalDistMeters * 0.000621371).toFixed(1);
+            const hrs = Math.floor(totalDurSeconds / 3600);
+            const mins = Math.floor((totalDurSeconds % 3600) / 60);
+            telemetryEl.style.display = 'block';
+            telemetryEl.innerHTML = `<span style="font-weight: 700; color: #1976D2;">Total Drive:</span> ${miles} Miles | ${hrs}h ${mins}m`;
+        } else {
+            telemetryEl.style.display = 'none';
+        }
+    }
+
+    if (anySucceeded) {
+        // Automatically switch back to the map to see the new route
+        document.querySelector('[data-target="map-view"]')?.click();
+    }
 
     if (startRouteBtn) {
         startRouteBtn.textContent = 'Generate Route';
