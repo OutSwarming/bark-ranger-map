@@ -1917,8 +1917,8 @@ if (addTownBtn && townSearchInput) {
             addTownBtn.textContent = 'Searching...';
             addTownBtn.disabled = true;
             const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
-            const url = `https://api.openrouteservice.org/geocoding/search?text=${encodeURIComponent(query)}&size=1`;
-            const response = await fetch(url, { headers: { "Authorization": hardcodedApiKey } });
+            const url = `https://api.openrouteservice.org/geocode/search?api_key=${hardcodedApiKey}&text=${encodeURIComponent(query)}&size=1`;
+            const response = await fetch(url);
             if (!response.ok) throw new Error("Search failed");
             const data = await response.json();
             if (data.features && data.features.length > 0) {
