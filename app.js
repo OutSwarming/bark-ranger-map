@@ -1557,13 +1557,80 @@ if (clearTripBtn) {
     };
 }
 
+let currentRouteLayer = null;
+
+async function generateAndRenderTripRoute(waypoints, mapInstance) {
+    if (!waypoints || waypoints.length < 2) {
+        alert("Please add at least 2 parks to your trip cart to route.");
+        return;
+    }
+
+    const orsCoordinates = waypoints.map(coord => [Number(coord.lng), Number(coord.lat)]);
+
+    try {
+        console.log("Requesting route directly from ORS...");
+        if (startRouteBtn) {
+            startRouteBtn.textContent = 'Calculating...';
+            startRouteBtn.disabled = true;
+        }
+
+        // Moving the API key to the frontend to bypass the Google Cloud IP block
+        const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
+
+        const response = await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson", {
+            method: "POST",
+            headers: {
+                "Authorization": hardcodedApiKey,
+                "Content-Type": "application/json",
+                "Accept": "application/json, application/geo+json; charset=utf-8"
+            },
+            body: JSON.stringify({ coordinates: orsCoordinates })
+        });
+
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.error?.message || "Failed to fetch route from ORS.");
+        }
+
+        const geoJSONData = await response.json();
+        
+        if (currentRouteLayer) {
+            mapInstance.removeLayer(currentRouteLayer);
+        }
+
+        currentRouteLayer = L.geoJSON(geoJSONData, {
+            style: function (feature) {
+                return {
+                    color: '#2E7D32',
+                    weight: 5,
+                    opacity: 0.8,
+                    dashArray: '10, 10'
+                };
+            }
+        });
+        
+        currentRouteLayer.addTo(mapInstance);
+        mapInstance.fitBounds(currentRouteLayer.getBounds(), { padding: [50, 50] });
+        
+        if (tripModal) {
+            tripModal.style.display = 'none';
+        }
+        console.log("Trip rendered successfully!");
+
+    } catch (error) {
+        console.error("Routing Error:", error);
+        alert("Trip calculation failed: " + (error.message || error));
+    } finally {
+        if (startRouteBtn) {
+            startRouteBtn.textContent = 'Generate Premium Route';
+            startRouteBtn.disabled = false;
+        }
+    }
+}
+
 if (startRouteBtn) {
     startRouteBtn.onclick = () => {
         if (tripQueue.length === 0) return;
-        let routeUrl = "https://www.google.com/maps/dir/";
-        tripQueue.forEach(stop => {
-            routeUrl += `${stop.lat},${stop.lng}/`;
-        });
-        window.open(routeUrl, '_blank');
+        generateAndRenderTripRoute(tripQueue, map);
     };
 }
