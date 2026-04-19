@@ -25,16 +25,20 @@ function incrementRequestCount() {
         let initialHeight = window.visualViewport.height;
         window.visualViewport.addEventListener('resize', () => {
             const currentHeight = window.visualViewport.height;
-            // If viewport shrunk by more than 150px, keyboard is probably open
-            if (initialHeight - currentHeight > 150) {
+            // If viewport shrunk significantly, keyboard is likely open.
+            // Using 25% of height as a more robust threshold than a fixed pixel value.
+            if (initialHeight - currentHeight > window.screen.height * 0.2) {
                 document.body.classList.add('keyboard-open');
+                if (window.innerWidth < 768 && slidePanel) {
+                    slidePanel.classList.remove('open');
+                }
             } else {
                 document.body.classList.remove('keyboard-open');
             }
         });
         // Update baseline on orientation change
         window.addEventListener('orientationchange', () => {
-            setTimeout(() => { initialHeight = window.visualViewport.height; }, 500);
+            setTimeout(() => { initialHeight = window.visualViewport.height; }, 1000); // Wait for Safari chrome animation
         });
     }
 
@@ -42,11 +46,17 @@ function incrementRequestCount() {
     document.addEventListener('focusin', (e) => {
         if (e.target.matches('input, textarea, select')) {
             document.body.classList.add('keyboard-open');
+            
+            // Explicitly close slide panel on mobile if typing starts
+            if (window.innerWidth < 768 && typeof slidePanel !== 'undefined' && slidePanel) {
+                slidePanel.classList.remove('open');
+            }
+
             // Scroll the focused element into view after a short delay
             if (isIOS) {
                 setTimeout(() => {
                     e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 300);
+                }, 400); // Slightly longer for Safari stability
             }
         }
     });

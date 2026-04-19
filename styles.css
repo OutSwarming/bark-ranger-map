@@ -614,9 +614,10 @@ body, html {
         border-radius: 20px 20px 0 0;
         transition: transform 0.25s ease;
     }
-    /* Hide nav when iOS keyboard is open */
-    body.keyboard-open .glass-nav {
-        transform: translateY(100%);
+    /* Hide nav and slide panel when iOS keyboard is open */
+    body.keyboard-open .glass-nav,
+    body.keyboard-open #slide-panel {
+        transform: translateY(110%) !important;
         pointer-events: none;
     }
     .nav-item {
