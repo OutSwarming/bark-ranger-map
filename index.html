@@ -8,10 +8,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
     <!-- QRCode JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <link rel="stylesheet" href="styles.css?v=1">
+    <link rel="stylesheet" href="mapStyles.css">
+    <link rel="stylesheet" href="trophyCase.css">
 
     <!-- PWA Manifest & App Icons -->
     <link rel="manifest" href="manifest.json">
@@ -70,6 +73,29 @@
                     <span class="dot gray"></span> Other
                 </button>
             </div>
+
+            <div class="premium-filters-section premium-locked" id="premium-filters-wrap">
+                <div class="filter-divider"></div>
+                
+                <div class="premium-label">
+                    <span>Premium Map Tools</span>
+                    <span id="premium-lock-icon">🔒</span>
+                </div>
+
+                <div class="premium-controls">
+                    <select id="visited-filter" class="premium-select" disabled>
+                        <option value="all">Show All Places</option>
+                        <option value="visited">Only Visited Places</option>
+                        <option value="unvisited">Only Unvisited Places</option>
+                    </select>
+
+                    <select id="map-style-select" class="premium-select" disabled>
+                        <option value="default">Default (OpenStreetMap)</option>
+                        <option value="terrain">Terrain (TopoMap)</option>
+                        <option value="satellite">Satellite (Esri)</option>
+                    </select>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -96,24 +122,16 @@
                 Suggest an Edit
             </a>
 
-            <div class="panel-section" id="panel-location-section">
-                <div class="panel-label">Location</div>
-                <div id="panel-location" class="panel-value">Location</div>
-            </div>
-
-            <div class="panel-section" id="panel-type-section">
-                <div class="panel-label">Type</div>
-                <div class="panel-value"><span id="panel-swag-type" class="badge">Swag</span></div>
-            </div>
-
-            <div class="panel-section" id="panel-swag-cost" style="display: none;">
-                <div class="panel-label">Cost</div>
-                <div id="swag-cost-val" class="panel-value"></div>
-            </div>
+            <!-- High-Density Quick-Info Bar -->
+            <div id="panel-meta-container" class="park-meta-bar"></div>
 
             <div class="panel-section" id="panel-info-section" style="display: none;">
                 <div class="panel-label">Updates & Reports</div>
-                <div id="panel-info" class="panel-value">Details...</div>
+                <div id="panel-info-container" class="report-container">
+                    <div id="panel-info" class="panel-value">Details...</div>
+                    <div class="report-fade-overlay"></div>
+                </div>
+                <button id="show-more-info" class="show-more-btn" style="display: none;">Show Full Reports ▾</button>
             </div>
             
             <div id="media-links" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
@@ -121,6 +139,9 @@
                 <div id="panel-pics" style="display: none; flex-wrap: wrap; flex: 1; align-items: center; justify-content: center;"></div>
                 <a id="panel-video" href="#" target="_blank" class="glass-btn" style="display: none; padding: 8px 16px; font-size: 14px; flex: 1; text-align: center;">Watch Video</a>
             </div>
+
+            <!-- Command Center Sticky Footer -->
+            <div id="panel-sticky-footer" class="panel-sticky-footer" style="display: none;"></div>
         </div>
     </div>
 
@@ -301,16 +322,7 @@
                 <h3 style="color: #1976D2; margin-bottom: 5px;">Welcome!</h3>
                 <p id="user-profile-name" style="font-weight: 600; margin-bottom: 15px; color: #333;"></p>
                 
-                <div id="reward-progress-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <span id="reward-level-title" style="font-weight: 800; font-size: 14px; color: #1976D2;">Level 1</span>
-                        <span id="reward-level-status" style="font-size: 12px; font-weight: 600; color: #777;">0 / 10 Visits</span>
-                    </div>
-                    <div style="background: #E0E0E0; border-radius: 8px; height: 10px; width: 100%; overflow: hidden;">
-                        <div id="reward-progress-bar" style="background: #4CAF50; height: 100%; width: 0%; transition: width 0.5s ease-in-out;"></div>
-                    </div>
-                </div>
-
+                <!-- Consolidated Stats Grid -->
                 <div id="stats-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; text-align: center;">
                     <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
                         <div id="stat-score" style="font-size: 26px; font-weight: 800; color: #4CAF50;">0</div>
@@ -331,10 +343,81 @@
                     </div>
                 </div>
 
-                <div id="trophy-case-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
-                    <h3 style="color: #333; font-size: 16px; margin-bottom: 15px; text-align: center;">🏆 Trophy Case</h3>
-                    <div id="trophy-grid" class="trophy-grid">
-                        <!-- Badges rendered by evaluateAchievements() -->
+                <!-- Enhanced Gamification Dashboard injected in place of old Trophy Case container -->
+                <div class="gamification-dashboard">
+                    <!-- HEADER BANNER -->
+                    <div class="banner-card">
+                        <div class="banner-content">
+                            <div class="title-section">
+                                <div class="title-wrap" style="width: 100%;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                        <span class="title-eyebrow">CURRENT TITLE</span>
+                                        <button id="scoring-info-btn" class="info-pulse-btn">ℹ️ How it works</button>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <h2 id="current-title-label">B.A.R.K. Trainee</h2>
+                                        
+                                        <div style="display: flex; gap: 8px; align-items: center;">
+                                            <div id="streak-pill" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; font-weight: 800; font-size: 13px; padding: 6px 12px; border-radius: 20px; display: flex; align-items: center; gap: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                                                🔥 <span id="streak-count-label">0</span>
+                                            </div>
+                                            <div class="score-pill">
+                                                <span id="total-score-label">0</span> PTS
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <button id="share-vault-btn" class="glass-btn share-vault-btn" onclick="shareVaultCard()">📸 Share My Vault</button>
+                            
+                            <div class="progress-bar-track" style="margin-top: 16px;">
+                                <div id="tier-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DAILY TRAINING MODULE -->
+                    <div class="training-card" id="daily-training-module" style="margin-top: 24px; background: white; border-radius: 16px; padding: 16px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05);">
+                        <div class="training-info">
+                            <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 900; color: #1e293b;">Daily Neighborhood Walk</h3>
+                            <p id="training-desc" style="margin: 0; font-size: 11px; color: #64748b; line-height: 1.3;">Walk 0.15 miles away from home to earn <strong style="color: #f59e0b;">+0.5 PTS</strong> and keep your streak alive.</p>
+                        </div>
+                        <div class="training-action" style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+                            <button id="training-action-btn" onclick="handleTrainingClick()" class="glass-btn training-btn">Start Walk</button>
+                            <button id="cancel-training-btn" onclick="cancelTrainingWalk()" style="display: none; background: transparent; color: #94a3b8; border: none; font-size: 10px; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 0;">Cancel Walk</button>
+                        </div>
+                    </div>
+
+                    <!-- VAULT DRAWER with TABS -->
+                    <div class="vault-tabs">
+                        <button class="tab-btn active" data-tab="rare-feats">Rare Feats</button>
+                        <button class="tab-btn" data-tab="paws">Paws</button>
+                        <button class="tab-btn" data-tab="states">States</button>
+                    </div>
+
+                    <div class="vault-drawer collapsed" id="vault-drawer">
+                        <!-- Tab Content: Rare Feats -->
+                        <div class="tab-content active" id="rare-feats-content">
+                            <div class="badge-grid" id="rare-feats-grid"></div>
+                        </div>
+                        
+                        <!-- Tab Content: Paws -->
+                        <div class="tab-content" id="paws-content">
+                            <div class="badge-grid" id="paws-grid"></div>
+                        </div>
+
+                        <!-- Tab Content: States -->
+                        <div class="tab-content" id="states-content">
+                            <div class="badge-grid" id="states-grid"></div>
+                        </div>
+
+                        <!-- CLASSIFIED DOSSIER (Always Visible Mystery Tier) -->
+                        <h3 class="section-heading mt-24">👁️ Classified Dossier</h3>
+                        <p class="section-desc">Rumors gathered from the field.</p>
+                        <div class="badge-grid" id="mystery-feats-dossier" style="margin-top: 10px;">
+                            <!-- JS injected dossiers -->
+                        </div>
                     </div>
                 </div>
 
@@ -363,25 +446,11 @@
                     <div id="leaderboard-controls" style="margin-top: 10px; text-align: center;"></div>
                 </div>
 
-                <label for="visited-filter" style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 5px;">Map Filter:</label>
-                <select id="visited-filter" style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8); margin-bottom: 15px;">
-                    <option value="all">Show All Places</option>
-                    <option value="visited">Show Places I Have Been</option>
-                    <option value="unvisited">Show Places I Have Not Been</option>
-                </select>
 
                 <button id="export-csv-btn" class="glass-btn primary-btn" style="width: 100%; margin-bottom: 15px; padding: 10px; border-radius: 8px; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                     Download My Data
                 </button>
-
-                <label for="map-style-select" style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 5px; border-top: 1px solid rgba(0,0,0,0.1); padding-top: 15px;">Map Style (Premium):</label>
-                <select id="map-style-select" style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8); margin-bottom: 15px;">
-                    <option value="default">Default (OpenStreetMap)</option>
-                    <option value="terrain">Terrain (OpenTopoMap)</option>
-                    <option value="satellite">Satellite (Esri Imagery)</option>
-                </select>
-
 
                 <div id="saved-routes-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
                     <details>
@@ -449,7 +518,68 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-    <script src="app.js?v=3"></script>
+    <script src="gamificationLogic.js"></script>
+    <script src="MapMarkerConfig.js"></script>
+    <script src="app.js?v=5"></script>
+    <!-- SCORING PROTOCOL MODAL -->
+    <div id="scoring-modal" class="scoring-modal-overlay">
+        <div class="scoring-modal-card">
+            <div class="modal-header">
+                <h3>🛡️ B.A.R.K. PROTOCOL</h3>
+                <button id="close-scoring-modal" class="modal-close-btn">&times; Close</button>
+            </div>
+            
+            <div class="modal-section">
+                <h4 class="section-title">THE POINT SYSTEM</h4>
+                <div class="protocol-grid">
+                    <div class="protocol-item">
+                        <span class="p-icon">📝</span>
+                        <div class="protocol-item-details">
+                            <strong>Honor Code (Regular)</strong>
+                            <p>1 PT per visit</p>
+                        </div>
+                    </div>
+                    <div class="protocol-item">
+                        <span class="p-icon">🐾</span>
+                        <div class="protocol-item-details">
+                            <strong>Verified (GPS)</strong>
+                            <p>2 PTS + Unlocks Gold Badges</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-section">
+                <h4 class="section-title">THE STATUS LADDER</h4>
+                <div class="ladder-list">
+                    <div class="ladder-step"><span>0-9</span> <strong>Trainee</strong></div>
+                    <div class="ladder-step"><span>10-24</span> <strong>Ranger</strong></div>
+                    <div class="ladder-step"><span>25-49</span> <strong>Trail Blazer</strong></div>
+                    <div class="ladder-step"><span>50-99</span> <strong>B.A.R.K. Master</strong></div>
+                    <div class="ladder-step"><span>100-199</span> <strong>Trail Legend</strong></div>
+                    <div class="ladder-step"><span>200-299</span> <strong>Apex Ranger</strong></div>
+                    <div class="ladder-step"><span>300+</span> <strong>National Treasure</strong></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HIDDEN EXPORT STUDIO (Flex Engine) -->
+    <div id='vault-export-template' style='position: absolute; left: -9999px; top: 0; width: 1080px; height: 1080px; background: radial-gradient(circle at top, #1e293b, #0f172a); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: "Inter", sans-serif; box-sizing: border-box; padding: 60px;'>
+        <div style='font-size: 24px; font-weight: 900; letter-spacing: 6px; color: #f59e0b; margin-bottom: 20px; text-transform: uppercase;'>B.A.R.K. RANGER MAP</div>
+        <h1 id="export-title" style="font-size: 80px; font-weight: 900; margin: 0 0 20px 0; color: #f8fafc; text-shadow: 0 10px 20px rgba(0,0,0,0.8);">Trail Legend</h1>
+        <div id='export-score' style='background: linear-gradient(135deg, #f59e0b, #d97706); color: white; font-weight: 900; font-size: 36px; padding: 15px 40px; border-radius: 50px; box-shadow: 0 10px 20px rgba(245, 158, 11, 0.4); margin-bottom: 80px;'>122 PTS</div>
+        <div style='font-size: 20px; font-weight: 700; color: #64748b; margin-bottom: 30px; letter-spacing: 2px; text-transform: uppercase;'>TOP ACHIEVEMENTS</div>
+        <div id='export-badges-container' style='display: flex; gap: 40px; justify-content: center; width: 100%;'></div>
+        <div style='position: absolute; bottom: 40px; font-size: 20px; font-weight: 800; color: #475569; letter-spacing: 2px;'>START YOUR JOURNEY AT USBARKRANGERS.COM</div>
+    </div>
+
+    <!-- SINGLE MILESTONE FLEX ENGINE -->
+    <div id="single-export-template" style="position: absolute; left: -9999px; top: 0; width: 1080px; height: 1080px; background: radial-gradient(circle at top, #1e293b, #0f172a); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Inter', sans-serif; box-sizing: border-box; padding: 60px;">
+        <div style="font-size: 28px; font-weight: 900; letter-spacing: 6px; color: #f59e0b; margin-bottom: 60px; text-transform: uppercase;">NEW ACHIEVEMENT UNLOCKED</div>
+        <div id="single-export-card-container"></div>
+        <div style="position: absolute; bottom: 60px; font-size: 24px; font-weight: 800; color: #475569; letter-spacing: 3px;">TRACK YOUR PARKS AT USBARKRANGERS.COM</div>
+    </div>
 </body>
 
 </html>

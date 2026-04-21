@@ -16,9 +16,9 @@ function incrementRequestCount() {
 // iOS Safari resizes the visual viewport when the keyboard opens,
 // but position:fixed elements (like the nav bar) don't move with it.
 // This causes the nav bar to float over or under the screen.
-(function() {
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+(function () {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
     // Method 1: visualViewport resize detection (most reliable)
     if (window.visualViewport) {
@@ -46,7 +46,7 @@ function incrementRequestCount() {
     document.addEventListener('focusin', (e) => {
         if (e.target.matches('input, textarea, select')) {
             document.body.classList.add('keyboard-open');
-            
+
             // Explicitly close slide panel on mobile if typing starts
             if (window.innerWidth < 768 && typeof slidePanel !== 'undefined' && slidePanel) {
                 slidePanel.classList.remove('open');
@@ -154,6 +154,14 @@ const markerLayer = L.layerGroup().addTo(map);
 
 let allPoints = [];
 let activePinMarker = null;
+
+// Helper to clear the active pin highlight
+function clearActivePin() {
+    if (activePinMarker && activePinMarker._icon) {
+        activePinMarker._icon.classList.remove('active-pin');
+    }
+    activePinMarker = null;
+}
 let activeSwagFilters = new Set();
 let activeSearchQuery = '';
 let activeTypeFilter = 'all';
@@ -169,132 +177,277 @@ const generatePinId = (lat, lng) => `${parseFloat(lat).toFixed(2)}_${parseFloat(
 const haversineDistance = (lat1, lon1, lat2, lon2) => {
     const r = 6371; // km
     const p = Math.PI / 180;
-    const a = 0.5 - Math.cos((lat2 - lat1) * p) / 2 + 
-              Math.cos(lat1 * p) * Math.cos(lat2 * p) * 
-              (1 - Math.cos((lon2 - lon1) * p)) / 2;
+    const a = 0.5 - Math.cos((lat2 - lat1) * p) / 2 +
+        Math.cos(lat1 * p) * Math.cos(lat2 * p) *
+        (1 - Math.cos((lon2 - lon1) * p)) / 2;
     return 2 * r * Math.asin(Math.sqrt(a));
 };
 
 function renderManagePortal() {
     const listEl = document.getElementById('manage-places-list');
     const countEl = document.getElementById('manage-portal-count');
-    const portalConfig = document.getElementById('manage-places-portal');
-    
-    if (!listEl || !countEl || !portalConfig) return;
-    
+    if (!listEl || !countEl) return;
+
     countEl.textContent = userVisitedPlaces.size;
-    
     if (userVisitedPlaces.size === 0) {
-        listEl.innerHTML = '<li style="color: #888; font-style: italic; padding: 10px 0;">You haven\'t marked any places yet. Get exploring!</li>';
+        listEl.innerHTML = '<li style="color: #888; font-style: italic; padding: 10px 0;">Get exploring!</li>';
         return;
     }
-    
+
     listEl.innerHTML = '';
-    
-    // Sort alphabetically by name
-    const placesArray = Array.from(userVisitedPlaces.values()).sort((a,b) => (a.name || '').localeCompare(b.name || ''));
-    
+    const placesArray = Array.from(userVisitedPlaces.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
     placesArray.forEach(place => {
         const li = document.createElement('li');
-        li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,0.05);';
-        
+        li.style.cssText = 'display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-bottom: 1px solid rgba(0,0,0,0.05);';
+
+        const topRow = document.createElement('div');
+        topRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
+
         const nameSpan = document.createElement('span');
         nameSpan.textContent = place.verified ? `🐾 ${place.name}` : place.name;
-        nameSpan.style.cssText = 'font-weight: 500; color: #444; flex: 1; padding-right: 10px; line-height: 1.4;';
-        
+        nameSpan.style.cssText = 'font-weight: 600; color: #333; flex: 1;';
+
         const removeBtn = document.createElement('button');
-        removeBtn.innerHTML = '&times; Remove';
-        removeBtn.style.cssText = 'background: rgba(244, 67, 54, 0.1); color: #D32F2F; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700; transition: background 0.2s; white-space: nowrap;';
-        
-        removeBtn.onmouseover = () => removeBtn.style.background = 'rgba(244, 67, 54, 0.2)';
-        removeBtn.onmouseout = () => removeBtn.style.background = 'rgba(244, 67, 54, 0.1)';
-        
-        removeBtn.onclick = () => {
-            if (window.confirm(`Are you sure you want to remove "${place.name}" from your visited list?`)) {
-                if (firebase.auth().currentUser) {
-                    incrementRequestCount(); // Count Deletion Request
-                    const docRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
-                    docRef.set({ visitedPlaces: firebase.firestore.FieldValue.arrayRemove(place) }, { merge: true });
-                    
-                    userVisitedPlaces.delete(place.id);
-                    updateMarkers();
-                    updateStatsUI();
-                    
-                    if (activePinMarker && activePinMarker._parkData && activePinMarker._parkData.id === place.id) {
-                        const btn = document.getElementById('mark-visited-btn');
-                        const btnText = document.getElementById('mark-visited-text');
-                        if (btn && btnText) {
-                            btn.classList.remove('visited');
-                            btnText.textContent = 'Mark as Visited';
-                        }
-                    }
-                }
+        removeBtn.innerHTML = '&times;';
+        removeBtn.style.cssText = 'background: #fee2e2; color: #dc2626; border: none; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: 800;';
+        removeBtn.onclick = () => removeVisitedPlace(place);
+
+        topRow.appendChild(nameSpan);
+        topRow.appendChild(removeBtn);
+
+        const controls = document.createElement('div');
+        controls.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+        const dateInput = document.createElement('input');
+        dateInput.type = 'date';
+        dateInput.style.cssText = 'font-size: 11px; padding: 4px; border: 1px solid #ddd; border-radius: 4px; flex: 1;';
+        if (place.ts) {
+            const d = new Date(place.ts);
+            dateInput.value = d.toISOString().split('T')[0];
+        }
+
+        const updateBtn = document.createElement('button');
+        updateBtn.textContent = 'Update';
+        updateBtn.style.cssText = 'background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer;';
+        updateBtn.onclick = async () => {
+            if (dateInput.value) {
+                const newTs = new Date(dateInput.value + 'T12:00:00').getTime();
+                await updateVisitDate(place.id, newTs);
+                alert(`${place.name} date updated!`);
             }
         };
-        
-        li.appendChild(nameSpan);
-        li.appendChild(removeBtn);
+
+        controls.appendChild(dateInput);
+        controls.appendChild(updateBtn);
+
+        li.appendChild(topRow);
+        li.appendChild(controls);
         listEl.appendChild(li);
     });
 }
 
-function evaluateAchievements(visitedPlacesMap) {
-    const statesMap = {};
-    let totalUniqueStates = 0;
-    let maxStateVisits = 0;
-    
-    allPoints.forEach(p => {
-        if (visitedPlacesMap.has(p.id) && p.state) {
-            const st = p.state.toString().split(/[,/]/);
-            st.forEach(s => {
-                const trimmed = s.trim().toUpperCase();
-                if (trimmed) statesMap[trimmed] = (statesMap[trimmed] || 0) + 1;
-            });
+/**
+ * Consolidated Firebase Sync Engine
+ */
+async function syncUserProgress() {
+    if (!firebase.auth().currentUser) return;
+    const uid = firebase.auth().currentUser.uid;
+    const db = firebase.firestore();
+    incrementRequestCount();
+
+    // Sync all visited places
+    const visitedArray = Array.from(userVisitedPlaces.values());
+    await db.collection('users').doc(uid).set({
+        visitedPlaces: visitedArray
+    }, { merge: true });
+
+    // Recalculate and Sync achievements
+    await evaluateAchievements(userVisitedPlaces);
+}
+
+async function updateVisitDate(parkId, newTs) {
+    if (userVisitedPlaces.has(parkId)) {
+        const place = userVisitedPlaces.get(parkId);
+        place.ts = newTs;
+        await syncUserProgress();
+        renderManagePortal();
+    }
+}
+
+async function removeVisitedPlace(place) {
+    if (window.confirm(`Remove ${place.name}?`)) {
+        userVisitedPlaces.delete(place.id);
+        await syncUserProgress();
+        updateMarkers();
+        renderManagePortal();
+    }
+}
+
+const gamificationEngine = new GamificationEngine();
+
+async function evaluateAchievements(visitedPlacesMap) {
+    const visitedArray = Array.from(visitedPlacesMap.values());
+
+    // 🔥 THE FIX: Hydrate saved visits with missing State data from the master map 🔥
+    visitedArray.forEach(visit => {
+        if (!visit.state) {
+            const mapPoint = allPoints.find(p => p.id === visit.id);
+            if (mapPoint) {
+                visit.state = mapPoint.state;
+            }
         }
     });
-    
-    totalUniqueStates = Object.keys(statesMap).length;
-    for (let count of Object.values(statesMap)) {
-        if (count > maxStateVisits) maxStateVisits = count;
+
+    let userId = null;
+    if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
+        userId = firebase.auth().currentUser.uid;
     }
-    
-    let verifiedVisits = 0;
-    visitedPlacesMap.forEach((p) => {
-        if (p.verified) verifiedVisits++;
-    });
-    
-    const badges = [
-        { id: 'explorer', name: 'The Explorer', icon: '🗺️', desc: 'Visit 5+ unique states', unlocked: totalUniqueStates >= 5 },
-        { id: 'local-legend', name: 'The Local Legend', icon: '🏡', desc: 'Visit 3+ parks in a single state', unlocked: maxStateVisits >= 3 },
-        { id: 'golden-paw', name: 'The Golden Paw', icon: '🏆', desc: '10+ Verified Check-Ins', unlocked: verifiedVisits >= 10 }
-    ];
-    
-    const grid = document.getElementById('trophy-grid');
-    if (!grid) return;
-    grid.innerHTML = '';
-    
-    badges.forEach(b => {
-        const card = document.createElement('div');
-        card.className = `trophy-card ${b.unlocked ? 'unlocked' : 'locked'}`;
-        card.innerHTML = `
-            <div class="trophy-icon">${b.icon}</div>
-            <div class="trophy-info">
-                <div class="trophy-name">${b.name} ${b.unlocked ? '' : '🔒'}</div>
-                <div class="trophy-desc">${b.desc}</div>
+
+    // Use our new bulletproof mapping logic to set the required totals per state
+    gamificationEngine.updateCanonicalCountsFromPoints(allPoints);
+
+    const achievements = await gamificationEngine.evaluateAndStoreAchievements(userId, visitedArray, null);
+
+    // Update Banner
+    const titleEl = document.getElementById('current-title-label');
+    const scoreEl = document.getElementById('total-score-label');
+    const progressFill = document.getElementById('tier-progress-fill');
+    if (titleEl) titleEl.textContent = achievements.title;
+    if (scoreEl) scoreEl.textContent = achievements.totalScore;
+    if (progressFill) {
+        const thresholds = [10, 25, 50, 100, 200, 300, 500];
+        const next = thresholds.find(t => t > achievements.totalScore) || 500;
+        const prev = thresholds[thresholds.indexOf(next) - 1] || 0;
+        const pct = Math.min(100, ((achievements.totalScore - prev) / (next - prev)) * 100);
+        progressFill.style.width = pct + "%";
+    }
+
+    // Helper to guarantee a subtitle exists for sharing
+    const getSubtitle = (b) => {
+        let s = b.desc || b.hint || '';
+        if (!s && b.id.includes('Paw')) s = 'Verified Check-ins';
+        if (!s && b.id.includes('state')) s = '100% Region Cleared';
+        return s.replace(/'/g, "\\'"); // escape quotes for inline HTML
+    };
+
+    const renderStateBadge = (b) => {
+        const isU = b.status === 'unlocked';
+        const tCl = isU ? (b.tier === 'verified' ? 'verified-tier' : 'honor-tier') : 'locked-tier';
+        const datePlaceholder = b.dateEarned || '--/--/----';
+        const upgradeCta = (isU && b.tier === 'honor') ? '<div class="upgrade-pill">⭐ VERIFY TO UPGRADE</div>' : '';
+        const sub = getSubtitle(b);
+        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${b.name}', '${b.icon}', '${b.tier}', false, '${sub}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
+        
+        let progressHtml = '';
+        if (!isU && typeof b.percentComplete !== 'undefined') {
+            const pct = b.percentComplete;
+            progressHtml = `
+            <div class="state-progress-wrap">
+                <div class="state-progress-track">
+                    <div class="state-progress-fill" style="width: ${pct}%;"></div>
+                </div>
+                <span class="state-progress-text">${pct}%</span>
+            </div>`;
+        }
+
+        return `
+        <div class="flip-scene">
+            <div class="skeuo-badge ${tCl} ${isU ? 'unlocked hover-float' : 'locked'}">
+                <div class="badge-face badge-front">
+                    <div class="badge-icon">${b.icon}</div>
+                    <div class="badge-details"><h4>${b.name}</h4></div>
+                    ${progressHtml}
+                </div>
+                <div class="badge-face badge-back">
+                    <div class="engraved-date">EST. ${datePlaceholder}</div>
+                    ${upgradeCta}
+                    ${shareBtnHtml}
+                </div>
             </div>
-        `;
-        grid.appendChild(card);
+        </div>`;
+    };
+
+    const renderCoin = (b) => {
+        const isU = b.status === 'unlocked';
+        const tCl = isU ? (b.tier === 'verified' ? 'verified-tier' : 'honor-tier') : 'locked-tier';
+        const upgradeCta = (isU && b.tier === 'honor') ? '<div class="upgrade-pill">⭐ VERIFY TO UPGRADE</div>' : '';
+        const datePlaceholder = b.dateEarned || '--/--/----';
+        const sub = getSubtitle(b);
+        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${b.name}', '${b.icon}', '${b.tier}', false, '${sub}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
+
+        return `
+        <div class="flip-scene">
+            <div class="skeuo-badge ${tCl} ${isU ? 'unlocked hover-float' : 'locked'}">
+                <div class="badge-face badge-front">
+                    <div class="badge-icon">${b.icon}</div>
+                    <div class="badge-details"><h4>${b.name}</h4></div>
+                </div>
+                <div class="badge-face badge-back">
+                    <div class="engraved-date">EST. ${datePlaceholder}</div>
+                    ${upgradeCta}
+                    ${shareBtnHtml}
+                </div>
+            </div>
+        </div>`;
+    };
+
+    const renderDossier = (b) => {
+        const isU = b.status === 'unlocked';
+        const sub = getSubtitle(b);
+        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${b.name.replace(/'/g, "\\'")}', '${b.icon}', 'verified', true, '${sub}')" class="mystery-share-btn" title="Share Milestone">📸</button>` : '';
+        
+        return `
+        <div class="mystery-card ${isU ? 'unlocked' : 'locked'}">
+            <div class="mystery-icon">${isU ? b.icon : '?'}</div>
+            <div class="mystery-info">
+                <div class="mystery-title">${isU ? b.name : '[CLASSIFIED]'}</div>
+                <div class="mystery-hint">Hint: ${b.hint}</div>
+            </div>
+            ${shareBtnHtml}
+        </div>`;
+    };
+
+    document.getElementById('rare-feats-grid').innerHTML = achievements.rareFeats.map(renderCoin).join('');
+    document.getElementById('paws-grid').innerHTML = achievements.paws.map(renderCoin).join('');
+    
+    // --- NATIONAL PROGRESS ANCHOR CARD ---
+    const nationalCardHtml = `
+        <div class="flip-scene" style="flex: 0 0 auto; width: 140px; scroll-snap-align: center;">
+            <div class="skeuo-badge" style="background: linear-gradient(135deg, #0f172a, #1e293b); border: 2px solid #3b82f6; box-shadow: 0 4px 15px rgba(59,130,246,0.3); border-radius: 16px; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px; text-align: center;">
+                <div style="font-size: 28px; margin-bottom: 4px;">🇺🇸</div>
+                <h4 style="color: #f1f5f9; font-size: 12px; font-weight: 900; text-transform: uppercase; margin: 0 0 8px 0;">National Map</h4>
+                <div style="width: 80%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 6px; overflow: hidden; margin-bottom: 4px;">
+                    <div style="width: ${achievements.nationalProgress.percentComplete}%; height: 100%; background: linear-gradient(90deg, #38bdf8, #3b82f6); box-shadow: 0 0 8px rgba(56,189,248,0.6);"></div>
+                </div>
+                <span style="color: #94a3b8; font-size: 9px; font-weight: 800;">${achievements.nationalProgress.totalVisited} / ${achievements.nationalProgress.totalParks} SITES</span>
+            </div>
+        </div>`;
+
+    document.getElementById('states-grid').innerHTML = nationalCardHtml + achievements.stateBadges.map(renderStateBadge).join('');
+    document.getElementById('mystery-feats-dossier').innerHTML = achievements.mysteryFeats.map(renderDossier).join('');
+
+    
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.onclick = () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(btn.dataset.tab + '-content').classList.add('active');
+        };
     });
 }
+
 
 function updateStatsUI() {
     const scoreEl = document.getElementById('stat-score');
     const verifiedEl = document.getElementById('stat-verified');
     const regularEl = document.getElementById('stat-regular');
     const statesEl = document.getElementById('stat-states');
-    
+
     if (!scoreEl || !verifiedEl || !regularEl || !statesEl) return;
-    
+
     const statesSet = new Set();
     allPoints.forEach(p => {
         if (userVisitedPlaces.has(p.id) && p.state) {
@@ -305,11 +458,11 @@ function updateStatsUI() {
             });
         }
     });
-    
+
     let totalScore = 0;
     let verifiedCount = 0;
     let regularCount = 0;
-    
+
     userVisitedPlaces.forEach((p) => {
         if (p.verified) {
             verifiedCount++;
@@ -317,21 +470,21 @@ function updateStatsUI() {
             regularCount++;
         }
     });
-    
+
     totalScore = (verifiedCount * 2) + regularCount;
-    
+
     scoreEl.textContent = totalScore;
     verifiedEl.textContent = verifiedCount;
     regularEl.textContent = regularCount;
     statesEl.textContent = statesSet.size;
-    
+
     // Reward Progress Bar logic
     let level = 1;
     let max = 10;
     if (totalScore >= 100) { level = 4; max = totalScore; }
     else if (totalScore >= 51) { level = 3; max = 100; }
     else if (totalScore >= 11) { level = 2; max = 50; }
-    
+
     const pbTitle = document.getElementById('reward-level-title');
     const pbStatus = document.getElementById('reward-level-status');
     const pbBar = document.getElementById('reward-progress-bar');
@@ -347,7 +500,7 @@ function updateStatsUI() {
             pbBar.style.width = pct + "%";
         }
     }
-    
+
     // Leaderboard sync
     if (typeof firebase !== 'undefined' && firebase.auth().currentUser && totalScore > 0) {
         const u = firebase.auth().currentUser;
@@ -360,7 +513,7 @@ function updateStatsUI() {
             lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true }).catch(err => console.log('Leaderboard sync error:', err));
     }
-    
+
     evaluateAchievements(userVisitedPlaces);
     renderManagePortal();
 }
@@ -456,9 +609,10 @@ const wmDownload = document.getElementById('wm-download');
 L.DomEvent.disableClickPropagation(slidePanel);
 L.DomEvent.disableScrollPropagation(slidePanel);
 
-// Close panel
+// Close panel and clear pin
 closeSlideBtn.addEventListener('click', () => {
     slidePanel.classList.remove('open');
+    clearActivePin(); // 🔥 Fixes the ghost pin
 });
 
 // Navigation Logic
@@ -505,11 +659,11 @@ if (wmUpload) {
 
         const ctx = wmCanvas.getContext('2d');
         const isFullRes = wmHighRes && wmHighRes.checked;
-        
+
         // 1200px is a great sharp balance for social sharing.
         // Full resolution is used for printing.
-        const PREVIEW_WIDTH = 1200; 
-        
+        const PREVIEW_WIDTH = 1200;
+
         let width = currentPhotoImg.width;
         let height = currentPhotoImg.height;
 
@@ -579,7 +733,7 @@ if (wmUpload) {
         const isFullRes = wmHighRes && wmHighRes.checked;
         const link = document.createElement('a');
         link.download = 'bark-ranger-swag-polaroid.jpg';
-        
+
         // Final export at maximum quality (1.0 is lossless compression)
         link.href = wmCanvas.toDataURL('image/jpeg', 1.0);
         link.click();
@@ -587,7 +741,7 @@ if (wmUpload) {
 
     if (wmHighRes) {
         wmHighRes.addEventListener('change', () => {
-             drawWatermark(parseInt(wmLogoSize.value, 10));
+            drawWatermark(parseInt(wmLogoSize.value, 10));
         });
     }
 
@@ -693,18 +847,10 @@ function processParsedResults(results) {
         const swagType = getSwagType(info);
         const parkCategory = getParkCategory(category);
 
-        const iconFileName = (parkCategory === 'National') ? 'bark-logo.jpeg' : 'bark-tag.jpeg';
-        const icon = L.icon({
-            iconUrl: iconFileName,
-            iconSize: [32, 32],
-            iconAnchor: [16, 32]
-        });
-
-        const marker = L.marker([lat, lng], { icon });
         const id = generatePinId(lat, lng);
-
-        // Store park data directly on the marker so it never goes stale
-        marker._parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng };
+        const parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng, parkCategory };
+        const isVisited = userVisitedPlaces.has(id);
+        const marker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
 
         marker.on('click', () => {
             if (activePinMarker && activePinMarker._icon) {
@@ -718,9 +864,15 @@ function processParsedResults(results) {
             // Read data from the marker itself, not from a closure
             const d = marker._parkData;
             titleEl.textContent = d.name || 'Unknown Park';
-            locEl.textContent = d.state || '';
-            typeEl.textContent = d.swagType;
-            typeEl.className = `badge ${getBadgeClass(d.swagType)}`;
+            
+            const metaContainer = document.getElementById('panel-meta-container');
+            if (metaContainer) {
+                metaContainer.innerHTML = `
+                    <div class="meta-pill">📍 ${d.state || 'N/A'}</div>
+                    <div class="meta-pill">🏷️ ${d.swagType}</div>
+                    <div class="meta-pill">💰 ${d.cost || 'Free'}</div>
+                `;
+            }
 
             const suggestEditBtn = document.getElementById('suggest-edit-btn');
             if (suggestEditBtn) {
@@ -729,16 +881,27 @@ function processParsedResults(results) {
                 suggestEditBtn.href = `mailto:usbarkrangers@gmail.com?subject=${subject}&body=${body}`;
             }
 
-            if (d.cost) {
-                costContainer.style.display = 'block';
-                costValEl.textContent = d.cost;
-            } else {
-                costContainer.style.display = 'none';
-            }
-
+            // --- FIXED UPDATES & REPORTS LOGIC ---
             if (d.info) {
                 infoSection.style.display = 'block';
+                const container = document.getElementById('panel-info-container');
+                const showMoreBtn = document.getElementById('show-more-info');
                 infoEl.innerHTML = d.info.replace(/\n/g, '<br>');
+                
+                // Show "More" button if character count > 250 OR if it has many line breaks
+                const hasManyLines = (infoEl.innerHTML.match(/<br>/g) || []).length > 4;
+                
+                if (d.info.length > 250 || hasManyLines) {
+                    container.classList.add('report-collapsed');
+                    showMoreBtn.style.display = 'block';
+                    showMoreBtn.onclick = () => {
+                        container.classList.remove('report-collapsed');
+                        showMoreBtn.style.display = 'none';
+                    };
+                } else {
+                    container.classList.remove('report-collapsed');
+                    showMoreBtn.style.display = 'none';
+                }
             } else {
                 infoSection.style.display = 'none';
                 infoEl.innerHTML = '';
@@ -747,7 +910,7 @@ function processParsedResults(results) {
             if (d.pics && typeof d.pics === 'string') {
                 const formattedPics = formatSwagLinks(d.pics);
                 if (formattedPics.includes('<a ')) {
-                    picsEl.style.display = 'flex';
+                    picsEl.style.display = 'grid';
                     picsEl.innerHTML = formattedPics;
                 } else {
                     picsEl.style.display = 'none';
@@ -768,15 +931,13 @@ function processParsedResults(results) {
                 const urlRegex = /(https?:\/\/[^\s]+)/g;
                 const urls = d.website.match(urlRegex);
                 if (urls && urls.length > 0) {
-                    websitesContainer.style.display = 'flex';
+                    websitesContainer.style.display = 'grid';
                     urls.forEach((url, index) => {
                         const link = document.createElement('a');
-                        // Remove trailing quotes or commas that might be captured by the regex
                         link.href = url.replace(/['",]+$/, '');
                         link.target = '_blank';
                         link.className = 'website-btn';
-                        link.style.cssText = 'flex: 1; min-width: 120px;';
-                        link.textContent = urls.length > 1 ? `Website ${index + 1}` : 'Visit Official Website';
+                        link.textContent = urls.length > 1 ? `Website ${index + 1}` : 'Official Website';
                         websitesContainer.appendChild(link);
                     });
                 } else {
@@ -786,37 +947,35 @@ function processParsedResults(results) {
                 websitesContainer.style.display = 'none';
             }
 
-            let dirContainer = document.getElementById('panel-directions');
-            if (!dirContainer) {
-                dirContainer = document.createElement('div');
-                dirContainer.id = 'panel-directions';
-                dirContainer.className = 'directions-container';
-                document.querySelector('.panel-content').appendChild(dirContainer);
-            }
-            dirContainer.innerHTML = `
-                <a href="https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}" target="_blank" class="dir-btn">🗺️ Google Maps</a>
-                <a href="http://maps.apple.com/?daddr=${d.lat},${d.lng}" target="_blank" class="dir-btn">🧭 Apple Maps</a>
-                <button class="glass-btn btn-trip" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; color: #1976D2; border: 2px solid #1976D2; background: white; padding: 10px; border-radius: 50px; margin-top: 10px; font-size: 14px; cursor: pointer;">📍 Add to Trip</button>
-            `;
-
-            const btnTrip = dirContainer.querySelector('.btn-trip');
-            if (btnTrip) {
-                btnTrip.onclick = (e) => {
-                    e.preventDefault();
-                    const activeDay = tripDays[activeDayIdx];
-                    if (activeDay.stops.length >= 5) {
-                        alert(`Day ${activeDayIdx + 1} is full! (Max 5 stops per day)`);
-                        return;
-                    }
-                    if (activeDay.stops.find(stop => stop.lat === d.lat && stop.lng === d.lng)) {
-                        alert("This location is already in your trip!");
-                        return;
-                    }
-                    activeDay.stops.push({ id: d.id, name: d.name, lat: d.lat, lng: d.lng });
-                    updateTripUI();
-                    // Switch to Planner tab so they see it added
-                    document.querySelector('[data-target="planner-view"]')?.click();
-                };
+            // --- FIXED MAP URLS & BUTTON RENDERING ---
+            const stickyFooter = document.getElementById('panel-sticky-footer');
+            if (stickyFooter) {
+                stickyFooter.style.display = 'grid';
+                // Corrected Google Maps URL and added Apple Maps search protocol
+                stickyFooter.innerHTML = `
+                    <a href="https://www.google.com/maps/search/?api=1&query=${d.lat},${d.lng}" target="_blank" class="dir-btn">🗺️ Google</a>
+                    <a href="http://maps.apple.com/?q=${encodeURIComponent(d.name)}&ll=${d.lat},${d.lng}" target="_blank" class="dir-btn">🧭 Apple</a>
+                    <button class="glass-btn btn-trip">📍 Add to Trip</button>
+                `;
+                
+                const btnTrip = stickyFooter.querySelector('.btn-trip');
+                if (btnTrip) {
+                    btnTrip.onclick = (e) => {
+                        e.preventDefault();
+                        const activeDay = tripDays[activeDayIdx];
+                        if (activeDay.stops.length >= 5) {
+                            alert(`Day ${activeDayIdx + 1} is full! (Max 5 stops per day)`);
+                            return;
+                        }
+                        if (activeDay.stops.find(stop => stop.lat === d.lat && stop.lng === d.lng)) {
+                            alert("This location is already in your trip!");
+                            return;
+                        }
+                        activeDay.stops.push({ id: d.id, name: d.name, lat: d.lat, lng: d.lng });
+                        updateTripUI();
+                        document.querySelector('[data-target="planner-view"]')?.click();
+                    };
+                }
             }
 
             const visitedSection = document.getElementById('panel-visited-section');
@@ -828,16 +987,16 @@ function processParsedResults(results) {
             if (visitedSection && markVisitedBtn && markVisitedText && verifyBtn) {
                 if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
                     visitedSection.style.display = 'block';
-                    
+
                     if (userVisitedPlaces.has(d.id)) {
                         const cachedObj = userVisitedPlaces.get(d.id);
-                        
+
                         markVisitedBtn.classList.add('visited');
                         markVisitedText.textContent = '✓ Visited';
                         markVisitedBtn.disabled = true;
                         markVisitedBtn.style.cursor = 'default';
                         markVisitedBtn.style.opacity = '0.7';
-                        
+
                         if (cachedObj.verified) {
                             verifyBtn.style.background = '#4CAF50';
                             verifyBtnText.textContent = '🐾 Verified & Secured';
@@ -857,49 +1016,49 @@ function processParsedResults(results) {
                         markVisitedBtn.disabled = false;
                         markVisitedBtn.style.cursor = 'pointer';
                         markVisitedBtn.style.opacity = '1';
-                        
+
                         verifyBtn.style.background = '#FF9800';
                         verifyBtnText.textContent = '🐾 Verified Check-In';
                         verifyBtn.disabled = false;
                         verifyBtn.style.cursor = 'pointer';
                         verifyBtn.style.opacity = '1';
                     }
-                    
+
                     verifyBtn.onclick = () => {
                         if (!navigator.geolocation) {
                             alert("Geolocation is not supported by your browser.");
                             return;
                         }
                         verifyBtnText.textContent = 'Locating...';
-                        
+
                         navigator.geolocation.getCurrentPosition((position) => {
                             const dist = haversineDistance(position.coords.latitude, position.coords.longitude, d.lat, d.lng);
                             if (dist <= 25) {
                                 alert(`Check-in Verified! You earned 2 points.`);
-                                const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: true };
-                                
+                                const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: true, ts: Date.now() };
+
                                 incrementRequestCount(); // Count Firestore Write
                                 const docRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
                                 if (userVisitedPlaces.has(d.id)) {
                                     const oldObj = userVisitedPlaces.get(d.id);
                                     docRef.set({ visitedPlaces: firebase.firestore.FieldValue.arrayRemove(oldObj) }, { merge: true });
                                 }
-                                
+
                                 userVisitedPlaces.set(d.id, newObj);
                                 docRef.set({ visitedPlaces: firebase.firestore.FieldValue.arrayUnion(newObj) }, { merge: true });
-                                
+
                                 verifyBtn.style.background = '#4CAF50';
                                 verifyBtnText.textContent = '🐾 Verified & Secured';
                                 verifyBtn.disabled = true;
                                 verifyBtn.style.cursor = 'default';
                                 verifyBtn.style.opacity = '0.7';
-                                
+
                                 markVisitedBtn.classList.add('visited');
                                 markVisitedText.textContent = '✓ Visited';
                                 markVisitedBtn.disabled = true;
                                 markVisitedBtn.style.cursor = 'default';
                                 markVisitedBtn.style.opacity = '0.7';
-                                
+
                                 updateMarkers();
                                 updateStatsUI();
                             } else {
@@ -916,24 +1075,16 @@ function processParsedResults(results) {
                         }, { enableHighAccuracy: true });
                     };
 
-                    markVisitedBtn.onclick = () => {
-                        if (userVisitedPlaces.has(d.id)) return; // Prevent deletion
-                        
-                        incrementRequestCount(); // Count Firestore Write
-                        const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: false };
-                        const docRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
-                        
+                    markVisitedBtn.onclick = async () => {
+                        if (userVisitedPlaces.has(d.id)) return;
+                        const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: false, ts: Date.now() };
                         userVisitedPlaces.set(d.id, newObj);
-                        docRef.set({ visitedPlaces: firebase.firestore.FieldValue.arrayUnion(newObj) }, { merge: true });
-                        
+
                         markVisitedBtn.classList.add('visited');
-                        markVisitedText.textContent = '✓ Visited';
                         markVisitedBtn.disabled = true;
-                        markVisitedBtn.style.cursor = 'default';
-                        markVisitedBtn.style.opacity = '0.7';
-                        
+
+                        await syncUserProgress();
                         updateMarkers();
-                        updateStatsUI();
                     };
                 } else {
                     visitedSection.style.display = 'none';
@@ -1020,7 +1171,7 @@ let seenHashes = new Map(); // tracks first-seen timestamp of each data hash
 
 function pollForUpdates() {
     if (!navigator.onLine || pollInFlight) return Promise.resolve();
-    
+
     try {
         incrementRequestCount(); // Count the data poll request
     } catch (e) {
@@ -1359,7 +1510,7 @@ async function loadSavedRoutes(uid) {
             const date = data.createdAt ? new Date(data.createdAt.seconds * 1000).toLocaleDateString() : 'Unknown date';
             const dayCount = data.tripDays ? data.tripDays.length : 0;
             const stopCount = data.tripDays ? data.tripDays.reduce((s, d) => s + (d.stops ? d.stops.length : 0), 0) : 0;
-            
+
             // Ensure notes are loaded back
             const loadedDays = data.tripDays.map(d => ({
                 color: d.color,
@@ -1404,11 +1555,11 @@ async function loadSavedRoutes(uid) {
                 const data = docSnap.data();
                 tripDays = data.tripDays.map(d => ({ color: d.color, stops: d.stops, notes: d.notes || "" }));
                 activeDayIdx = 0;
-                
+
                 // Restore Trip Name
                 const tripNameInput = document.getElementById('tripNameInput');
                 if (tripNameInput) tripNameInput.value = data.tripName || "";
-                
+
                 updateTripUI();
                 document.querySelector('[data-target="map-view"]')?.click();
             };
@@ -1458,10 +1609,12 @@ if (typeof firebase !== 'undefined') {
                 .onSnapshot((doc) => {
                     if (doc.exists) {
                         const placeList = doc.data().visitedPlaces || [];
-                        userVisitedPlaces = new Map();
-                        placeList.forEach(obj => {
-                            if (obj && obj.id) userVisitedPlaces.set(obj.id, obj);
-                        });
+                        if (Array.isArray(placeList)) {
+                            userVisitedPlaces = new Map();
+                            placeList.forEach(obj => {
+                                if (obj && obj.id) userVisitedPlaces.set(obj.id, obj);
+                            });
+                        }
                     } else {
                         userVisitedPlaces = new Map();
                     }
@@ -1486,6 +1639,17 @@ if (typeof firebase !== 'undefined') {
             loadSavedRoutes(user.uid);
             // Refresh leaderboard to show personal rank
             loadLeaderboard();
+
+            // UNLOCK PREMIUM FILTERS
+            const premiumWrap = document.getElementById('premium-filters-wrap');
+            const visitedSelect = document.getElementById('visited-filter');
+            const mapStyleSelect = document.getElementById('map-style-select');
+            if (premiumWrap) {
+                premiumWrap.classList.remove('premium-locked');
+                premiumWrap.classList.add('premium-unlocked');
+                if (visitedSelect) visitedSelect.disabled = false;
+                if (mapStyleSelect) mapStyleSelect.disabled = false;
+            }
         } else {
             if (loginContainer) loginContainer.style.display = 'block';
             if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
@@ -1503,6 +1667,23 @@ if (typeof firebase !== 'undefined') {
             const savedCount = document.getElementById('saved-routes-count');
             if (savedList) savedList.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Sign in to view saved routes.</p>';
             if (savedCount) savedCount.textContent = '0';
+
+            // LOCK PREMIUM FILTERS
+            const premiumWrap = document.getElementById('premium-filters-wrap');
+            const visitedSelect = document.getElementById('visited-filter');
+            const mapStyleSelect = document.getElementById('map-style-select');
+            if (premiumWrap) {
+                premiumWrap.classList.add('premium-locked');
+                premiumWrap.classList.remove('premium-unlocked');
+                if (visitedSelect) {
+                    visitedSelect.disabled = true;
+                    visitedSelect.value = 'all';
+                }
+                if (mapStyleSelect) {
+                    mapStyleSelect.disabled = true;
+                    mapStyleSelect.value = 'default';
+                }
+            }
         }
     });
 
@@ -1558,8 +1739,10 @@ if (visitedFilterEl) {
 loadData();
 
 // Close panel when clicking on map
+// Close panel when clicking on map and clear pin
 map.on('click', () => {
     slidePanel.classList.remove('open');
+    clearActivePin(); // 🔥 Fixes the ghost pin
 });
 // (Removed outdated modal close handlers)
 
@@ -1579,8 +1762,8 @@ async function safePoll() {
     }
 
     try {
-        await checkForUpdates(); 
-        pollErrorCount = 0; 
+        await checkForUpdates();
+        pollErrorCount = 0;
     } catch (err) {
         if (err.message && err.message.includes("Safety Shutdown")) {
             console.error("KILL SWITCH: Terminating Version Poll.");
@@ -1591,18 +1774,18 @@ async function safePoll() {
     }
 
     // 2. Adaptive Back-off: If it fails 5 times, slow down significantly (1 min)
-    const nextInterval = pollErrorCount > 5 ? 60000 : 30000; 
-    setTimeout(safePoll, nextInterval); 
+    const nextInterval = pollErrorCount > 5 ? 60000 : 30000;
+    setTimeout(safePoll, nextInterval);
 }
 
 async function checkForUpdates() {
     if (!navigator.onLine || window.location.protocol === 'file:') return;
-    
+
     incrementRequestCount(); // Track background activity
 
     const res = await fetch('version.json?cache_bypass=' + Date.now(), { cache: 'no-store' });
     if (!res.ok) throw new Error('version.json not found');
-    
+
     const data = await res.json();
     if (data.version && data.version > APP_VERSION) {
         const toast = document.getElementById('update-toast');
@@ -1678,28 +1861,118 @@ function renderLeaderboard(topUsers) {
 
     data.forEach((user, index) => {
         const rank = index + 1;
-        if (user.uid === uid) personalRank = rank;
+        const isMe = user.uid === uid;
+        if (isMe) personalRank = rank;
 
         if (rank <= leaderboardVisibleLimit) {
             const li = document.createElement('li');
-            li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,0.05);';
             
-            const isMe = user.uid === uid;
+            // Base Styles for Podium & Others
+            let bg = 'white';
+            let border = '1px solid rgba(0,0,0,0.05)';
+            let shadow = '0 2px 4px rgba(0,0,0,0.05)';
+            let textColor = '#444';
+            let rankIcon = `#${rank}`;
+
+            if (rank === 1) {
+                bg = 'linear-gradient(135deg, #fde68a, #f59e0b, #d97706)';
+                border = '2px solid #b45309';
+                shadow = '0 4px 12px rgba(217, 119, 6, 0.3)';
+                textColor = '#451a03';
+                rankIcon = '👑';
+            } else if (rank === 2) {
+                bg = 'linear-gradient(135deg, #f1f5f9, #94a3b8, #475569)';
+                border = '2px solid #334155';
+                shadow = '0 4px 10px rgba(71, 85, 105, 0.2)';
+                textColor = '#0f172a';
+            } else if (rank === 3) {
+                bg = 'linear-gradient(135deg, #ffedd5, #d97706, #92400e)';
+                border = '2px solid #78350f';
+                shadow = '0 4px 10px rgba(146, 64, 14, 0.2)';
+                textColor = '#431407';
+            } else if (isMe) {
+                bg = 'rgba(59, 130, 246, 0.08)';
+                border = '2px solid #3b82f6';
+                textColor = '#1e3a8a';
+            }
+
+            li.style.cssText = `
+                display: flex; 
+                justify-content: space-between; 
+                align-items: center; 
+                padding: 12px 16px; 
+                margin-bottom: 10px; 
+                border-radius: 14px; 
+                background: ${bg}; 
+                border: ${border}; 
+                box-shadow: ${shadow};
+                transition: all 0.3s ease;
+            `;
+
+            // Left Section (Rank + Name)
+            const leftSide = document.createElement('div');
+            leftSide.style.cssText = 'display: flex; align-items: center; gap: 12px;';
+
+            const rankBadge = document.createElement('span');
+            rankBadge.textContent = rankIcon;
+            rankBadge.style.cssText = `font-weight: 900; font-size: 14px; color: ${textColor}; min-width: 24px;`;
+
+            const nameInfo = document.createElement('div');
+            nameInfo.style.cssText = 'display: flex; flex-direction: column;';
+
             const nameSpan = document.createElement('span');
-            nameSpan.style.cssText = `font-weight: ${isMe ? '800; color: #1976D2;' : '600; color: #444;'}`;
-            nameSpan.textContent = `#${rank} ${user.displayName} ${user.hasVerified ? '🐾' : ''}`;
-            
-            const scoreSpan = document.createElement('span');
-            scoreSpan.style.cssText = 'background: rgba(76, 175, 80, 0.1); color: #2E7D32; padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;';
-            scoreSpan.textContent = user.totalVisited;
-            
-            li.appendChild(nameSpan);
-            li.appendChild(scoreSpan);
+            nameSpan.style.cssText = `font-weight: 800; font-size: 13px; color: ${textColor};`;
+            nameSpan.textContent = `${user.displayName} ${user.hasVerified ? '🐾' : ''}`;
+
+            nameInfo.appendChild(nameSpan);
+
+            // Task 3: Alpha Dog Hook
+            if (isMe && rank === 1) {
+                const alphaBadge = document.createElement('span');
+                alphaBadge.textContent = '🐺 ALPHA DOG';
+                alphaBadge.style.cssText = 'font-size: 9px; font-weight: 900; color: #fff; background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; margin-top: 2px; width: fit-content; letter-spacing: 0.5px;';
+                nameInfo.appendChild(alphaBadge);
+            }
+
+            leftSide.appendChild(rankBadge);
+            leftSide.appendChild(nameInfo);
+
+            // Right Section (Score + Rivalry Gap)
+            const rightSide = document.createElement('div');
+            rightSide.style.cssText = 'display: flex; flex-direction: column; align-items: flex-end; gap: 4px;';
+
+            const scorePill = document.createElement('span');
+            scorePill.style.cssText = `
+                background: ${rank <= 3 ? 'rgba(255,255,255,0.3)' : 'rgba(76, 175, 80, 0.1)'}; 
+                color: ${rank <= 3 ? textColor : '#2E7D32'}; 
+                padding: 4px 10px; 
+                border-radius: 20px; 
+                font-size: 12px; 
+                font-weight: 800;
+            `;
+            scorePill.textContent = `${user.totalVisited} PTS`;
+
+            rightSide.appendChild(scorePill);
+
+            // Task 2: Rivalry Gap Logic
+            if (isMe && rank > 1 && data[index - 1]) {
+                const pointsToOvertake = (data[index - 1].totalVisited - user.totalVisited) + 1;
+                const rivalryPill = document.createElement('span');
+                rivalryPill.className = 'rivalry-pill';
+                rivalryPill.style.cssText = 'background: #fee2e2; color: #dc2626; padding: 3px 8px; border-radius: 12px; font-size: 9px; font-weight: 900; letter-spacing: 0.5px;';
+                rivalryPill.textContent = `🚨 ${pointsToOvertake} PTS TO OVERTAKE`;
+                rightSide.appendChild(rivalryPill);
+            }
+
+            li.appendChild(leftSide);
+            li.appendChild(rightSide);
             listEl.appendChild(li);
         }
     });
 
-    // Handle "Show More" button
+    if (rankEl) rankEl.textContent = personalRank;
+
+    // Handle "Show More" button logic
     controlsEl.innerHTML = '';
     if (data.length > leaderboardVisibleLimit) {
         const showMoreBtn = document.createElement('button');
@@ -1720,6 +1993,7 @@ function renderLeaderboard(topUsers) {
         };
         controlsEl.appendChild(showLessBtn);
     }
+
 
     if (data.length === 0) {
         listEl.innerHTML = '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">Leaderboard updates hourly.</li>';
@@ -1742,7 +2016,7 @@ async function loadLeaderboard() {
                 .orderBy('totalVisited', 'desc')
                 .limit(10)
                 .get();
-            
+
             const legacyUsers = [];
             snapshot.forEach(doc => {
                 const d = doc.data();
@@ -1779,13 +2053,13 @@ if (submitFeedbackBtn && typeof firebase !== 'undefined') {
         const textArea = document.getElementById('feedback-text');
         const text = textArea ? textArea.value : '';
         if (!text || text.trim() === '') return;
-        
+
         const user = firebase.auth().currentUser;
         const sender = user ? (user.displayName || user.uid) : 'Anonymous Guest';
-        
+
         submitFeedbackBtn.textContent = 'Submitting...';
         submitFeedbackBtn.disabled = true;
-        
+
         incrementRequestCount(); // Count Feedback Write
         firebase.firestore().collection('feedback').add({
             text: text,
@@ -1816,15 +2090,15 @@ if (shareSelect && qrContainer && typeof QRCode !== 'undefined') {
         text: "https://usbarkrangers.github.io/USBarkRangers/",
         width: 160,
         height: 160,
-        colorDark : "#1976D2",
-        colorLight : "#ffffff",
-        correctLevel : QRCode.CorrectLevel.H
+        colorDark: "#1976D2",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.H
     });
 
     shareSelect.addEventListener('change', (e) => {
         let val = e.target.value;
         if (val === 'app') val = "https://usbarkrangers.github.io/USBarkRangers/";
-        
+
         qrcode.clear();
         qrcode.makeCode(val);
     });
@@ -1834,13 +2108,13 @@ if (shareSelect && qrContainer && typeof QRCode !== 'undefined') {
             const img = qrContainer.querySelector('img');
             const canvas = qrContainer.querySelector('canvas');
             let dataUrl = '';
-            
+
             if (img && img.src && img.src.startsWith('data:')) {
                 dataUrl = img.src;
             } else if (canvas) {
                 dataUrl = canvas.toDataURL("image/png");
             }
-            
+
             if (dataUrl) {
                 const link = document.createElement('a');
                 link.download = 'BarkRanger_QRCode.png';
@@ -1962,10 +2236,10 @@ function updateTripUI() {
         const moveToDayOptions = tripDays
             .map((d, di) => di !== activeDayIdx && d.stops.length < 5 ? `<option value="${di}">Day ${di + 1}</option>` : '')
             .join('');
-        const moveSelect = moveToDayOptions 
+        const moveSelect = moveToDayOptions
             ? `<select class="move-to-day-select" data-index="${index}" style="border:1px solid #ddd; border-radius:6px; font-size:11px; padding:3px; cursor:pointer; background:white; color:#333;">
                  <option value="">Move→</option>${moveToDayOptions}
-               </select>` 
+               </select>`
             : '';
 
         li.innerHTML = `
@@ -2093,7 +2367,7 @@ if (addTownBtn && townSearchInput) {
             incrementRequestCount(); // Count API request
             addTownBtn.textContent = 'Searching...';
             addTownBtn.disabled = true;
-            
+
             const disambiguationContainer = document.getElementById('town-disambiguation-container');
             if (disambiguationContainer) disambiguationContainer.style.display = 'none';
 
@@ -2102,7 +2376,7 @@ if (addTownBtn && townSearchInput) {
             const response = await fetch(url);
             if (!response.ok) throw new Error("Search failed");
             const data = await response.json();
-            
+
             if (data.features && data.features.length > 0) {
                 if (data.features.length === 1) {
                     const feature = data.features[0];
@@ -2135,7 +2409,7 @@ if (addTownBtn && townSearchInput) {
                             };
                             disambiguationContainer.appendChild(btn);
                         });
-                         
+
                         // Add a Cancel / Close button to disambiguation list
                         const cancelBtn = document.createElement('button');
                         cancelBtn.textContent = '✕ Close Suggestions';
@@ -2214,11 +2488,11 @@ if (clearTripBtn) {
         // Wipe local state
         tripDays = [{ color: DAY_COLORS[0], stops: [] }];
         activeDayIdx = 0;
-        
+
         // Remove map layers
         currentRouteLayers.forEach(layer => map.removeLayer(layer));
         currentRouteLayers = [];
-        
+
         // Clear name input
         const nameInput = document.getElementById('tripNameInput');
         if (nameInput) nameInput.value = '';
@@ -2229,7 +2503,7 @@ if (clearTripBtn) {
             telemetryEl.style.display = 'none';
             telemetryEl.innerHTML = '';
         }
-        
+
         updateTripUI();
     };
 }
@@ -2360,3 +2634,219 @@ if (startRouteBtn) {
     };
 }
 
+
+// --- BULLETPROOF MODAL LOGIC ---
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('scoring-modal');
+    if (!modal) return;
+
+    // Open Modal
+    if (e.target.closest('#scoring-info-btn')) {
+        modal.style.display = 'flex';
+    }
+    
+    // Close Modal (clicking X button or the dark background overlay)
+    if (e.target.closest('#close-scoring-modal') || e.target === modal) {
+        modal.style.display = 'none';
+    }
+});
+
+// --- UPDATED VAULT SHARE (Now with Global #1 Logic & Web-to-Canvas Fix) ---
+window.shareVaultCard = async function() {
+    const btn = document.getElementById('share-vault-btn');
+    if (!btn) return;
+    
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '📸 Generating...';
+    btn.disabled = true;
+
+    try {
+        const visitedArray = Array.from(userVisitedPlaces.values());
+        const uid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : null;
+        const achievements = await gamificationEngine.evaluateAndStoreAchievements(uid, visitedArray, null);
+
+        // Check if user is GLOBAL #1 (Alpha Dog Unlocked)
+        const isGlobalNumberOne = achievements.mysteryFeats.some(f => f.id === 'alphaDog' && f.status === 'unlocked');
+        
+        let allUnlocked = [
+            ...achievements.mysteryFeats, ...achievements.rareFeats, ...achievements.paws, ...achievements.stateBadges
+        ].filter(b => b.status === 'unlocked');
+
+        allUnlocked.sort((a, b) => {
+            if (a.isMystery !== b.isMystery) return a.isMystery ? -1 : 1;
+            if (a.tier !== b.tier) return a.tier === 'verified' ? -1 : 1;
+            return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0);
+        });
+
+        const top3 = allUnlocked.slice(0, 3);
+
+        // Inject Title. If #1, add the massive Crown Flex.
+        const titleEl = document.getElementById('export-title');
+        titleEl.innerHTML = isGlobalNumberOne ? `👑 GLOBAL #1<br><span style="font-size: 50px; color: #94a3b8;">${achievements.title}</span>` : achievements.title;
+        
+        document.getElementById('export-score').textContent = `${achievements.totalScore} PTS`;
+
+        const badgeContainer = document.getElementById('export-badges-container');
+        badgeContainer.innerHTML = ''; 
+
+        top3.forEach(b => {
+            let bg = b.tier === 'verified' ? 'linear-gradient(135deg, #FFDF00, #DAA520, #B8860B)' : 'linear-gradient(135deg, #A0522D, #8B4513)';
+            let border = b.tier === 'verified' ? '#996515' : '#5C4033';
+            let textColor = b.tier === 'verified' ? '#3b2f00' : '#fffaf0';
+            
+            if (b.isMystery) {
+                bg = 'linear-gradient(135deg, #312e81, #7e22ce, #c026d3)';
+                border = '#e879f9';
+                textColor = '#ffffff';
+            }
+
+            let subtitle = b.desc || b.hint || '';
+            if (!subtitle && b.id.includes('Paw')) subtitle = 'Verified Check-ins';
+            if (!subtitle && b.id.includes('state')) subtitle = '100% Region Cleared';
+
+            badgeContainer.innerHTML += `
+                <div style="width: 240px; height: 340px; background: ${bg}; border: 6px solid ${border}; border-radius: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); text-align: center; flex-shrink: 0;">
+                    <div style="font-size: 60px; margin-bottom: 12px;">${b.icon}</div>
+                    <div style="font-size: 20px; font-weight: 900; color: ${textColor}; text-transform: uppercase; line-height: 1.1; margin-bottom: 12px;">${b.name}</div>
+                    <div style="font-size: 13px; font-weight: 600; color: ${textColor}; opacity: 0.85; line-height: 1.4; padding: 0 10px;">${subtitle}</div>
+                </div>
+            `;
+        });
+
+        const canvas = await html2canvas(document.getElementById('vault-export-template'), { scale: 2, useCORS: true, backgroundColor: '#0f172a' });
+        canvas.toBlob(async (blob) => {
+            const file = new File([blob], "My_Bark_Ranger_Vault.png", { type: "image/png" });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                try { await navigator.share({ files: [file] }); } catch (err) {}
+            } else {
+                const link = document.createElement('a'); link.download = 'My_Bark_Ranger_Vault.png'; link.href = canvas.toDataURL('image/png'); link.click();
+            }
+            btn.innerHTML = originalText; btn.disabled = false;
+        }, 'image/png');
+    } catch (e) { alert('Export failed.'); btn.innerHTML = originalText; btn.disabled = false; }
+};
+
+// --- NEW: THE SINGLE MILESTONE FLEX ---
+window.shareSingleBadge = async function(name, icon, tier, isMystery, subtitle) {
+    try {
+        let bg = tier === 'verified' ? 'linear-gradient(135deg, #FFDF00, #DAA520, #B8860B)' : 'linear-gradient(135deg, #A0522D, #8B4513)';
+        let border = tier === 'verified' ? '#996515' : '#5C4033';
+        let textColor = tier === 'verified' ? '#3b2f00' : '#fffaf0';
+        
+        if (isMystery === 'true' || isMystery === true) {
+            bg = 'linear-gradient(135deg, #312e81, #7e22ce, #c026d3)';
+            border = '#e879f9';
+            textColor = '#ffffff';
+        }
+
+        const container = document.getElementById('single-export-card-container');
+        container.innerHTML = `
+            <div style="width: 500px; height: 600px; background: ${bg}; border: 12px solid ${border}; border-radius: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; box-shadow: 0 40px 80px rgba(0,0,0,0.6); text-align: center;">
+                <div style="font-size: 150px; margin-bottom: 30px; filter: drop-shadow(0 10px 10px rgba(0,0,0,0.4));">${icon}</div>
+                <div style="font-size: 48px; font-weight: 900; color: ${textColor}; text-transform: uppercase; line-height: 1.1; margin-bottom: 20px;">${name}</div>
+                <div style="font-size: 24px; font-weight: 600; color: ${textColor}; opacity: 0.9; line-height: 1.4; padding: 0 20px;">${subtitle || ''}</div>
+            </div>
+        `;
+
+        const canvas = await html2canvas(document.getElementById('single-export-template'), { scale: 2, useCORS: true, backgroundColor: '#0f172a' });
+        canvas.toBlob(async (blob) => {
+            const file = new File([blob], `Unlocked_${name.replace(/\s+/g, '_')}.png`, { type: "image/png" });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                try { await navigator.share({ files: [file] }); } catch (err) {}
+            } else {
+                const link = document.createElement('a'); link.download = file.name; link.href = canvas.toDataURL('image/png'); link.click();
+            }
+        }, 'image/png');
+    } catch (e) { alert('Export failed.'); }
+};
+
+// --- THE OUT-AND-BACK VERIFICATION ENGINE ---
+function getDistanceMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; 
+    const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
+    const dp = (lat2-lat1) * Math.PI/180, dl = (lon2-lon1) * Math.PI/180;
+    const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+window.handleTrainingClick = function() {
+    const btn = document.getElementById('training-action-btn');
+    const state = localStorage.getItem('trainingState');
+
+    // 1. START WALK (Saves Home Base Anchor)
+    if (!state || state === 'idle') {
+        btn.textContent = 'Locating...';
+        navigator.geolocation.getCurrentPosition((pos) => {
+            const startData = {
+                lat: pos.coords.latitude,
+                lng: pos.coords.longitude,
+                startTime: Date.now(),
+                status: 'running'
+            };
+            localStorage.setItem('trainingState', JSON.stringify(startData));
+            initTrainingUI();
+        }, () => {
+            alert('GPS required to start training.');
+            btn.textContent = 'Start Walk';
+        }, { enableHighAccuracy: true });
+    } 
+    
+    // 2. LOG TURNAROUND (The Anti-Couch Check)
+    else {
+        const data = JSON.parse(state);
+        btn.textContent = 'Verifying...';
+        
+        navigator.geolocation.getCurrentPosition((pos) => {
+            const dist = getDistanceMeters(data.lat, data.lng, pos.coords.latitude, pos.coords.longitude);
+            
+            // Requirement: 200 meters away from home base (approx 0.12 miles)
+            if (dist < 200) {
+                alert(`Deputy says you're still at home! You are only ${Math.round(dist)} meters away from your start point. Walk a bit further before logging your turnaround!`);
+                btn.textContent = 'Log Turnaround 📍';
+            } else {
+                alert('Halfway Point Verified! +0.5 Pts and Streak Extended 🔥. Enjoy the walk home!');
+                localStorage.setItem('trainingState', 'idle');
+                
+                // TODO: Sync +0.5 points and Streak++ to Firebase here
+                
+                initTrainingUI();
+            }
+        }, () => { 
+            alert('GPS required to verify.'); 
+            btn.textContent = 'Log Turnaround 📍'; 
+        }, { enableHighAccuracy: true });
+    }
+};
+
+window.cancelTrainingWalk = function() {
+    if (confirm("Are you sure you want to cancel your walk? You won't earn any points.")) {
+        localStorage.setItem('trainingState', 'idle');
+        initTrainingUI();
+    }
+};
+
+function initTrainingUI() {
+    const btn = document.getElementById('training-action-btn');
+    const cancelBtn = document.getElementById('cancel-training-btn');
+    const descEl = document.getElementById('training-desc');
+    const state = localStorage.getItem('trainingState');
+
+    if (!state || state === 'idle') {
+        if(btn) {
+            btn.textContent = 'Start Walk';
+            btn.className = 'glass-btn training-btn';
+        }
+        if(cancelBtn) cancelBtn.style.display = 'none'; // Hide cancel
+        if(descEl) descEl.innerHTML = 'Walk 0.15 miles away from home to earn <strong style="color: #f59e0b;">+0.5 PTS</strong> and keep your streak alive.';
+    } else {
+        if(btn) {
+            btn.textContent = 'Log Turnaround 📍';
+            btn.className = 'glass-btn training-btn active';
+        }
+        if(cancelBtn) cancelBtn.style.display = 'block'; // Show cancel
+        if(descEl) descEl.innerHTML = '<span style="color:#ef4444; font-weight:800;">Walk in progress...</span> Hit the button below when you reach your halfway point!';
+    }
+}
+
+// Run on page load
+initTrainingUI();
