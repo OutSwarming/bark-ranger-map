@@ -267,44 +267,247 @@
     </div>
 
     <div id="planner-view" class="ui-view">
-        <div class="view-content glass-panel" style="max-width: 500px;">
-            <h2 style="font-size: 20px; color: #333; margin-bottom: 5px;">Road Trip Planner</h2>
-            <p style="font-size: 13px; color: #666; margin-bottom: 20px;">Plan your multi-day adventure with ease.</p>
+        <div class="view-content" style="max-width: 500px; margin: 0 auto; background: transparent; box-shadow: none; border: none; padding: 0;">
             
-            <div style="margin-bottom: 15px;">
-                <label for="tripNameInput" style="display: block; font-size: 12px; font-weight: 700; color: #333; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Route Name</label>
-                <input type="text" id="tripNameInput" placeholder="e.g., Summer Road Trip 2024" style="width: 100%; padding: 12px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.1); font-size: 14px; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='#1976D2'" onblur="this.style.borderColor='rgba(0,0,0,0.1)'">
-            </div>
-            
-            <div style="margin-bottom: 20px; display: flex; flex-direction: column; gap: 8px;">
-                <button id="add-current-loc-btn" class="glass-btn" style="width: 100%; border-radius: 10px; font-size: 13px; padding: 10px; background: #e3f2fd; color: #1976D2; font-weight: 600; border: 1px solid rgba(25,118,210,0.1);">📍 Use My Location</button>
-                <div style="display: flex; gap: 5px;">
-                    <input type="text" id="town-search-input" placeholder="Search a town (e.g. Gainesville)" style="flex: 1; padding: 10px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.1); font-size: 13px;">
-                    <button id="add-town-btn" class="glass-btn primary-btn" style="padding: 10px 15px; border-radius: 10px; font-size: 13px;">Add</button>
+            <!-- Tile 1: Identity -->
+            <div style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h2 style="font-size: 18px; color: #1e293b; margin: 0; font-weight: 900;">Route Planner</h2>
                 </div>
-                <div id="town-disambiguation-container" style="display: none; background: #fff; border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 5px; max-height: 200px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.08);"></div>
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px;">
+                    <input type="text" id="tripNameInput" placeholder="Route Name (e.g. Summer Road Trip 2024)" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; font-weight: 700; color: #334155; outline: none; background: white; box-sizing: border-box;">
+                </div>
             </div>
 
-            <div id="route-telemetry" style="display: none; background: #f0f7ff; border: 1px solid rgba(25,118,210,0.1); border-radius: 12px; padding: 10px; margin-bottom: 15px; text-align: center;"></div>
+            <!-- Tile 2: The Itinerary -->
+            <div style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 20px;">
+                <div id="route-telemetry" style="display: none; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px; margin-bottom: 16px; text-align: center; font-size: 12px; font-weight: 600; color: #15803d;"></div>
+                
+                <div id="itinerary-timeline-wrapper" style="background: transparent; border: none; padding: 0; margin: 0;">
+                    <ul id="trip-queue-list" style="list-style: none; padding: 0; margin: 0; max-height: 45vh; overflow-y: auto;"></ul>
+                </div>
+            </div>
 
-            <ul id="trip-queue-list" style="list-style: none; padding: 0; margin-bottom: 20px; max-height: 40vh; overflow-y: auto;"></ul>
+            <!-- Tile 3: Tools & Actions -->
+            <div style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 80px;">
+                <details style="margin-bottom: 20px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px;">
+                    <summary style="font-size: 11px; font-weight: 800; color: #64748b; cursor: pointer; text-transform: uppercase; outline: none; list-style: none; display: flex; align-items: center; justify-content: space-between;">
+                        <span>📝 Day Notes & Planning</span>
+                        <span style="font-size: 14px;">▾</span>
+                    </summary>
+                    <div id="day-notes-container" style="margin-top: 10px;"></div>
+                </details>
 
-            <div id="day-notes-container" style="margin-bottom: 20px;"></div>
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <div style="display: flex; gap: 8px;">
+                        <button onclick="autoSortDay()" class="glass-btn" style="flex: 1; border-radius: 8px; background: #fdf4ff; color: #c026d3; font-weight: 800; font-size: 12px; padding: 10px; border: 1px solid #f0abfc;">🪄 Sort Day</button>
+                        <button id="optimize-trip-btn" class="glass-btn" style="flex: 1; border-radius: 8px; background: #faf5ff; color: #9333ea; font-weight: 800; font-size: 12px; padding: 10px; border: 1px solid #e9d5ff;">✨ Optimize Trip</button>
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                        <button id="clear-trip-btn" class="glass-btn" style="background: transparent; color: #ef4444; font-weight: 700; font-size: 12px; padding: 8px 0; border: none; text-decoration: underline; min-width: 44px; text-align: left;">Clear</button>
+                        <div style="display: flex; gap: 8px; flex: 1; align-items: center;">
+                            <button id="planner-load-btn" onclick="togglePlannerRoutes()" class="glass-btn" style="flex: 0.7; border-radius: 8px; background: #f8fafc; color: #475569; font-weight: 800; font-size: 13px; padding: 12px; border: 1px solid #cbd5e1;">📂 Load</button>
+                            <button id="save-route-btn" class="glass-btn" style="flex: 1; border-radius: 8px; background: #f0fdf4; color: #15803d; font-weight: 800; font-size: 13px; padding: 12px; border: 1px solid #bbf7d0;">💾 Save</button>
+                            <button id="start-route-btn" class="glass-btn primary-btn" style="flex: 1.5; border-radius: 8px; font-weight: 900; font-size: 14px; padding: 12px; box-shadow: 0 4px 12px rgba(34,197,94,0.3);">Generate Route</button>
+                        </div>
+                    </div>
 
-            <div style="display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: 100px;">
-                <button id="clear-trip-btn" class="glass-btn" style="flex: 1; min-width: 80px; border-radius: 10px; background: #f5f5f5; color: #d32f2f; font-weight: 600; padding: 12px; border: 1px solid rgba(0,0,0,0.1);">Clear All</button>
-                <button id="save-route-btn" class="glass-btn" style="flex: 1; min-width: 80px; border-radius: 10px; background: #e8f5e9; color: #2E7D32; font-weight: 600; padding: 12px; border: 1px solid rgba(46,125,50,0.15);">💾 Save</button>
-                <button id="start-route-btn" class="glass-btn primary-btn" style="flex: 2; min-width: 120px; border-radius: 10px; font-weight: 600; padding: 12px;">Generate Route</button>
+                    <div id="planner-saved-routes-container" style="display: none; border-top: 1px solid #f1f5f9; margin-top: 15px; padding-top: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <span style="font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">📂 Your Saved Routes</span>
+                            <button onclick="togglePlannerRoutes()" style="background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;">&times;</button>
+                        </div>
+                        <div id="planner-saved-routes-list" style="max-height: 250px; overflow-y: auto; padding-right: 4px;"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
+<div id="profile-view" class="ui-view">
 
-    <div id="profile-view" class="ui-view">
-        <div class="view-content glass-panel" style="max-width: 500px;">
-            <h2>Profile Dashboard</h2>
-            <p>Log in with Google to securely save your Visited Parks history.</p>
+        <div class="view-content" style="max-width: 500px; margin: 0 auto; background: transparent; box-shadow: none; border: none; padding: 0;">
             
-            <div id="add-location-portal" style="margin-top: 20px; background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
+            <div id="offline-status-container" style="display: none; background: transparent; border: none; padding: 0; margin-top: 0;">
+                
+                <!-- 1. Identity: Stats & Title -->
+                <div class="profile-section-card" style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 24px; border: 1px solid rgba(0,0,0,0.05);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                        <div>
+                            <h2 style="margin: 0; font-size: 22px; font-weight: 900; color: #1e293b;">Welcome!</h2>
+                            <p id="user-profile-name" style="font-weight: 600; margin: 0; color: #64748b; font-size: 14px;"></p>
+                        </div>
+                        <div id="streak-pill" style="background: #fef2f2; border: 1px solid #fee2e2; color: #ef4444; font-weight: 900; font-size: 12px; padding: 4px 10px; border-radius: 20px;">
+                            🔥 <span id="streak-count-label">0</span>
+                        </div>
+                    </div>
+                    
+                    <div id="stats-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; text-align: center; margin-top: 16px;">
+                        <div style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9;">
+                            <div id="stat-score" style="font-size: 26px; font-weight: 900; color: #10b981;">0</div>
+                            <div style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">Total Score</div>
+                        </div>
+                        <div style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9; position: relative; overflow: hidden;">
+                            <span style="position: absolute; right: -5px; bottom: -10px; font-size: 40px; opacity: 0.05; pointer-events: none;">🐾</span>
+                            <div id="stat-verified" style="font-size: 26px; font-weight: 900; color: #f59e0b; position: relative;">0</div>
+                            <div style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px; position: relative;">🐾 Verified</div>
+                        </div>
+                        <div style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9;">
+                            <div id="stat-regular" style="font-size: 26px; font-weight: 900; color: #3b82f6;">0</div>
+                            <div style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">Regular Vis.</div>
+                        </div>
+                        <div style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9;">
+                            <div id="stat-states" style="font-size: 26px; font-weight: 900; color: #a855f7;">0</div>
+                            <div style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">States</div>
+                        </div>
+                    </div>
+
+                    <div class="banner-card" style="background: #f8fafc; border-radius: 12px; padding: 15px; border: 1px solid #f1f5f9;">
+                        <div class="banner-content">
+                            <div class="title-section">
+                                <div class="title-wrap" style="width: 100%;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                        <span class="title-eyebrow" style="color: #94a3b8; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;">CURRENT TITLE</span>
+                                        <button id="scoring-info-btn" class="info-pulse-btn" style="font-size: 11px;">ℹ️ Info</button>
+                                    </div>
+                                    <h2 id="current-title-label" style="font-size: 20px; font-weight: 900; color: #1e293b; margin: 0;">B.A.R.K. Trainee</h2>
+                                </div>
+                            </div>
+                            <div style="text-align: right; margin-bottom: 6px;">
+                                <span id="rank-progress-fraction" style="font-size: 11px; font-weight: 800; color: #94a3b8; letter-spacing: 0.5px;"></span>
+                            </div>
+                            <div class="progress-bar-track" style="background: #e2e8f0; height: 8px; border-radius: 4px;">
+                                <div id="tier-progress-fill" class="progress-bar-fill" style="width: 0%; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #3b82f6, #8b5cf6);"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Habit: Daily Training -->
+                <div class="profile-section-card" id="daily-training-module" style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div class="training-info">
+                            <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 900; color: #1e293b;">Daily Neighborhood Walk</h3>
+                            <p id="training-desc" style="margin: 0; font-size: 11px; color: #64748b; line-height: 1.3;">Walk 0.15 miles away from home to earn <strong style="color: #f59e0b;">+0.5 PTS</strong> and keep your streak alive.</p>
+                        </div>
+                        <div class="training-action" style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+                            <button id="training-action-btn" onclick="handleTrainingClick()" class="glass-btn primary-btn" style="padding: 8px 16px; font-size: 12px; font-weight: 800; border-radius: 10px;">Start Walk</button>
+                            <button id="cancel-training-btn" onclick="cancelTrainingWalk()" style="display: none; background: transparent; color: #94a3b8; border: none; font-size: 10px; font-weight: 700; text-decoration: underline; cursor: pointer;">Cancel Walk</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. Gamification: Vault -->
+                <div class="profile-section-card" style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">🏆 Achievement Vault</h3>
+                        <button id="share-vault-btn" class="glass-btn" style="font-size: 11px; padding: 6px 12px; border-radius: 8px;" onclick="shareVaultCard()">📸 Share</button>
+                    </div>
+
+                    <div class="vault-tabs">
+                        <button class="tab-btn active" data-tab="rare-feats">Rare Feats</button>
+                        <button class="tab-btn" data-tab="paws">Paws</button>
+                        <button class="tab-btn" data-tab="states">States</button>
+                    </div>
+
+                    <div class="vault-drawer" id="vault-drawer" style="max-height: 400px; overflow-y: auto;">
+                        <div class="tab-content active" id="rare-feats-content">
+                            <div class="badge-grid" id="rare-feats-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"></div>
+                        </div>
+                        <div class="tab-content" id="paws-content">
+                            <div class="badge-grid" id="paws-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"></div>
+                        </div>
+                        <div class="tab-content" id="states-content">
+                            <div class="badge-grid" id="states-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. Gamification: Dossier -->
+                <div class="profile-section-card" style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 900; color: #1e293b;">👁️ Classified Dossier</h3>
+                    <p style="margin: 0 0 16px 0; font-size: 11px; color: #64748b;">Rumors gathered from the field.</p>
+                    <div class="badge-grid" id="mystery-feats-dossier" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+                        <!-- JS injected dossiers -->
+                    </div>
+                </div>
+
+                <!-- 5. Gamification: Leaderboard -->
+                <div class="profile-section-card" id="leaderboard-container" style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">🏆 Global Leaderboard</h3>
+                        <span id="personal-rank-display" style="font-size: 11px; font-weight: 900; color: #f59e0b; background: #fffbeb; padding: 4px 10px; border-radius: 20px; border: 1px solid #fef3c7;">Rank: --</span>
+                    </div>
+                    <ul id="leaderboard-list" style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
+                        <li style="color: #94a3b8; font-style: italic; text-align: center; padding: 20px 0;">Loading Top 5...</li>
+                    </ul>
+                    <div id="leaderboard-controls" style="margin-top: 15px; text-align: center;"></div>
+                </div>
+
+                <!-- 6. Utility: Data & Routes -->
+                <div class="profile-section-card" style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b; display: flex; align-items: center; gap: 8px;">🗃️ My Data & Routes</h3>
+                    </div>
+
+                    <div style="padding-top: 4px;">
+                        <details class="premium-details">
+                            <summary style="color: #1e293b; font-size: 14px; font-weight: 800; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none; padding: 12px; margin: -12px; border-radius: 12px; transition: all 0.2s ease;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 16px;">📂</span>
+                                    <div>Saved Itineraries</div>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span id="saved-routes-count" style="background: #eff6ff; color: #2563eb; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 800;">0</span>
+                                    <span class="chevron" style="font-size: 12px; color: #94a3b8; transition: transform 0.3s ease;">▼</span>
+                                </div>
+                            </summary>
+                            <div id="saved-routes-list" style="max-height: 350px; overflow-y: auto; margin-top: 24px; padding-top: 20px; border-top: 1px solid #f1f5f9; padding-right: 4px;"></div>
+                        </details>
+                    </div>
+
+                    <div style="border-top: 1px solid #f1f5f9; margin: 16px 0;"></div>
+
+                    <details id="manage-places-portal" class="premium-details">
+                        <summary style="color: #1e293b; font-size: 14px; font-weight: 800; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none; padding: 12px; margin: -12px; border-radius: 12px; transition: all 0.2s ease;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-size: 16px;">📍</span>
+                                <div>My Visited Places</div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span id="manage-portal-count" style="background: #eff6ff; color: #3b82f6; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 900;">0</span>
+                                <span class="chevron" style="font-size: 12px; color: #94a3b8; transition: transform 0.3s ease;">▼</span>
+                            </div>
+                        </summary>
+                        <div style="max-height: 280px; overflow-y: auto; margin-top: 24px; padding-top: 20px; border-top: 1px solid #f1f5f9;">
+                            <ul id="manage-places-list" style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
+                            </ul>
+                        </div>
+                    </details>
+
+                    <div style="border-top: 1px solid #f1f5f9; margin: 16px 0;"></div>
+                    
+                    <button id="export-csv-btn" class="glass-btn" style="width: 100%; background: #f8fafc; color: #475569; border: 1px dashed #cbd5e1; padding: 14px; border-radius: 12px; font-weight: 700; display: flex; justify-content: center; gap: 8px; transition: all 0.2s ease;">📥 Download Raw CSV Data</button>
+                </div>
+
+            </div>
+
+
+            <!-- Logged-Out State: Value Pitch -->
+            <div id="login-container" style="margin-top: 20px;">
+                <div style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 24px; margin-bottom: 24px; border: 1px solid rgba(0,0,0,0.05); text-align: center;">
+                    <h2 style="margin-top: 0; margin-bottom: 8px; font-size: 20px; font-weight: 900; color: #1e293b;">Unlock Your Profile</h2>
+                    <p style="font-size: 14px; color: #64748b; margin-bottom: 24px; line-height: 1.5;">Sign in to track your park visits, climb the global leaderboard, earn exclusive achievements, and safely back up your road trip itineraries.</p>
+                    
+                    <button id="google-login-btn" style="width: 100%; background: #22c55e; color: white; border: none; padding: 14px; border-radius: 10px; font-weight: 800; font-size: 15px; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 10px; box-shadow: 0 4px 12px rgba(34,197,94,0.3);">
+                        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" style="width: 18px; height: 18px; background: white; border-radius: 50%; padding: 2px;">
+                        Continue with Google
+                    </button>
+                </div>
+            </div>
+
+            <!-- Universal Footer: Community Tools -->
+            <div id="add-location-portal" class="profile-section-card" style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 24px; border: 1px solid rgba(0,0,0,0.05);">
                 <div style="text-align: center;">
                     <h3 style="color: #333; font-size: 16px; font-weight: 700; margin-bottom: 10px;">➕ Suggest a Missing Location</h3>
                     <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Help grow the map! Tap below to send us the details via email.</p>
@@ -313,173 +516,18 @@
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
                         Email Suggestion
                     </a>
-                    
-                    <p style="font-size: 11px; color: #999; margin-top: 12px; font-style: italic;">We'll pre-fill the form for you—just add the details and attach photos! 🐾</p>
                 </div>
             </div>
-            
-            <div id="offline-status-container" style="display: none; background: rgba(33, 150, 243, 0.1); border: 1px solid #2196F3; padding: 15px; border-radius: 8px; margin-top: 15px;">
-                <h3 style="color: #1976D2; margin-bottom: 5px;">Welcome!</h3>
-                <p id="user-profile-name" style="font-weight: 600; margin-bottom: 15px; color: #333;"></p>
-                
-                <!-- Consolidated Stats Grid -->
-                <div id="stats-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; text-align: center;">
-                    <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
-                        <div id="stat-score" style="font-size: 26px; font-weight: 800; color: #4CAF50;">0</div>
-                        <div style="font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; margin-top: 5px; letter-spacing: 0.5px;">Total Score</div>
-                    </div>
-                    <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(255, 152, 0, 0.15); border: 1px solid rgba(255,152,0,0.2); position: relative; overflow: hidden;">
-                        <span style="position: absolute; right: -5px; bottom: -10px; font-size: 40px; opacity: 0.05; pointer-events: none;">🐾</span>
-                        <div id="stat-verified" style="font-size: 26px; font-weight: 800; color: #FF9800; position: relative;">0</div>
-                        <div style="font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; margin-top: 5px; letter-spacing: 0.5px; position: relative;">🐾 Verified Visits</div>
-                    </div>
-                    <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
-                        <div id="stat-regular" style="font-size: 26px; font-weight: 800; color: #2196F3;">0</div>
-                        <div style="font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; margin-top: 5px; letter-spacing: 0.5px;">Regular Visits</div>
-                    </div>
-                    <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
-                        <div id="stat-states" style="font-size: 26px; font-weight: 800; color: #9C27B0;">0</div>
-                        <div style="font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; margin-top: 5px; letter-spacing: 0.5px;">States Visited</div>
-                    </div>
-                </div>
 
-                <!-- Enhanced Gamification Dashboard injected in place of old Trophy Case container -->
-                <div class="gamification-dashboard">
-                    <!-- HEADER BANNER -->
-                    <div class="banner-card">
-                        <div class="banner-content">
-                            <div class="title-section">
-                                <div class="title-wrap" style="width: 100%;">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                        <span class="title-eyebrow">CURRENT TITLE</span>
-                                        <button id="scoring-info-btn" class="info-pulse-btn">ℹ️ How it works</button>
-                                    </div>
-                                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                                        <h2 id="current-title-label">B.A.R.K. Trainee</h2>
-                                        
-                                        <div style="display: flex; gap: 8px; align-items: center;">
-                                            <div id="streak-pill" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; font-weight: 800; font-size: 13px; padding: 6px 12px; border-radius: 20px; display: flex; align-items: center; gap: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-                                                🔥 <span id="streak-count-label">0</span>
-                                            </div>
-                                            <div class="score-pill">
-                                                <span id="total-score-label">0</span> PTS
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <button id="share-vault-btn" class="glass-btn share-vault-btn" onclick="shareVaultCard()">📸 Share My Vault</button>
-                            
-                            <div class="progress-bar-track" style="margin-top: 16px;">
-                                <div id="tier-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- DAILY TRAINING MODULE -->
-                    <div class="training-card" id="daily-training-module" style="margin-top: 24px; background: white; border-radius: 16px; padding: 16px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05);">
-                        <div class="training-info">
-                            <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 900; color: #1e293b;">Daily Neighborhood Walk</h3>
-                            <p id="training-desc" style="margin: 0; font-size: 11px; color: #64748b; line-height: 1.3;">Walk 0.15 miles away from home to earn <strong style="color: #f59e0b;">+0.5 PTS</strong> and keep your streak alive.</p>
-                        </div>
-                        <div class="training-action" style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
-                            <button id="training-action-btn" onclick="handleTrainingClick()" class="glass-btn training-btn">Start Walk</button>
-                            <button id="cancel-training-btn" onclick="cancelTrainingWalk()" style="display: none; background: transparent; color: #94a3b8; border: none; font-size: 10px; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 0;">Cancel Walk</button>
-                        </div>
-                    </div>
-
-                    <!-- VAULT DRAWER with TABS -->
-                    <div class="vault-tabs">
-                        <button class="tab-btn active" data-tab="rare-feats">Rare Feats</button>
-                        <button class="tab-btn" data-tab="paws">Paws</button>
-                        <button class="tab-btn" data-tab="states">States</button>
-                    </div>
-
-                    <div class="vault-drawer collapsed" id="vault-drawer">
-                        <!-- Tab Content: Rare Feats -->
-                        <div class="tab-content active" id="rare-feats-content">
-                            <div class="badge-grid" id="rare-feats-grid"></div>
-                        </div>
-                        
-                        <!-- Tab Content: Paws -->
-                        <div class="tab-content" id="paws-content">
-                            <div class="badge-grid" id="paws-grid"></div>
-                        </div>
-
-                        <!-- Tab Content: States -->
-                        <div class="tab-content" id="states-content">
-                            <div class="badge-grid" id="states-grid"></div>
-                        </div>
-
-                        <!-- CLASSIFIED DOSSIER (Always Visible Mystery Tier) -->
-                        <h3 class="section-heading mt-24">👁️ Classified Dossier</h3>
-                        <p class="section-desc">Rumors gathered from the field.</p>
-                        <div class="badge-grid" id="mystery-feats-dossier" style="margin-top: 10px;">
-                            <!-- JS injected dossiers -->
-                        </div>
-                    </div>
-                </div>
-
-                <div id="manage-places-portal" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
-                    <details>
-                        <summary style="color: #333; font-size: 14px; font-weight: 600; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none;">
-                            <div style="pointer-events: none;">View/Manage My Visited Places</div>
-                            <span id="manage-portal-count" style="background: rgba(33, 150, 243, 0.1); color: #1976D2; padding: 4px 8px; border-radius: 12px; font-size: 12px; pointer-events: none;">0</span>
-                        </summary>
-                        <div style="max-height: 200px; overflow-y: auto; margin-top: 15px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.05);">
-                            <ul id="manage-places-list" style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
-                                <!-- Reactively Rendered DOM elements here -->
-                            </ul>
-                        </div>
-                    </details>
-                </div>
-
-                <div id="leaderboard-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
-                    <h4 style="color: #333; margin-bottom: 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
-                        🏆 Global Leaderboard
-                        <span id="personal-rank-display" style="font-size: 11px; font-weight: 600; color: #FF9800; background: rgba(255, 152, 0, 0.1); padding: 3px 8px; border-radius: 10px;">Rank: --</span>
-                    </h4>
-                    <ul id="leaderboard-list" style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
-                        <li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">Loading Top 5...</li>
-                    </ul>
-                    <div id="leaderboard-controls" style="margin-top: 10px; text-align: center;"></div>
-                </div>
-
-
-                <button id="export-csv-btn" class="glass-btn primary-btn" style="width: 100%; margin-bottom: 15px; padding: 10px; border-radius: 8px; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    Download My Data
-                </button>
-
-                <div id="saved-routes-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
-                    <details>
-                        <summary style="color: #333; font-size: 14px; font-weight: 600; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none;">
-                            <div style="pointer-events: none;">🗺️ Saved Routes</div>
-                            <span id="saved-routes-count" style="background: rgba(25,118,210,0.1); color: #1976D2; padding: 4px 8px; border-radius: 12px; font-size: 12px; pointer-events: none;">0</span>
-                        </summary>
-                        <div id="saved-routes-list" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.05); max-height: 280px; overflow-y: auto; font-size: 13px;">
-                            <p style="color: #aaa; text-align: center; padding: 10px 0;">No saved routes yet.</p>
-                        </div>
-                    </details>
-                </div>
-
-                <button id="logout-btn" class="glass-btn" style="width: 100%;">Log Out</button>
+            <div id="feedback-portal" class="profile-section-card" style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                <h4 style="margin: 0 0 10px 0; color: #1e293b; font-size: 16px; font-weight: 800;">Suggest an Improvement</h4>
+                <p style="font-size: 12px; color: #64748b; margin-bottom: 15px;">Tell us how we can make BarkRangerMap better...</p>
+                <textarea id="feedback-text" placeholder="Your ideas..." style="width: 100%; height: 80px; padding: 12px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.08); margin-bottom: 12px; font-family: inherit; font-size: 14px; resize: vertical; box-sizing: border-box; background: #f8fafc; outline: none;"></textarea>
+                <button id="submit-feedback-btn" class="glass-btn primary-btn" style="width: 100%; font-size: 14px; padding: 12px; border-radius: 10px; font-weight: 800;">Submit Feedback</button>
             </div>
 
-
-            <div id="login-container" style="margin-top: 20px;">
-                <button id="google-login-btn" class="glass-btn primary-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;">
-                    <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/><path d="M1 1h22v22H1z" fill="none"/></svg>
-                    Continue with Google
-                </button>
-            </div>
-            
-            <div id="feedback-portal" style="margin-top: 30px; background: rgba(0,0,0,0.02); padding: 15px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.05);">
-                <h4 style="margin-bottom: 10px; color: #555; font-size: 14px;">Suggest an Improvement</h4>
-                <textarea id="feedback-text" placeholder="Tell us how we can make BarkRangerMap better..." style="width: 100%; height: 80px; padding: 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1); margin-bottom: 10px; font-family: inherit; font-size: 13px; resize: vertical; box-sizing: border-box;"></textarea>
-                <button id="submit-feedback-btn" class="glass-btn primary-btn" style="width: 100%; font-size: 13px; padding: 10px; border-radius: 8px; font-weight: 600;">Submit Feedback</button>
-            </div>
+            <!-- Administrative: Final Exit -->
+            <button id="logout-btn" class="glass-btn" style="width: 100%; margin-top: 32px; padding: 12px; border-radius: 12px; font-weight: 700; color: #ef4444; background: transparent; border: 1px solid rgba(239, 68, 68, 0.1); display: none;">🚪 Log Out of Session</button>
 
         </div>
     </div>
@@ -560,6 +608,26 @@
                     <div class="ladder-step"><span>200-299</span> <strong>Apex Ranger</strong></div>
                     <div class="ladder-step"><span>300+</span> <strong>National Treasure</strong></div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="optimizer-modal" class="scoring-modal-overlay">
+        <div class="scoring-modal-card">
+            <div class="modal-header">
+                <h3>✨ OPTIMIZER SETTINGS</h3>
+                <button onclick="document.getElementById('optimizer-modal').style.display='none'" class="modal-close-btn">&times; Cancel</button>
+            </div>
+            <div class="modal-section">
+                <p style="font-size: 12px; color: #94a3b8; margin-bottom: 20px;">How would you like to pace your road trip? The AI will group your stops accordingly.</p>
+                
+                <label style="display:block; font-size:11px; font-weight:800; color:#f1f5f9; margin-bottom:8px;">Max Stops Per Day</label>
+                <input type="number" id="opt-max-stops" value="5" min="2" max="15" style="width:100%; padding:10px; border-radius:8px; border:none; margin-bottom:20px; background:#1e293b; color:white;">
+                
+                <label style="display:block; font-size:11px; font-weight:800; color:#f1f5f9; margin-bottom:8px;">Max Estimated Drive Time (Hours / Day)</label>
+                <input type="number" id="opt-max-hours" value="4" min="1" max="12" style="width:100%; padding:10px; border-radius:8px; border:none; margin-bottom:20px; background:#1e293b; color:white;">
+                
+                <button onclick="executeSmartOptimization()" style="width:100%; background:linear-gradient(135deg, #9333ea, #c026d3); color:white; font-weight:900; padding:12px; border-radius:8px; border:none; cursor:pointer; text-transform:uppercase; box-shadow: 0 4px 15px rgba(147, 51, 234, 0.4);">Run Global Optimizer</button>
             </div>
         </div>
     </div>

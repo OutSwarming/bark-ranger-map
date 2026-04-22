@@ -717,3 +717,62 @@
     align-items: center;
     justify-content: center;
 }
+
+/* --- UI/UX MASTERCLASS REFACTOR --- */
+/* 1. Flatten the Bubbles */
+.glass-btn, input, select, textarea {
+    border-radius: 8px !important;
+}
+.view-content, .panel-content, .mystery-card, .banner-card {
+    border-radius: 12px !important;
+}
+#start-route-btn {
+    border-radius: 50px !important; /* Keep the main CTA pill-shaped */
+}
+
+/* 2. Calm the Bookends */
+#ui-start-node > div {
+    background: #f0fdf4 !important;
+    border: 1px solid rgba(34, 197, 94, 0.2) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.02) !important;
+}
+#ui-end-node > div {
+    background: #fef2f2 !important;
+    border: 1px solid rgba(239, 68, 68, 0.2) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.02) !important;
+}
+
+/* 3. Stop List Hover States & Minimalism */
+.stop-list-item {
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid rgba(0,0,0,0.03); padding: 10px 4px;
+    transition: background 0.2s; border-radius: 8px;
+}
+.stop-list-item:hover {
+    background: rgba(0,0,0,0.02);
+}
+.stop-controls {
+    opacity: 0.3; /* Hidden until hovered */
+    transition: opacity 0.2s;
+    display: flex; gap: 4px; align-items: center;
+}
+.stop-list-item:hover .stop-controls {
+    opacity: 1; /* Reveal on hover */
+}
+
+/* 4. Day Management Utility Bar */
+#day-management-bar > div {
+    background: transparent !important; border: none !important;
+    border-bottom: 1px solid rgba(0,0,0,0.05) !important;
+    border-radius: 0 !important; box-shadow: none !important;
+    padding: 4px 0 12px 0 !important; gap: 8px !important;
+}
+#day-management-bar button {
+    background: transparent !important;
+    border: 1px solid rgba(0,0,0,0.08) !important;
+    color: #64748b !important;
+    box-shadow: none !important; transition: all 0.2s;
+}
+#day-management-bar button:hover:not(:disabled) {
+    background: rgba(0,0,0,0.03) !important; color: #0f172a !important;
+}

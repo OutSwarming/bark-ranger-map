@@ -12,6 +12,46 @@ function incrementRequestCount() {
     }
 }
 
+window.attemptDailyStreakIncrement = async function() {
+    if (typeof firebase === 'undefined' || !firebase.auth().currentUser) return { success: false, message: "Not logged in" };
+    
+    const user = firebase.auth().currentUser;
+    const today = new Date().toISOString().split('T')[0];
+    
+    const docRef = firebase.firestore().collection('users').doc(user.uid);
+    const doc = await docRef.get();
+    const data = doc.exists ? doc.data() : {};
+    
+    const lastStreakDate = data.lastStreakDate || localStorage.getItem('lastStreakDate');
+    if (lastStreakDate === today) return { success: false, message: "Already incremented today" };
+    
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    
+    let currentStreak = parseInt(data.streakCount || localStorage.getItem('streakCount') || 0);
+    
+    if (lastStreakDate === yesterdayStr) {
+        currentStreak += 1;
+    } else {
+        currentStreak = 1;
+    }
+    
+    incrementRequestCount();
+    await docRef.set({
+        streakCount: currentStreak,
+        lastStreakDate: today
+    }, { merge: true });
+    
+    localStorage.setItem('lastStreakDate', today);
+    localStorage.setItem('streakCount', currentStreak);
+    
+    const streakLabel = document.getElementById('streak-count-label');
+    if (streakLabel) streakLabel.textContent = currentStreak;
+    
+    return { success: true, count: currentStreak };
+};
+
 // ====== iOS KEYBOARD LAYOUT FIX ======
 // iOS Safari resizes the visual viewport when the keyboard opens,
 // but position:fixed elements (like the nav bar) don't move with it.
@@ -170,6 +210,8 @@ let userVisitedPlaces = new Map();
 const DAY_COLORS = ['#1976D2', '#2E7D32', '#E65100', '#6A1B9A', '#C62828'];
 let tripDays = [{ color: DAY_COLORS[0], stops: [], notes: "" }];
 let activeDayIdx = 0;
+window.tripStartNode = null;
+window.tripEndNode = null;
 let visitedFilterState = 'all';
 
 const generatePinId = (lat, lng) => `${parseFloat(lat).toFixed(2)}_${parseFloat(lng).toFixed(2)}`;
@@ -307,12 +349,14 @@ async function evaluateAchievements(visitedPlacesMap) {
     // Use our new bulletproof mapping logic to set the required totals per state
     gamificationEngine.updateCanonicalCountsFromPoints(allPoints);
 
-    const achievements = await gamificationEngine.evaluateAndStoreAchievements(userId, visitedArray, null);
+    const achievements = await gamificationEngine.evaluateAndStoreAchievements(userId, visitedArray, null, window.currentWalkPoints || 0);
 
     // Update Banner
     const titleEl = document.getElementById('current-title-label');
-    const scoreEl = document.getElementById('total-score-label');
+    const scoreEl = document.getElementById('stat-score');
     const progressFill = document.getElementById('tier-progress-fill');
+    const fractionEl = document.getElementById('rank-progress-fraction');
+
     if (titleEl) titleEl.textContent = achievements.title;
     if (scoreEl) scoreEl.textContent = achievements.totalScore;
     if (progressFill) {
@@ -321,6 +365,15 @@ async function evaluateAchievements(visitedPlacesMap) {
         const prev = thresholds[thresholds.indexOf(next) - 1] || 0;
         const pct = Math.min(100, ((achievements.totalScore - prev) / (next - prev)) * 100);
         progressFill.style.width = pct + "%";
+
+        if (fractionEl) {
+            if (achievements.totalScore >= 500) {
+                fractionEl.textContent = 'MAX RANK ACHIEVED 🏆';
+                progressFill.style.width = "100%";
+            } else {
+                fractionEl.textContent = `${achievements.totalScore} / ${next} PTS`;
+            }
+        }
     }
 
     // Helper to guarantee a subtitle exists for sharing
@@ -328,8 +381,11 @@ async function evaluateAchievements(visitedPlacesMap) {
         let s = b.desc || b.hint || '';
         if (!s && b.id.includes('Paw')) s = 'Verified Check-ins';
         if (!s && b.id.includes('state')) s = '100% Region Cleared';
-        return s.replace(/'/g, "\\'"); // escape quotes for inline HTML
+        return s;
     };
+
+    // Helper to safely escape single quotes for inline JS attributes
+    const esc = (str) => String(str || '').replace(/'/g, "\\'");
 
     const renderStateBadge = (b) => {
         const isU = b.status === 'unlocked';
@@ -337,7 +393,7 @@ async function evaluateAchievements(visitedPlacesMap) {
         const datePlaceholder = b.dateEarned || '--/--/----';
         const upgradeCta = (isU && b.tier === 'honor') ? '<div class="upgrade-pill">⭐ VERIFY TO UPGRADE</div>' : '';
         const sub = getSubtitle(b);
-        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${b.name}', '${b.icon}', '${b.tier}', false, '${sub}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
+        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${esc(b.name)}', '${esc(b.icon)}', '${esc(b.tier)}', false, '${esc(sub)}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
         
         let progressHtml = '';
         if (!isU && typeof b.percentComplete !== 'undefined') {
@@ -356,7 +412,10 @@ async function evaluateAchievements(visitedPlacesMap) {
             <div class="skeuo-badge ${tCl} ${isU ? 'unlocked hover-float' : 'locked'}">
                 <div class="badge-face badge-front">
                     <div class="badge-icon">${b.icon}</div>
-                    <div class="badge-details"><h4>${b.name}</h4></div>
+                    <div class="badge-details">
+                        <h4>${b.name}</h4>
+                        <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-top: 4px;">${b.criteria || ''}</div>
+                    </div>
                     ${progressHtml}
                 </div>
                 <div class="badge-face badge-back">
@@ -374,14 +433,17 @@ async function evaluateAchievements(visitedPlacesMap) {
         const upgradeCta = (isU && b.tier === 'honor') ? '<div class="upgrade-pill">⭐ VERIFY TO UPGRADE</div>' : '';
         const datePlaceholder = b.dateEarned || '--/--/----';
         const sub = getSubtitle(b);
-        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${b.name}', '${b.icon}', '${b.tier}', false, '${sub}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
+        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${esc(b.name)}', '${esc(b.icon)}', '${esc(b.tier)}', false, '${esc(sub)}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
 
         return `
         <div class="flip-scene">
             <div class="skeuo-badge ${tCl} ${isU ? 'unlocked hover-float' : 'locked'}">
                 <div class="badge-face badge-front">
                     <div class="badge-icon">${b.icon}</div>
-                    <div class="badge-details"><h4>${b.name}</h4></div>
+                    <div class="badge-details">
+                        <h4>${b.name}</h4>
+                        <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-top: 4px;">${b.criteria || ''}</div>
+                    </div>
                 </div>
                 <div class="badge-face badge-back">
                     <div class="engraved-date">EST. ${datePlaceholder}</div>
@@ -395,21 +457,26 @@ async function evaluateAchievements(visitedPlacesMap) {
     const renderDossier = (b) => {
         const isU = b.status === 'unlocked';
         const sub = getSubtitle(b);
-        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${b.name.replace(/'/g, "\\'")}', '${b.icon}', 'verified', true, '${sub}')" class="mystery-share-btn" title="Share Milestone">📸</button>` : '';
+        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${esc(b.name)}', '${esc(b.icon)}', 'verified', true, '${esc(sub)}')" class="mystery-share-btn" title="Share Milestone">📸</button>` : '';
         
         return `
         <div class="mystery-card ${isU ? 'unlocked' : 'locked'}">
             <div class="mystery-icon">${isU ? b.icon : '?'}</div>
             <div class="mystery-info">
                 <div class="mystery-title">${isU ? b.name : '[CLASSIFIED]'}</div>
-                <div class="mystery-hint">Hint: ${b.hint}</div>
+                <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-top: 4px;">${b.criteria || b.hint || ''}</div>
             </div>
             ${shareBtnHtml}
         </div>`;
     };
 
-    document.getElementById('rare-feats-grid').innerHTML = achievements.rareFeats.map(renderCoin).join('');
-    document.getElementById('paws-grid').innerHTML = achievements.paws.map(renderCoin).join('');
+    const gridRare = document.getElementById('rare-feats-grid');
+    const gridPaws = document.getElementById('paws-grid');
+    const gridStates = document.getElementById('states-grid');
+    const gridDossier = document.getElementById('mystery-feats-dossier');
+
+    if (gridRare) gridRare.innerHTML = achievements.rareFeats.map(renderCoin).join('');
+    if (gridPaws) gridPaws.innerHTML = achievements.paws.map(renderCoin).join('');
     
     // --- NATIONAL PROGRESS ANCHOR CARD ---
     const nationalCardHtml = `
@@ -424,17 +491,18 @@ async function evaluateAchievements(visitedPlacesMap) {
             </div>
         </div>`;
 
-    document.getElementById('states-grid').innerHTML = nationalCardHtml + achievements.stateBadges.map(renderStateBadge).join('');
-    document.getElementById('mystery-feats-dossier').innerHTML = achievements.mysteryFeats.map(renderDossier).join('');
+    if (gridStates) gridStates.innerHTML = nationalCardHtml + achievements.stateBadges.map(renderStateBadge).join('');
+    if (gridDossier) gridDossier.innerHTML = achievements.mysteryFeats.map(renderDossier).join('');
 
-    
-
+    // Re-bind tab listeners (idempotent)
     document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.onclick = () => {
+        btn.onclick = (e) => {
+            e.preventDefault();
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             btn.classList.add('active');
-            document.getElementById(btn.dataset.tab + '-content').classList.add('active');
+            const content = document.getElementById(btn.dataset.tab + '-content');
+            if (content) content.classList.add('active');
         };
     });
 }
@@ -861,6 +929,15 @@ function processParsedResults(results) {
             }
             activePinMarker = marker;
 
+            // 🔥 THE FIX: Reset the scroll position of the panel to the very top
+            const panelScrollContainer = document.querySelector('.panel-content');
+            if (panelScrollContainer) {
+                panelScrollContainer.scrollTop = 0;
+            }
+
+            // 🔥 NEW: Auto-collapse filter when a pin is clicked to save screen space
+            document.getElementById('filter-panel').classList.add('collapsed');
+
             // Read data from the marker itself, not from a closure
             const d = marker._parkData;
             titleEl.textContent = d.name || 'Unknown Park';
@@ -960,20 +1037,41 @@ function processParsedResults(results) {
                 
                 const btnTrip = stickyFooter.querySelector('.btn-trip');
                 if (btnTrip) {
+                    // Check if already in ANY day to style button initially
+                    let foundDayIdx = -1;
+                    tripDays.forEach((day, dIdx) => {
+                        if (day.stops.find(stop => stop.lat === d.lat && stop.lng === d.lng)) foundDayIdx = dIdx;
+                    });
+
+                    stickyFooter.innerHTML = `
+                        <a href="http://googleusercontent.com/maps.google.com/maps?daddr=${d.lat},${d.lng}" target="_blank" class="dir-btn">🗺️ Google</a>
+                        <a href="http://maps.apple.com/?q=${encodeURIComponent(d.name)}&ll=${d.lat},${d.lng}" target="_blank" class="dir-btn">🧭 Apple</a>
+                        <button class="glass-btn btn-trip">➕ Add to Trip</button>
+                    `;
+
+                    const btnTrip = stickyFooter.querySelector('.btn-trip');
+                    const syncPopupUI = () => {
+                        const inTripDay = Array.from(tripDays).findIndex(day => day.stops.some(s => s.id === d.id));
+                        if (inTripDay > -1) {
+                            btnTrip.innerHTML = `✓ In Trip (Day ${inTripDay + 1})`;
+                            btnTrip.style.background = '#e8f5e9';
+                            btnTrip.style.borderColor = '#4CAF50';
+                            btnTrip.style.color = '#2E7D32';
+                        } else {
+                            btnTrip.innerHTML = `➕ Add to Trip`;
+                            btnTrip.style.background = '#fff';
+                            btnTrip.style.borderColor = '#cbd5e1';
+                            btnTrip.style.color = '#333';
+                        }
+                    };
+
+                    syncPopupUI();
+
                     btnTrip.onclick = (e) => {
                         e.preventDefault();
-                        const activeDay = tripDays[activeDayIdx];
-                        if (activeDay.stops.length >= 5) {
-                            alert(`Day ${activeDayIdx + 1} is full! (Max 5 stops per day)`);
-                            return;
+                        if (window.addStopToTrip({ id: d.id, name: d.name, lat: d.lat, lng: d.lng })) {
+                            syncPopupUI();
                         }
-                        if (activeDay.stops.find(stop => stop.lat === d.lat && stop.lng === d.lng)) {
-                            alert("This location is already in your trip!");
-                            return;
-                        }
-                        activeDay.stops.push({ id: d.id, name: d.name, lat: d.lat, lng: d.lng });
-                        updateTripUI();
-                        document.querySelector('[data-target="planner-view"]')?.click();
                     };
                 }
             }
@@ -1061,6 +1159,7 @@ function processParsedResults(results) {
 
                                 updateMarkers();
                                 updateStatsUI();
+                                window.attemptDailyStreakIncrement();
                             } else {
                                 alert(`Out of Range! You are ${dist.toFixed(1)} km away. You must be within 25 km to verify.`);
                                 verifyBtnText.textContent = '🐾 Verified Check-In';
@@ -1085,6 +1184,7 @@ function processParsedResults(results) {
 
                         await syncUserProgress();
                         updateMarkers();
+                        window.attemptDailyStreakIncrement();
                     };
                 } else {
                     visitedSection.style.display = 'none';
@@ -1327,7 +1427,10 @@ function updateMarkers() {
         if (visitedFilterState === 'visited' && !isVisited) matchesVisited = false;
         if (visitedFilterState === 'unvisited' && isVisited) matchesVisited = false;
 
-        if (matchesSwag && matchesSearch && matchesType && matchesVisited) {
+        // --- DYNAMIC VISIBILITY GATE ---
+        const isInTrip = Array.from(tripDays).some(day => day.stops.some(s => s.id === item.id));
+
+        if ((matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip) {
             markerLayer.addLayer(item.marker);
 
             if (item.marker._icon) {
@@ -1389,8 +1492,10 @@ searchInput.addEventListener('input', (e) => {
         matches.sort((a, b) => a.score - b.score);
         const topMatches = matches.slice(0, 10);
 
-        if (topMatches.length > 0 && searchSuggestions) {
-            searchSuggestions.innerHTML = '';
+        searchSuggestions.innerHTML = '';
+        
+        // 1. Render local map matches
+        if (topMatches.length > 0) {
             topMatches.forEach(match => {
                 const div = document.createElement('div');
                 div.className = 'suggestion-item';
@@ -1408,8 +1513,51 @@ searchInput.addEventListener('input', (e) => {
                 });
                 searchSuggestions.appendChild(div);
             });
+        }
+
+        // 2. BLENDED FALLBACK: Always offer global search if query is > 2 chars
+        if (activeSearchQuery.trim().length > 2) {
+            const isPremium = (typeof firebase !== 'undefined' && firebase.auth().currentUser !== null);
+            
+            if (topMatches.length === 0 && isPremium) {
+                // If NO local matches, show the "Searching..." status and auto-trigger
+                const statusDiv = document.createElement('div');
+                statusDiv.className = 'suggestion-item';
+                statusDiv.style.cssText = 'background: #fdf4ff; color: #c026d3; font-weight: 700; border-top: 1px solid #f0abfc;';
+                statusDiv.innerHTML = `🔍 Searching for "${activeSearchQuery}"...`;
+                searchSuggestions.appendChild(statusDiv);
+                executeGeocode(activeSearchQuery, 'stop');
+            } else {
+                // If local matches EXIST, show the manual Federated Fallback button
+                const federatedBtn = document.createElement('div');
+                federatedBtn.className = 'suggestion-item';
+                federatedBtn.style.cssText = 'background: #f0fdf4; color: #15803d; font-weight: 700; border-top: 1px solid #bbf7d0; display: flex; align-items: center; gap: 8px; cursor: pointer; margin-top: 4px;';
+                federatedBtn.innerHTML = `🌍 <div>Search towns & cities for "${activeSearchQuery}"<br><span style="font-size:10px; font-weight:normal; color:#166534;">Query global database</span></div>`;
+                
+                federatedBtn.addEventListener('click', () => {
+                    if (!isPremium) {
+                        alert('Searching for custom towns and locations is a Premium feature. Please log in via the Profile tab.');
+                        return;
+                    }
+                    const queryToFetch = activeSearchQuery;
+                    searchInput.value = `Searching for "${queryToFetch}"...`;
+                    searchSuggestions.style.display = 'none';
+                    executeGeocode(queryToFetch, 'stop');
+                });
+                
+                // Show a locked state if not premium
+                if (!isPremium) {
+                    federatedBtn.style.opacity = '0.7';
+                    federatedBtn.innerHTML = `🔒 <div style="color:#64748b;">Search global towns for "${activeSearchQuery}"<br><span style="font-size:10px; font-weight:normal;">Sign in to unlock global routing</span></div>`;
+                }
+                
+                searchSuggestions.appendChild(federatedBtn);
+            }
+        }
+        
+        if (searchSuggestions.innerHTML !== '') {
             searchSuggestions.style.display = 'block';
-        } else if (searchSuggestions) {
+        } else {
             searchSuggestions.style.display = 'none';
         }
 
@@ -1484,10 +1632,18 @@ let visitedSnapshotUnsubscribe = null;
 // ── Module-level saved routes loader (needs firebase globally available) ──
 async function loadSavedRoutes(uid) {
     const savedList = document.getElementById('saved-routes-list');
+    const plannerList = document.getElementById('planner-saved-routes-list');
     const savedCount = document.getElementById('saved-routes-count');
-    if (!savedList) return;
+    
+    if (!savedList && !plannerList) return;
 
-    savedList.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Loading...</p>';
+    const renderTo = (container) => {
+        if (!container) return;
+        container.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Loading...</p>';
+    };
+    renderTo(savedList);
+    renderTo(plannerList);
+
     try {
         incrementRequestCount(); // Count Firestore Route Fetch
         const snapshot = await firebase.firestore()
@@ -1499,89 +1655,108 @@ async function loadSavedRoutes(uid) {
 
         if (savedCount) savedCount.textContent = snapshot.size;
 
-        if (snapshot.empty) {
-            savedList.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">No saved routes yet. Generate a route to save it here!</p>';
-            return;
-        }
+        const populateList = (list) => {
+            if (!list) return;
+            if (snapshot.empty) {
+                list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">No saved routes yet. Generate a route to save it here!</p>';
+                return;
+            }
 
-        savedList.innerHTML = '';
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            const date = data.createdAt ? new Date(data.createdAt.seconds * 1000).toLocaleDateString() : 'Unknown date';
-            const dayCount = data.tripDays ? data.tripDays.length : 0;
-            const stopCount = data.tripDays ? data.tripDays.reduce((s, d) => s + (d.stops ? d.stops.length : 0), 0) : 0;
+            list.innerHTML = '';
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                const date = data.createdAt ? new Date(data.createdAt.seconds * 1000).toLocaleDateString() : 'Unknown date';
+                const dayCount = data.tripDays ? data.tripDays.length : 0;
+                const stopCount = data.tripDays ? data.tripDays.reduce((s, d) => s + (d.stops ? d.stops.length : 0), 0) : 0;
 
-            // Ensure notes are loaded back
-            const loadedDays = data.tripDays.map(d => ({
-                color: d.color,
-                stops: d.stops.map(s => ({ name: s.name, lat: s.lat, lng: s.lng })),
-                notes: d.notes || ""
-            }));
+                const colorDots = (data.tripDays || []).map(d =>
+                    `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${d.color || '#999'}; margin-right:2px;"></span>`
+                ).join('');
 
-            const colorDots = (data.tripDays || []).map(d =>
-                `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${d.color || '#999'}; margin-right:2px;"></span>`
-            ).join('');
+                const tripName = data.tripName || "Untitled Route";
 
-            const tripName = data.tripName || "Untitled Route";
-
-            const card = document.createElement('div');
-            card.style.cssText = 'background:#f9f9f9; border-radius:10px; padding:10px 12px; margin-bottom:8px; border:1px solid rgba(0,0,0,0.06);';
-            card.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
-                    <div>
-                        <div style="font-weight:800; font-size:14px; color:#1a1a1a; margin-bottom:2px;">${tripName}</div>
-                        <div style="font-weight:600; font-size:12px; color:#555; margin-bottom:4px;">
-                            ${colorDots} ${dayCount} day${dayCount !== 1 ? 's' : ''} · ${stopCount} stop${stopCount !== 1 ? 's' : ''}
+                const card = document.createElement('div');
+                card.style.cssText = 'background:#f9f9f9; border-radius:10px; padding:10px 12px; margin-bottom:8px; border:1px solid rgba(0,0,0,0.06);';
+                card.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
+                        <div>
+                            <div style="font-weight:800; font-size:14px; color:#1a1a1a; margin-bottom:2px;">${tripName}</div>
+                            <div style="font-weight:600; font-size:12px; color:#555; margin-bottom:4px;">
+                                ${colorDots} ${dayCount} day${dayCount !== 1 ? 's' : ''} · ${stopCount} stop${stopCount !== 1 ? 's' : ''}
+                            </div>
+                            <div style="font-size:11px; color:#888;">${date}</div>
                         </div>
-                        <div style="font-size:11px; color:#888;">${date}</div>
+                        <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
+                            <button class="load-route-btn" data-id="${doc.id}" style="background:#22c55e; color:white; border:none; border-radius:8px; padding:5px 10px; font-size:12px; cursor:pointer; font-weight:600;">Load</button>
+                            <button class="delete-route-btn" data-id="${doc.id}" style="background:none; border:none; color:#dc2626; font-size:14px; cursor:pointer; font-weight:bold;" title="Delete">×</button>
+                        </div>
                     </div>
-                    <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
-                        <button class="load-route-btn" data-id="${doc.id}" style="background:#1976D2; color:white; border:none; border-radius:8px; padding:5px 10px; font-size:12px; cursor:pointer; font-weight:600;">Load</button>
-                        <button class="delete-route-btn" data-id="${doc.id}" style="background:none; border:none; color:#d32f2f; font-size:14px; cursor:pointer; font-weight:bold;" title="Delete">×</button>
-                    </div>
-                </div>
-            `;
-            savedList.appendChild(card);
-        });
+                `;
+                list.appendChild(card);
+            });
 
-        savedList.querySelectorAll('.load-route-btn').forEach(btn => {
-            btn.onclick = async () => {
-                const docId = btn.getAttribute('data-id');
-                incrementRequestCount(); // Count Firestore Document Get
-                const docSnap = await firebase.firestore()
-                    .collection('users').doc(uid)
-                    .collection('savedRoutes').doc(docId).get();
-                if (!docSnap.exists) return;
-                const data = docSnap.data();
-                tripDays = data.tripDays.map(d => ({ color: d.color, stops: d.stops, notes: d.notes || "" }));
-                activeDayIdx = 0;
+            list.querySelectorAll('.load-route-btn').forEach(btn => {
+                btn.onclick = async () => {
+                    const docId = btn.getAttribute('data-id');
+                    incrementRequestCount(); // Count Firestore Document Get
+                    const docSnap = await firebase.firestore()
+                        .collection('users').doc(uid)
+                        .collection('savedRoutes').doc(docId).get();
+                    if (!docSnap.exists) return;
+                    const data = docSnap.data();
+                    tripDays = data.tripDays.map(d => ({ color: d.color, stops: d.stops, notes: d.notes || "" }));
+                    activeDayIdx = 0;
 
-                // Restore Trip Name
-                const tripNameInput = document.getElementById('tripNameInput');
-                if (tripNameInput) tripNameInput.value = data.tripName || "";
+                    const tripNameInput = document.getElementById('tripNameInput');
+                    if (tripNameInput) tripNameInput.value = data.tripName || "";
 
-                updateTripUI();
-                document.querySelector('[data-target="map-view"]')?.click();
-            };
-        });
+                    updateTripUI();
+                    
+                    // If we loaded from the planner list, hide it automatically
+                    const plannerContainer = document.getElementById('planner-saved-routes-container');
+                    if (plannerContainer) plannerContainer.style.display = 'none';
 
-        savedList.querySelectorAll('.delete-route-btn').forEach(btn => {
-            btn.onclick = async () => {
-                if (!confirm('Delete this saved route?')) return;
-                const docId = btn.getAttribute('data-id');
-                incrementRequestCount(); // Count Firestore Delete
-                await firebase.firestore()
-                    .collection('users').doc(uid)
-                    .collection('savedRoutes').doc(docId).delete();
-                loadSavedRoutes(uid);
-            };
-        });
+                    document.querySelector('[data-target="map-view"]')?.click();
+                    showTripToast(`Route Loaded: ${data.tripName || "Untitled"}`);
+                };
+            });
 
-    } catch (err) {
-        console.error("Error loading saved routes:", err);
-        savedList.innerHTML = '<p style="color:#c00; text-align:center; padding:10px 0;">Error loading routes.</p>';
+            list.querySelectorAll('.delete-route-btn').forEach(btn => {
+                btn.onclick = async () => {
+                    if (!confirm('Delete this saved route?')) return;
+                    incrementRequestCount(); // Count Firestore Delete
+                    await firebase.firestore()
+                        .collection('users').doc(uid)
+                        .collection('savedRoutes').doc(btn.getAttribute('data-id')).delete();
+                    loadSavedRoutes(uid);
+                };
+            });
+        };
+
+        populateList(savedList);
+        populateList(plannerList);
+    } catch (error) {
+        console.error("Error loading routes:", error);
     }
 }
+
+window.togglePlannerRoutes = function() {
+    const container = document.getElementById('planner-saved-routes-container');
+    if (!container) return;
+    
+    if (container.style.display === 'none') {
+        container.style.display = 'block';
+        const user = firebase.auth().currentUser;
+        if (user) {
+            loadSavedRoutes(user.uid);
+        } else {
+            const list = document.getElementById('planner-saved-routes-list');
+            if (list) list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Please log in to see saved routes.</p>';
+        }
+    } else {
+        container.style.display = 'none';
+    }
+};
 
 if (typeof firebase !== 'undefined') {
     const firebaseConfig = {
@@ -1602,13 +1777,26 @@ if (typeof firebase !== 'undefined') {
         if (user) {
             if (loginContainer) loginContainer.style.display = 'none';
             if (offlineStatusContainer) offlineStatusContainer.style.display = 'block';
+            if (logoutBtn) logoutBtn.style.display = 'block';
             if (profileName) profileName.textContent = user.displayName || user.email || 'Bark Ranger';
 
             incrementRequestCount(); // Count initial snapshot fetch
             visitedSnapshotUnsubscribe = firebase.firestore().collection('users').doc(user.uid)
                 .onSnapshot((doc) => {
                     if (doc.exists) {
-                        const placeList = doc.data().visitedPlaces || [];
+                        const data = doc.data();
+                        const placeList = data.visitedPlaces || [];
+                        
+                        // New: Fetch and sync streak & walk points
+                        const streakVal = data.streakCount || 0;
+                        const walkVal = data.walkPoints || 0;
+                        
+                        const streakLabel = document.getElementById('streak-count-label');
+                        if (streakLabel) streakLabel.textContent = streakVal;
+                        
+                        // Sync window state for evaluateAchievements
+                        window.currentWalkPoints = walkVal;
+
                         if (Array.isArray(placeList)) {
                             userVisitedPlaces = new Map();
                             placeList.forEach(obj => {
@@ -1653,6 +1841,7 @@ if (typeof firebase !== 'undefined') {
         } else {
             if (loginContainer) loginContainer.style.display = 'block';
             if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
+            if (logoutBtn) logoutBtn.style.display = 'none';
             userVisitedPlaces.clear();
             if (visitedSnapshotUnsubscribe) {
                 visitedSnapshotUnsubscribe();
@@ -1743,8 +1932,18 @@ loadData();
 map.on('click', () => {
     slidePanel.classList.remove('open');
     clearActivePin(); // 🔥 Fixes the ghost pin
+    
+    // 🔥 NEW: Auto-collapse filter on empty map click
+    document.getElementById('filter-panel').classList.add('collapsed');
 });
-// (Removed outdated modal close handlers)
+
+// Auto-collapse filter when user pans/drags the map
+map.on('movestart', () => {
+    const filterPanel = document.getElementById('filter-panel');
+    if (filterPanel && !filterPanel.classList.contains('collapsed')) {
+        filterPanel.classList.add('collapsed');
+    }
+});
 
 // Toggle filter panel
 document.getElementById('toggle-filter-btn').addEventListener('click', () => {
@@ -2129,6 +2328,274 @@ if (shareSelect && qrContainer && typeof QRCode !== 'undefined') {
     }
 }
 
+// --- DRAFT TRIP VISUALS ENGINE ---
+let draftTripLines = [];
+
+function showTripToast(message) {
+    let toast = document.getElementById('trip-action-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'trip-action-toast';
+        toast.className = 'trip-toast';
+        document.body.appendChild(toast);
+    }
+    toast.innerHTML = `✅ <span>${message}</span>`;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+window.draftBookendMarkers = window.draftBookendMarkers || [];
+window.draftCustomMarkers = window.draftCustomMarkers || []; // Tracks custom town pins
+
+function updateTripMapVisuals() {
+    // 1. Clear old badges, draft lines, bookends, and custom pins
+    document.querySelectorAll('.trip-stop-badge').forEach(el => el.remove());
+    draftTripLines.forEach(line => map.removeLayer(line));
+    draftTripLines = [];
+    window.draftBookendMarkers.forEach(m => map.removeLayer(m));
+    window.draftBookendMarkers = [];
+    window.draftCustomMarkers.forEach(m => map.removeLayer(m));
+    window.draftCustomMarkers = [];
+
+    // 2. Determine Bookend Math
+    let startLatLng = window.tripStartNode ? [window.tripStartNode.lat, window.tripStartNode.lng] : null;
+    let endLatLng = window.tripEndNode ? [window.tripEndNode.lat, window.tripEndNode.lng] : null;
+    let isRoundTrip = startLatLng && endLatLng && haversineDistance(startLatLng[0], startLatLng[1], endLatLng[0], endLatLng[1]) < 0.5;
+
+    // 3. Draw Bookend Map Markers
+    if (startLatLng) {
+        let bg = isRoundTrip ? '#8b5cf6' : '#22c55e'; 
+        let iconText = isRoundTrip ? '🔄' : 'A';
+        let startIcon = L.divIcon({ className: 'bookend-icon', html: `<div style="background:${bg}; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; border:2px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.5); font-size:12px; z-index: 1000;">${iconText}</div>`, iconSize: [24,24], iconAnchor: [12,12] });
+        window.draftBookendMarkers.push(L.marker(startLatLng, {icon: startIcon}).addTo(map));
+    }
+    if (endLatLng && !isRoundTrip) {
+        let endIcon = L.divIcon({ className: 'bookend-icon', html: `<div style="background:#ef4444; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; border:2px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.5); font-size:12px; z-index: 1000;">B</div>`, iconSize: [24,24], iconAnchor: [12,12] });
+        window.draftBookendMarkers.push(L.marker(endLatLng, {icon: endIcon}).addTo(map));
+    }
+
+    // 4. Decorate map pins and draw continuous dotted lines
+    tripDays.forEach((day, dayIdx) => {
+        const latlngs = [];
+        if (dayIdx === 0 && startLatLng) latlngs.push(startLatLng);
+        if (dayIdx > 0 && tripDays[dayIdx-1].stops.length > 0) {
+            const prevLast = tripDays[dayIdx-1].stops[tripDays[dayIdx-1].stops.length - 1];
+            latlngs.push([prevLast.lat, prevLast.lng]);
+        }
+
+        day.stops.forEach((stop, stopIdx) => {
+            latlngs.push([stop.lat, stop.lng]);
+            const point = allPoints.find(p => p.id === stop.id && p.id !== undefined);
+            
+            let badgeContainer;
+            if (point && point.marker && point.marker._icon) {
+                badgeContainer = point.marker._icon;
+            } else {
+                // 🔥 THE FIX: It's a custom town, draw a dark grey temporary pin!
+                const customIcon = L.divIcon({
+                    className: 'custom-trip-pin',
+                    html: `<div style="background: #475569; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.4); position: relative;"></div>`,
+                    iconSize: [14, 14],
+                    iconAnchor: [7, 7]
+                });
+                const customMarker = L.marker([stop.lat, stop.lng], {icon: customIcon, interactive: false}).addTo(map);
+                window.draftCustomMarkers.push(customMarker);
+                // Strict check: Leaflet may not create the icon if it's off-screen
+                if (customMarker._icon) badgeContainer = customMarker._icon.firstChild;
+            }
+
+            if (badgeContainer) {
+                const badge = document.createElement('div');
+                badge.className = 'trip-stop-badge';
+                badge.style.background = day.color;
+                badge.textContent = stopIdx + 1;
+                badgeContainer.appendChild(badge);
+            }
+        });
+
+        if (dayIdx === tripDays.length - 1 && endLatLng) latlngs.push(endLatLng);
+
+        if (latlngs.length >= 2) {
+            const line = L.polyline(latlngs, { color: day.color, weight: 3, dashArray: '5, 10', opacity: 0.6 }).addTo(map);
+            draftTripLines.push(line);
+        }
+    });
+}
+
+// --- LOCAL NEAREST NEIGHBOR OPTIMIZATION ---
+window.autoSortDay = function() {
+    const day = tripDays[activeDayIdx];
+    if (day.stops.length <= 2) {
+        alert('You need at least 3 stops to sort a route!');
+        return;
+    }
+
+    const sorted = [day.stops[0]]; // Lock the starting point
+    const unvisited = day.stops.slice(1); // The rest to be sorted
+
+    let currentStop = sorted[0];
+
+    while (unvisited.length > 0) {
+        let nearestIdx = 0;
+        let minDist = Infinity;
+
+        for (let i = 0; i < unvisited.length; i++) {
+            const dist = haversineDistance(currentStop.lat, currentStop.lng, unvisited[i].lat, unvisited[i].lng);
+            if (dist < minDist) {
+                minDist = dist;
+                nearestIdx = i;
+            }
+        }
+
+        currentStop = unvisited.splice(nearestIdx, 1)[0];
+        sorted.push(currentStop);
+    }
+
+    tripDays[activeDayIdx].stops = sorted;
+    updateTripUI();
+    showTripToast('✨ Route Optimized!');
+};
+
+// --- GLOBAL TRIP OPTIMIZER ---
+window.executeSmartOptimization = function() {
+    // 1. Setup & User Inputs
+    const userMaxStops = parseInt(document.getElementById('opt-max-stops').value) || 5;
+    const userMaxHours = parseFloat(document.getElementById('opt-max-hours').value) || 4;
+    
+    const totalStops = tripDays.reduce((sum, d) => sum + d.stops.length, 0);
+    if (totalStops < 2) {
+        alert('Add at least two stops before optimizing!');
+        return;
+    }
+
+    // 2. Flatten all unique stops (Deduplication)
+    let allUniqueStops = [];
+    tripDays.forEach(day => {
+        day.stops.forEach(stop => {
+            if (allUniqueStops.length === 0) {
+                allUniqueStops.push(stop);
+            } else {
+                const lastStop = allUniqueStops[allUniqueStops.length - 1];
+                const isDuplicate = stop.id && lastStop.id 
+                    ? stop.id === lastStop.id 
+                    : (stop.lat === lastStop.lat && stop.lng === lastStop.lng);
+                if (!isDuplicate) {
+                    allUniqueStops.push(stop);
+                }
+            }
+        });
+    });
+
+    // 3. Nearest Neighbor Sort
+    let sorted = []; 
+    let unvisited = [...allUniqueStops];
+    let currentStop;
+
+    if (window.tripStartNode) {
+        currentStop = window.tripStartNode; 
+    } else {
+        currentStop = unvisited.shift();
+        sorted.push(currentStop);
+    }
+
+    while (unvisited.length > 0) {
+        let nearestIdx = 0;
+        let minDist = Infinity;
+        for (let i = 0; i < unvisited.length; i++) {
+            const dist = haversineDistance(currentStop.lat, currentStop.lng, unvisited[i].lat, unvisited[i].lng);
+            if (dist < minDist) {
+                minDist = dist;
+                nearestIdx = i;
+            }
+        }
+        currentStop = unvisited.splice(nearestIdx, 1)[0];
+        sorted.push(currentStop);
+    }
+
+    // 4. Heuristic Chunking Engine (Pace-Based)
+    let newTripDays = [];
+    let currentDayStops = [];
+    let currentDayHours = 0;
+    let dayColorIndex = 0;
+
+    for (let i = 0; i < sorted.length; i++) {
+        const stop = sorted[i];
+        
+        // Calculate drive time from previous stop
+        if (currentDayStops.length > 0) {
+            const prev = currentDayStops[currentDayStops.length - 1];
+            const distKm = haversineDistance(prev.lat, prev.lng, stop.lat, stop.lng);
+            const distMiles = distKm * 0.621371;
+            const driveHours = distMiles / 55; // Heuristic: 55mph average
+            currentDayHours += driveHours;
+        }
+
+        currentDayStops.push(stop);
+
+        const isLastStop = i === sorted.length - 1;
+        const hitStopLimit = currentDayStops.length >= userMaxStops;
+        const hitHourLimit = currentDayHours >= userMaxHours;
+
+        if (isLastStop || hitStopLimit || hitHourLimit) {
+            newTripDays.push({
+                color: DAY_COLORS[dayColorIndex % DAY_COLORS.length],
+                stops: [...currentDayStops],
+                notes: tripDays[dayColorIndex] ? tripDays[dayColorIndex].notes : ""
+            });
+            dayColorIndex++;
+
+            if (!isLastStop) {
+                // Carry-Over: The next day starts exactly where this day ended
+                currentDayStops = [{ ...stop }];
+                currentDayHours = 0; // Reset hours for the new day
+            }
+        }
+    }
+
+    // 5. Apply & Cleanup
+    tripDays = newTripDays;
+    activeDayIdx = 0;
+    document.getElementById('optimizer-modal').style.display = 'none';
+    updateTripUI();
+    showTripToast('✨ Smart Optimization Complete!');
+};
+
+// --- EXPORT DAY TO GOOGLE MAPS ---
+window.exportDayToMaps = function(dayIdx) {
+    const day = tripDays[dayIdx];
+    const waypoints = [];
+
+    // 1. Add Start Node if it's Day 1
+    if (dayIdx === 0 && window.tripStartNode) {
+        waypoints.push(`${window.tripStartNode.lat},${window.tripStartNode.lng}`);
+    }
+    
+    // 2. Add Carry-over from previous day if it's Day 2+
+    if (dayIdx > 0 && tripDays[dayIdx-1].stops.length > 0) {
+        const prevLast = tripDays[dayIdx-1].stops[tripDays[dayIdx-1].stops.length - 1];
+        waypoints.push(`${prevLast.lat},${prevLast.lng}`);
+    }
+    
+    // 3. Add the day's actual stops
+    day.stops.forEach(stop => {
+        waypoints.push(`${stop.lat},${stop.lng}`);
+    });
+    
+    // 4. Add End Node if it's the last day
+    if (dayIdx === tripDays.length - 1 && window.tripEndNode) {
+        waypoints.push(`${window.tripEndNode.lat},${window.tripEndNode.lng}`);
+    }
+
+    if (waypoints.length < 2) {
+        alert('Not enough stops to generate a driving route for this day!');
+        return;
+    }
+
+    // Generate native Google Maps multi-stop URL
+    const mapsUrl = `https://www.google.com/maps/dir/${waypoints.join('/')}`;
+    window.open(mapsUrl, '_blank');
+};
+
 // ====== TRIP BUILDER LOGIC ======
 const tripQueueList = document.getElementById('trip-queue-list');
 const plannerBadge = document.getElementById('planner-badge');
@@ -2139,8 +2606,116 @@ function getTotalStops() {
     return tripDays.reduce((sum, d) => sum + d.stops.length, 0);
 }
 
+// --- GLOBAL AUTO-SPILLOVER ENGINE ---
+window.addStopToTrip = function(stopData) {
+    // 1. Prevent duplicates across the ENTIRE trip, not just the current day
+    for (let i = 0; i < tripDays.length; i++) {
+        if (tripDays[i].stops.find(s => s.lat === stopData.lat && s.lng === stopData.lng)) {
+            alert(`This location is already in your trip on Day ${i + 1}!`);
+            return false; 
+        }
+    }
+
+    // 2. Auto-Spillover & Carry-Over Logic
+    if (tripDays[activeDayIdx].stops.length >= 10) {
+        const lastStopOfCurrentDay = tripDays[activeDayIdx].stops[tripDays[activeDayIdx].stops.length - 1];
+
+        if (activeDayIdx + 1 < tripDays.length) {
+            activeDayIdx++; 
+        } else {
+            const nextColor = DAY_COLORS[tripDays.length % DAY_COLORS.length];
+            // 🔥 CARRY-OVER LOGIC: Inject the end point of the previous day as Stop 1
+            tripDays.push({ color: nextColor, stops: [{ ...lastStopOfCurrentDay }], notes: "" });
+            activeDayIdx = tripDays.length - 1;
+        }
+        showTripToast(`Day full! Auto-moved to Day ${activeDayIdx + 1} 🚐`);
+    }
+
+    // 3. Inject the stop and render
+    tripDays[activeDayIdx].stops.push(stopData);
+    updateTripUI();
+    
+    // Slight delay so the toast doesn't get instantly overwritten by the auto-move toast
+    setTimeout(() => showTripToast(`Added to Day ${activeDayIdx + 1}!`), 50);
+    return true; 
+};
+
+// --- INTERACTIVE BOOKEND CONTROLLER ---
+window.editBookend = function(type) {
+    const el = document.getElementById(type === 'start' ? 'ui-start-node' : 'ui-end-node');
+    const currentName = type === 'start' ? (window.tripStartNode ? window.tripStartNode.name : '') : (window.tripEndNode ? window.tripEndNode.name : '');
+    const color = type === 'start' ? '#22c55e' : '#ef4444';
+    const bg = type === 'start' ? '#f0fdf4' : '#fef2f2';
+    
+    // Transform the bookend into an inline search bar
+    el.innerHTML = `
+    <div style="background: ${bg}; border: 2px solid ${color}; border-radius: 12px; padding: 12px; margin-top: ${type === 'end' ? '15px' : '0'}; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+        <div style="font-size: 11px; font-weight: 900; color: ${color}; margin-bottom: 8px; text-transform: uppercase;">📍 Set Trip ${type}</div>
+        <div style="display: flex; gap: 5px;">
+            <input type="text" id="inline-${type}-input" value="${currentName}" placeholder="Search town or 'My location'" style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1); font-size: 13px; outline: none; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+            <button onclick="processInlineSearch('${type}')" class="glass-btn primary-btn" style="padding: 10px 15px; border-radius: 8px; font-size: 12px; font-weight: 800;">🔍</button>
+            <button onclick="updateTripUI()" class="glass-btn" style="padding: 10px; border-radius: 8px; font-size: 12px; font-weight: 800; color: #666;">✕</button>
+        </div>
+        <div id="inline-suggest-${type}" style="display: none; background: white; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; margin-top: 8px; max-height: 200px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></div>
+        ${currentName ? `<div style="text-align:right; margin-top: 8px;"><button onclick="window.trip${type === 'start' ? 'Start' : 'End'}Node=null; updateTripUI()" style="background: transparent; color: #dc2626; border: none; font-size: 11px; font-weight: 800; cursor: pointer; text-decoration: underline;">Remove ${type.toUpperCase()}</button></div>` : ''}
+    </div>`;
+    
+    // Auto-focus the input box so the user can just start typing
+    setTimeout(() => {
+        const input = document.getElementById(`inline-${type}-input`);
+        if(input) { input.focus(); input.select(); }
+    }, 50);
+    
+    // Allow the Enter key to submit the search
+    document.getElementById(`inline-${type}-input`).addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') { processInlineSearch(type); }
+    });
+};
+
+window.processInlineSearch = function(type) {
+    const input = document.getElementById(`inline-${type}-input`);
+    if (input && input.value.trim() !== '') {
+        const suggestBox = document.getElementById(`inline-suggest-${type}`);
+        if(suggestBox) {
+            suggestBox.style.display = 'block';
+            suggestBox.innerHTML = '<p style="padding: 10px; font-size: 12px; color: #666; text-align: center;">Searching...</p>';
+        }
+        executeGeocode(input.value.trim(), type);
+    }
+};
+
+// --- DAY MANAGEMENT ENGINE ---
+window.shiftDayLeft = function() {
+    if (activeDayIdx === 0) return;
+    const temp = tripDays[activeDayIdx - 1];
+    tripDays[activeDayIdx - 1] = tripDays[activeDayIdx];
+    tripDays[activeDayIdx] = temp;
+    activeDayIdx--;
+    updateTripUI();
+    updateTripMapVisuals();
+};
+
+window.shiftDayRight = function() {
+    if (activeDayIdx === tripDays.length - 1) return;
+    const temp = tripDays[activeDayIdx + 1];
+    tripDays[activeDayIdx + 1] = tripDays[activeDayIdx];
+    tripDays[activeDayIdx] = temp;
+    activeDayIdx++;
+    updateTripUI();
+    updateTripMapVisuals();
+};
+
+window.insertDayAfter = function() {
+    if (tripDays.length >= 5) return;
+    const nextColor = DAY_COLORS[tripDays.length % DAY_COLORS.length];
+    tripDays.splice(activeDayIdx + 1, 0, { color: nextColor, stops: [], notes: "" });
+    activeDayIdx++; // Focus the newly created empty day
+    updateTripUI();
+};
+
 function updateTripUI() {
-    if (!tripQueueList) return;
+    const list = document.getElementById('trip-queue-list');
+    if (!list) return;
 
     const total = getTotalStops();
     if (plannerBadge) {
@@ -2151,17 +2726,45 @@ function updateTripUI() {
             plannerBadge.style.display = 'none';
         }
     }
-    // (Badge logic moved to Planner tab)
 
-    // ── Render Day Tabs ──
+    // 1. FRESH LOOKUP FOR CONTAINERS
     let tabContainer = document.getElementById('trip-day-tabs');
-    if (!tabContainer) {
+    if (!tabContainer && list.parentElement) {
         tabContainer = document.createElement('div');
         tabContainer.id = 'trip-day-tabs';
         tabContainer.style.cssText = 'display:flex; gap:6px; flex-wrap: wrap; margin-bottom:14px; align-items:center;';
-        tripQueueList.parentElement.insertBefore(tabContainer, tripQueueList);
+        list.parentElement.insertBefore(tabContainer, list);
     }
-    tabContainer.innerHTML = '';
+    if (tabContainer) tabContainer.innerHTML = '';
+
+    // 2. START BOOKEND PROTECTION
+    let startEl = document.getElementById('ui-start-node');
+    if (!startEl && tabContainer && tabContainer.parentElement) {
+        startEl = document.createElement('div');
+        startEl.id = 'ui-start-node';
+        tabContainer.parentElement.insertBefore(startEl, tabContainer);
+    }
+    
+    if (startEl && window.tripStartNode) {
+        startEl.innerHTML = `
+        <div onclick="editBookend('start')" class="trip-node-card" style="background: #f0fdf4; cursor: pointer; padding: 10px; margin-bottom: 10px; border-radius: 8px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="background: #22c55e; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; justify-content: center; align-items: center; font-size: 11px; font-weight: 800;">A</span> 
+                <div>
+                    <div class="planner-metadata" style="color: #15803d; font-size: 10px;">Trip Start</div>
+                    <div style="font-weight: 700; color: #333; font-size: 13px;">${window.tripStartNode.name}</div>
+                </div>
+            </div>
+            <div class="planner-metadata" style="opacity: 0.6; font-size: 10px;">Edit</div>
+        </div>`;
+    } else if (startEl) { 
+        startEl.innerHTML = `
+        <button onclick="editBookend('start')" class="glass-btn" style="width: 100%; height: 36px; background: #fff; border: 1px dashed #22c55e; color: #15803d; font-weight: 800; font-size: 11px; margin-bottom: 10px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <span>➕</span> SET TRIP START
+        </button>`;
+    }
+
+    // 3. RENDER THE REST OF THE TABS
 
     tripDays.forEach((day, di) => {
         const tab = document.createElement('div');
@@ -2205,70 +2808,164 @@ function updateTripUI() {
     });
 
     // Add Day button
-    if (tripDays.length < 5) {
+    if (true) {
         const addDayBtn = document.createElement('button');
         addDayBtn.textContent = '+ Add Day';
         addDayBtn.style.cssText = 'padding:6px 12px; border-radius:20px; border:2px dashed #bbb; background:none; color:#888; font-size:13px; font-weight:600; cursor:pointer;';
+        
         addDayBtn.onclick = () => {
-            tripDays.push({ color: DAY_COLORS[tripDays.length % DAY_COLORS.length], stops: [], notes: "" });
+            const prevDay = tripDays[tripDays.length - 1];
+            const initialStops = [];
+            
+            // 🔥 CARRY-OVER LOGIC: Clone the last stop of the previous day
+            if (prevDay && prevDay.stops.length > 0) {
+                const lastStop = prevDay.stops[prevDay.stops.length - 1];
+                initialStops.push({ ...lastStop }); 
+            }
+            
+            tripDays.push({ color: DAY_COLORS[tripDays.length % DAY_COLORS.length], stops: initialStops, notes: "" });
             activeDayIdx = tripDays.length - 1;
             updateTripUI();
         };
         tabContainer.appendChild(addDayBtn);
     }
 
+
+    // --- DAY MANAGEMENT ACTION BAR (HIDDEN BEHIND EDIT MODE) ---
+    let dayManager = document.getElementById('day-management-bar');
+    if (!dayManager) {
+        dayManager = document.createElement('div');
+        dayManager.id = 'day-management-bar';
+        list.parentElement.insertBefore(dayManager, list);
+    }
+
+    if (window.isTripEditMode) {
+        const canMoveLeft = activeDayIdx > 0;
+        const canMoveRight = activeDayIdx < tripDays.length - 1;
+        const canAddDay = true;
+
+        dayManager.innerHTML = `
+            <div style="display: flex; gap: 8px; margin-bottom: 10px; padding: 8px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
+                <button onclick="window.shiftDayLeft()" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 700; border-radius: 6px; color: #475569; border: 1px solid #cbd5e1; background: white;" ${!canMoveLeft ? 'disabled' : ''}>← Shift Day</button>
+                <button onclick="window.insertDayAfter()" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 700; border-radius: 6px; color: #15803d; border: 1px solid #bbf7d0; background: #f0fdf4;" ${!canAddDay ? 'disabled' : ''}>+ Insert Day</button>
+                <button onclick="window.shiftDayRight()" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 700; border-radius: 6px; color: #475569; border: 1px solid #cbd5e1; background: white;" ${!canMoveRight ? 'disabled' : ''}>Shift Day →</button>
+            </div>
+        `;
+        dayManager.style.display = 'block';
+    } else {
+        dayManager.style.display = 'none';
+    }
+
     // ── Render Stops for Active Day ──
     const activeDay = tripDays[activeDayIdx];
-    tripQueueList.innerHTML = '';
+
+    // 🔥 STATE: Track if the user is editing the list
+    if (typeof window.isTripEditMode === 'undefined') window.isTripEditMode = false;
+    window.toggleTripEditMode = () => { 
+        window.isTripEditMode = !window.isTripEditMode; 
+        updateTripUI(); 
+    };
+
+    // Clear list FIRST, then build fresh content
+    list.innerHTML = '';
+
+    // 🔥 EDIT TOGGLE (High density)
+    if (activeDay.stops.length > 0) {
+        const actionBar = document.createElement('div');
+        actionBar.style.cssText = 'display: flex; justify-content: flex-end; align-items: center; margin-bottom: 12px; padding: 0 4px;';
+
+        let rightHtml = `<button onclick="toggleTripEditMode()" class="glass-btn" style="background: ${window.isTripEditMode ? '#e8f5e9' : '#f8fafc'}; border: 1px solid ${window.isTripEditMode ? '#4CAF50' : '#cbd5e1'}; color: ${window.isTripEditMode ? '#2E7D32' : '#64748b'}; font-size: 11px; font-weight: 800; padding: 6px 16px; border-radius: 8px; cursor: pointer; transition: all 0.2s;">${window.isTripEditMode ? '✅ Done Editing' : '✏️ Edit Stops & Days'}</button>`;
+
+        actionBar.innerHTML = rightHtml;
+        list.appendChild(actionBar);
+    }
+
+
+
 
     if (activeDay.stops.length === 0) {
         const empty = document.createElement('li');
         empty.style.cssText = 'color:#aaa; font-size:13px; text-align:center; padding:18px 0;';
         empty.textContent = 'No stops yet. Add parks or a town above!';
-        tripQueueList.appendChild(empty);
+        list.appendChild(empty);
     }
 
     activeDay.stops.forEach((stop, index) => {
         const li = document.createElement('li');
-        li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0,0,0,0.05); padding: 10px 0;';
+        li.className = 'stop-list-item'; 
 
-        // Build "Move to Day" options
-        const moveToDayOptions = tripDays
-            .map((d, di) => di !== activeDayIdx && d.stops.length < 5 ? `<option value="${di}">Day ${di + 1}</option>` : '')
-            .join('');
-        const moveSelect = moveToDayOptions
-            ? `<select class="move-to-day-select" data-index="${index}" style="border:1px solid #ddd; border-radius:6px; font-size:11px; padding:3px; cursor:pointer; background:white; color:#333;">
-                 <option value="">Move→</option>${moveToDayOptions}
-               </select>`
-            : '';
+        let controlsHtml = '';
+        
+        // ONLY render the messy controls if the user clicked "Edit Stops"
+        if (window.isTripEditMode) {
+            const moveToDayOptions = tripDays
+                .map((d, di) => di !== activeDayIdx ? `<option value="${di}">Day ${di + 1}</option>` : '')
+                .join('');
+            const moveSelect = moveToDayOptions
+                ? `<select class="move-to-day-select" data-index="${index}" style="border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px; background: white; font-size: 11px; cursor:pointer; color:#475569; outline:none; font-weight:600;">
+                     <option value="">↳ Move</option>${moveToDayOptions}
+                   </select>`
+                : '';
 
-        li.innerHTML = `
-            <div style="display: flex; align-items: center; flex: 1; min-width: 0;">
-                <span style="background:${activeDay.color}; color:white; border-radius: 50%; width: 22px; height: 22px; min-width: 22px; display: inline-flex; justify-content: center; align-items: center; font-size: 11px; margin-right: 8px;">${index + 1}</span>
-                <span style="font-weight: 600; color: #333; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${stop.name}">${stop.name}</span>
-            </div>
-            <div style="display: flex; gap: 4px; align-items: center;">
+            controlsHtml = `
+            <div style="display: flex; gap: 6px; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(0,0,0,0.05); width: 100%;">
                 ${moveSelect}
-                <button class="move-up-btn" data-index="${index}" style="background:#f0f0f0; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; ${index === 0 ? 'visibility:hidden;' : ''}" title="Move Up">↑</button>
-                <button class="move-down-btn" data-index="${index}" style="background:#f0f0f0; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; ${index === activeDay.stops.length - 1 ? 'visibility:hidden;' : ''}" title="Move Down">↓</button>
-                <button class="remove-stop-btn" data-index="${index}" style="background:none; border:none; color:#d32f2f; font-weight:bold; font-size:16px; cursor:pointer; padding:5px;" title="Remove">&times;</button>
+                <div style="flex: 1;"></div>
+                <button class="move-up-btn" data-index="${index}" style="background:#f1f5f9; border:none; border-radius:6px; cursor:pointer; font-size:14px; color:#475569; padding:4px 10px; transition: background 0.2s; ${index === 0 ? 'visibility:hidden;' : ''}" title="Move Up">↑</button>
+                <button class="move-down-btn" data-index="${index}" style="background:#f1f5f9; border:none; border-radius:6px; cursor:pointer; font-size:14px; color:#475569; padding:4px 10px; transition: background 0.2s; ${index === activeDay.stops.length - 1 ? 'visibility:hidden;' : ''}" title="Move Down">↓</button>
+                <button class="remove-stop-btn" data-index="${index}" style="background:#fee2e2; border:none; border-radius:6px; color:#ef4444; font-weight:900; font-size:12px; cursor:pointer; padding:6px 12px; margin-left: 4px; transition: background 0.2s;" title="Remove">✕</button>
+            </div>`;
+        }
+
+        // The base list item is now beautifully clean and readable
+        li.innerHTML = `
+            <div style="display: flex; flex-direction: column; width: 100%; padding: ${window.isTripEditMode ? '8px' : '12px 4px'}; background: ${window.isTripEditMode ? '#f8fafc' : 'transparent'}; border-radius: 10px; border: ${window.isTripEditMode ? '1px solid #e2e8f0' : '1px solid transparent'}; transition: all 0.2s;">
+                <div style="display: flex; align-items: center; width: 100%;">
+                    <span style="background:${activeDay.color}; color:white; border-radius: 6px; width: 24px; height: 24px; min-width: 24px; display: inline-flex; justify-content: center; align-items: center; font-size: 12px; font-weight:900; margin-right: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${index + 1}</span>
+                    <span style="font-weight: 700; color: #1e293b; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;" title="${stop.name}">${stop.name}</span>
+                </div>
+                ${controlsHtml}
             </div>
         `;
-        tripQueueList.appendChild(li);
+        list.appendChild(li);
     });
+
+    // 🔥 GHOST BUTTON: Add Stop to Day (Empty Slot Pattern)
+    const ghostBtn = document.createElement('div');
+    ghostBtn.style.cssText = `margin: 10px 4px; padding: 12px; border: 2px dashed #e2e8f0; border-radius: 10px; color: #94a3b8; font-size: 12px; font-weight: 800; text-align: center; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px;`;
+    ghostBtn.innerHTML = `➕ Add Stop to Day ${activeDayIdx + 1}`;
+    ghostBtn.onmouseover = () => { ghostBtn.style.borderColor = activeDay.color; ghostBtn.style.color = activeDay.color; ghostBtn.style.background = `${activeDay.color}05`; };
+    ghostBtn.onmouseout = () => { ghostBtn.style.borderColor = '#e2e8f0'; ghostBtn.style.color = '#94a3b8'; ghostBtn.style.background = 'transparent'; };
+    ghostBtn.onclick = () => {
+        const globalSearch = document.getElementById('park-search');
+        if (globalSearch) {
+            globalSearch.focus();
+            globalSearch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Flash the search bar to draw the eye
+            globalSearch.style.boxShadow = `0 0 0 4px ${activeDay.color}44`;
+            setTimeout(() => globalSearch.style.boxShadow = '', 1500);
+            
+            // Auto-switch to map if they are looking at the planner
+            document.querySelector('[data-target="map-view"]')?.click();
+        }
+    };
+    list.appendChild(ghostBtn);
 
     // ── Render Notes for Active Day ──
     const notesContainer = document.getElementById('day-notes-container');
     if (notesContainer) {
         notesContainer.innerHTML = `
-            <label style="display:block; font-size:12px; font-weight:700; color:#555; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px;">📋 Day ${activeDayIdx + 1} Notes & Planning</label>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <label style="font-size:11px; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; margin:0;">📋 Day ${activeDayIdx + 1} Notes</label>
+                <button onclick="exportDayToMaps(${activeDayIdx})" style="background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; font-size:10px; font-weight:800; padding:4px 8px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:4px; transition:all 0.2s;" onmouseover="this.style.background='#dbeafe'" onmouseout="this.style.background='#eff6ff'">🗺️ Drive Day ${activeDayIdx + 1}</button>
+            </div>
             <textarea id="day-notes-textarea" 
-                placeholder="Type your notes for Day ${activeDayIdx + 1} here... (e.g., Hiking trails to check out, campsite confirmation #, or lunch spots)" 
-                style="width:100%; height:80px; padding:12px; border-radius:12px; border:1px solid rgba(0,0,0,0.1); font-size:13px; outline:none; transition:border-color 0.2s; resize:none; font-family:inherit;"
-                onfocus="this.style.borderColor='${activeDay.color}'"
-                onblur="this.style.borderColor='rgba(0,0,0,0.1)'"
+                placeholder="Hiking trails, confirmation #s, lunch spots..." 
+                style="width:100%; height:60px; padding:10px; border-radius:8px; border:none; background:#f8fafc; font-size:13px; outline:none; transition:box-shadow 0.2s; resize:none; font-family:inherit; color:#334155; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);"
+                onfocus="this.style.boxShadow='inset 0 0 0 2px ${activeDay.color}'"
+                onblur="this.style.boxShadow='inset 0 2px 4px rgba(0,0,0,0.02)'"
             >${activeDay.notes || ""}</textarea>
-            <div style="text-align:right; font-size:11px; color:#aaa; margin-top:4px;">
+            <div style="text-align:right; font-size:10px; color:#cbd5e1; margin-top:4px;">
                 <span id="char-count">${(activeDay.notes || "").length}</span> / 1000
             </div>
         `;
@@ -2324,20 +3021,44 @@ function updateTripUI() {
             updateTripUI();
         };
     });
+
+        // --- GLOBAL END BOOKEND ---
+        let endEl = document.getElementById('ui-end-node');
+        if (!endEl) {
+            const wrapper = document.getElementById('itinerary-timeline-wrapper');
+            if (wrapper) {
+                endEl = document.createElement('div');
+                endEl.id = 'ui-end-node';
+                wrapper.appendChild(endEl);
+            }
+        }
+        
+        if (endEl && window.tripEndNode) {
+            endEl.innerHTML = `<div onclick="editBookend('end')" style="cursor:pointer; background: #fef2f2; border: 2px solid #ef4444; border-radius: 8px; padding: 10px; margin-top: 10px; margin-bottom: 0; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(239,68,68,0.05); transition: transform 0.1s;">
+                <div style="font-size: 13px; font-weight: 900; color: #b91c1c; display: flex; align-items: center; gap: 8px;">
+                    <span style="background: #ef4444; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; justify-content: center; align-items: center; font-size: 11px;">B</span> 
+                    TRIP END: <span style="font-weight:600; color:#333; margin-left: 4px;">${window.tripEndNode.name}</span>
+                </div>
+                <div style="font-size:10px; color:#ef4444; font-weight:800; text-transform:uppercase;">Edit</div>
+            </div>`;
+        } else if (endEl) { 
+            endEl.innerHTML = `<button onclick="editBookend('end')" style="width:100%; cursor:pointer; background: #fff; border: 1px dashed #ef4444; color:#b91c1c; border-radius: 8px; padding: 10px; margin-top: 10px; margin-bottom: 0; font-weight:800; text-transform:uppercase; font-size:11px;">+ Set Trip End</button>`; 
+        }
+
+    // Always attempt to update map visuals even if UI elements had issues
+    try {
+        updateTripMapVisuals();
+    } catch (e) {
+        console.error("Map visuals update failed:", e);
+    }
 }
 
 // Add Current Location Handler
 const addCurrentLocBtn = document.getElementById('add-current-loc-btn');
 if (addCurrentLocBtn) {
     addCurrentLocBtn.onclick = () => {
-        const activeDay = tripDays[activeDayIdx];
-        if (activeDay.stops.length >= 5) {
-            alert(`Day ${activeDayIdx + 1} is full! (Max 5 stops per day)`);
-            return;
-        }
         const addLocStop = (lat, lng) => {
-            activeDay.stops.push({ name: "My Current Location", lat, lng });
-            updateTripUI();
+            window.addStopToTrip({ name: "My Current Location", lat, lng });
         };
         if (userLocationMarker) {
             const ll = userLocationMarker.getLatLng();
@@ -2351,88 +3072,135 @@ if (addCurrentLocBtn) {
     };
 }
 
-// Add Town Search Handler
-const addTownBtn = document.getElementById('add-town-btn');
+// --- UNIVERSAL GEOCODER FOR START/STOP/END ---
 const townSearchInput = document.getElementById('town-search-input');
-if (addTownBtn && townSearchInput) {
-    addTownBtn.onclick = async () => {
-        const query = townSearchInput.value.trim();
-        if (!query) return;
-        const activeDay = tripDays[activeDayIdx];
-        if (activeDay.stops.length >= 5) {
-            alert(`Day ${activeDayIdx + 1} is full! (Max 5 stops per day)`);
-            return;
+
+// --- SMART UNIVERSAL GEOCODER ---
+// --- SMART UNIVERSAL GEOCODER ---
+async function executeGeocode(query, targetType) {
+    if (!query) return;
+    const lowerQ = query.trim().toLowerCase();
+
+    // 🔥 SMART INTERCEPT: GPS Routing
+    if (lowerQ === 'my location' || lowerQ === 'current location') {
+        const mainSearch = document.getElementById('park-search');
+        if (targetType === 'stop' && mainSearch) mainSearch.value = 'Locating GPS...';
+        else {
+            const inlineInput = document.getElementById(`inline-${targetType}-input`);
+            if (inlineInput) inlineInput.value = 'Locating GPS...';
         }
-        try {
-            incrementRequestCount(); // Count API request
-            addTownBtn.textContent = 'Searching...';
-            addTownBtn.disabled = true;
 
-            const disambiguationContainer = document.getElementById('town-disambiguation-container');
-            if (disambiguationContainer) disambiguationContainer.style.display = 'none';
+        navigator.geolocation.getCurrentPosition((pos) => {
+            const node = { name: "My Current Location", lat: pos.coords.latitude, lng: pos.coords.longitude };
+            if (targetType === 'start') window.tripStartNode = node;
+            else if (targetType === 'end') window.tripEndNode = node;
+            else window.addStopToTrip(node);
 
-            const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
-            const url = `https://api.openrouteservice.org/geocode/search?api_key=${hardcodedApiKey}&text=${encodeURIComponent(query)}&size=5&boundary.country=US`;
-            const response = await fetch(url);
-            if (!response.ok) throw new Error("Search failed");
-            const data = await response.json();
-
-            if (data.features && data.features.length > 0) {
-                if (data.features.length === 1) {
-                    const feature = data.features[0];
-                    const coords = feature.geometry.coordinates;
-                    activeDay.stops.push({ name: feature.properties.label || query, lat: coords[1], lng: coords[0] });
-                    townSearchInput.value = '';
-                    updateTripUI();
-                } else {
-                    // Show "Did you mean?" UI
-                    if (disambiguationContainer) {
-                        disambiguationContainer.innerHTML = `<p style="margin:5px; font-size:11px; color:#666; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">📍 Did you mean?</p>`;
-                        data.features.forEach(f => {
-                            const btn = document.createElement('button');
-                            btn.style.cssText = 'width:calc(100% - 10px); text-align:left; padding:10px; font-size:12px; border:none; background:none; cursor:pointer; border-radius:8px; transition:all 0.2s; margin:2px 5px; color:#333; font-weight:500; border:1px solid transparent;';
-                            btn.onmouseover = () => {
-                                btn.style.background = 'rgba(25,118,210,0.05)';
-                                btn.style.borderColor = 'rgba(25,118,210,0.1)';
-                            };
-                            btn.onmouseout = () => {
-                                btn.style.background = 'none';
-                                btn.style.borderColor = 'transparent';
-                            };
-                            btn.textContent = f.properties.label;
-                            btn.onclick = () => {
-                                const coords = f.geometry.coordinates;
-                                activeDay.stops.push({ name: f.properties.label, lat: coords[1], lng: coords[0] });
-                                townSearchInput.value = '';
-                                disambiguationContainer.style.display = 'none';
-                                updateTripUI();
-                            };
-                            disambiguationContainer.appendChild(btn);
-                        });
-
-                        // Add a Cancel / Close button to disambiguation list
-                        const cancelBtn = document.createElement('button');
-                        cancelBtn.textContent = '✕ Close Suggestions';
-                        cancelBtn.style.cssText = 'width:calc(100% - 10px); text-align:center; padding:8px; font-size:11px; border:none; background:rgba(0,0,0,0.03); cursor:pointer; border-radius:8px; margin:10px 5px 5px 5px; color:#888; font-weight:700; text-transform:uppercase;';
-                        cancelBtn.onclick = () => { disambiguationContainer.style.display = 'none'; };
-                        disambiguationContainer.appendChild(cancelBtn);
-
-                        disambiguationContainer.style.display = 'block';
-                    }
-                }
-            } else {
-                alert("Could not find that location in the US. Try adding the state (e.g. 'Gainesville, FL')");
+            if (targetType === 'stop' && mainSearch) {
+                mainSearch.value = '';
+                activeSearchQuery = '';
             }
-        } catch (err) {
-            console.error(err);
-            alert("Search service unavailable. Please try again later.");
-        } finally {
-            addTownBtn.textContent = 'Add';
-            addTownBtn.disabled = false;
+            updateTripUI();
+        }, () => {
+            alert("Could not get GPS location. Please check browser permissions.");
+            if (targetType === 'stop' && mainSearch) mainSearch.value = '';
+        }, { enableHighAccuracy: true });
+        return;
+    }
+
+    // Standard API Search
+    try {
+        incrementRequestCount();
+        const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
+        const url = `https://api.openrouteservice.org/geocode/search?api_key=${hardcodedApiKey}&text=${encodeURIComponent(query)}&size=5&boundary.country=US`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        // 🔥 THE FIX: Dynamically target where the suggestions should render
+        const disambiguationContainer = (targetType === 'stop')
+            ? document.getElementById('search-suggestions')
+            : document.getElementById(targetType === 'start' ? 'inline-suggest-start' : 'inline-suggest-end');
+
+        if (data.features && data.features.length > 0) {
+            if (data.features.length === 1) {
+                const coords = data.features[0].geometry.coordinates;
+                const node = { name: data.features[0].properties.label || query, lat: coords[1], lng: coords[0] };
+                if (targetType === 'start') window.tripStartNode = node;
+                else if (targetType === 'end') window.tripEndNode = node;
+                else window.addStopToTrip(node);
+
+                // Complete Omni-Search Reset & Map Pan
+                const mainSearch = document.getElementById('park-search');
+                const clearBtn = document.getElementById('clear-search-btn');
+                
+                if (mainSearch) mainSearch.value = '';
+                if (typeof activeSearchQuery !== 'undefined') activeSearchQuery = '';
+                if (clearBtn) clearBtn.style.display = 'none';
+                
+                // Restore the normal map pins
+                if (typeof updateMarkers === 'function') updateMarkers();
+                
+                // Pan map to the new custom location
+                if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { animate: true });
+                
+                updateTripUI();
+            } else {
+                if (disambiguationContainer) {
+                    // Match the "Backend" style from the user's screenshot
+                    let actionText = targetType === 'start' ? '🟢 TRIP START' : (targetType === 'end' ? '🔴 TRIP END' : '➕ ADD STOP');
+                    disambiguationContainer.innerHTML = `
+                        <div style="background: #f0fdf4; border-bottom: 1px solid #bbf7d0; padding: 10px; font-size: 11px; color: #15803d; font-weight: 800; text-transform: uppercase; display: flex; align-items: center; gap: 8px;">
+                            📍 SELECT FOR ${actionText}
+                        </div>`;
+
+                    data.features.forEach(f => {
+                        const div = document.createElement('div');
+                        div.className = 'suggestion-item';
+                        div.style.cssText = 'padding: 12px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.2s;';
+                        div.innerHTML = `<span style="font-weight: 700; color: #1e293b;">${f.properties.label}</span>`;
+
+                        div.onclick = () => {
+                            const coords = f.geometry.coordinates;
+                            const node = { name: f.properties.label, lat: coords[1], lng: coords[0] };
+                            if (targetType === 'start') window.tripStartNode = node;
+                            else if (targetType === 'end') window.tripEndNode = node;
+                            else window.addStopToTrip(node);
+
+                            // Complete Omni-Search Reset & Map Pan
+                            const mainSearch = document.getElementById('park-search');
+                            const clearBtn = document.getElementById('clear-search-btn');
+                            
+                            if (mainSearch) mainSearch.value = '';
+                            if (typeof activeSearchQuery !== 'undefined') activeSearchQuery = '';
+                            if (clearBtn) clearBtn.style.display = 'none';
+                            
+                            // Restore the normal map pins
+                            if (typeof updateMarkers === 'function') updateMarkers();
+                            
+                            // Pan map to the new custom location
+                            if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { animate: true });
+
+                            disambiguationContainer.style.display = 'none';
+                            updateTripUI();
+                        };
+                        disambiguationContainer.appendChild(div);
+                    });
+
+                    disambiguationContainer.style.display = 'block';
+                }
+            }
+        } else {
+            if (disambiguationContainer) {
+                disambiguationContainer.innerHTML = `<p style="padding: 10px; font-size: 12px; color: #dc2626; text-align: center; font-weight: bold;">Location not found.</p>`;
+            }
         }
-    };
-    townSearchInput.onkeypress = (e) => { if (e.key === 'Enter') addTownBtn.click(); };
+    } catch (err) {
+        alert("Search service unavailable.");
+    }
 }
+
+// Note: planner robust listeners removed as planner search is now global.
 
 // Helper: save current tripDays to Firestore without routing
 async function saveCurrentTrip() {
@@ -2461,7 +3229,7 @@ async function saveCurrentTrip() {
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             tripDays: tripDays.map(d => ({
                 color: d.color,
-                stops: d.stops.map(s => ({ name: s.name, lat: s.lat, lng: s.lng })),
+                stops: d.stops.map(s => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng })),
                 notes: d.notes || ""
             }))
         };
@@ -2478,6 +3246,13 @@ async function saveCurrentTrip() {
     }
 }
 
+const optimizeTripBtn = document.getElementById('optimize-trip-btn');
+if (optimizeTripBtn) {
+    optimizeTripBtn.onclick = () => {
+        document.getElementById('optimizer-modal').style.display = 'flex';
+    };
+}
+
 if (clearTripBtn) {
     clearTripBtn.onclick = () => {
         if (getTotalStops() > 0) {
@@ -2488,10 +3263,14 @@ if (clearTripBtn) {
         // Wipe local state
         tripDays = [{ color: DAY_COLORS[0], stops: [] }];
         activeDayIdx = 0;
+        window.tripStartNode = null;
+        window.tripEndNode = null;
 
         // Remove map layers
         currentRouteLayers.forEach(layer => map.removeLayer(layer));
         currentRouteLayers = [];
+        draftTripLines.forEach(line => map.removeLayer(line)); // 🔥 Clear draft lines too
+        draftTripLines = [];
 
         // Clear name input
         const nameInput = document.getElementById('tripNameInput');
@@ -2539,9 +3318,11 @@ async function generateAndRenderTripRoute() {
         return;
     }
 
-    // Clear old route layers
+    // Clear old route layers AND draft lines
     currentRouteLayers.forEach(layer => map.removeLayer(layer));
     currentRouteLayers = [];
+    draftTripLines.forEach(line => map.removeLayer(line)); // 🔥 Add this line
+    draftTripLines = []; // 🔥 Add this line
 
     if (startRouteBtn) {
         startRouteBtn.textContent = 'Calculating...';
@@ -2554,9 +3335,20 @@ async function generateAndRenderTripRoute() {
     let totalDistMeters = 0;
     let totalDurSeconds = 0;
 
-    for (const day of daysWithStops) {
+    for (let i = 0; i < daysWithStops.length; i++) {
+        const day = daysWithStops[i];
+        let dayStops = [...day.stops];
+
+        // 🔥 THE MAGIC: Secretly inject the Bookends before hitting the Routing API
+        if (i === 0 && window.tripStartNode) {
+            dayStops.unshift(window.tripStartNode);
+        }
+        if (i === daysWithStops.length - 1 && window.tripEndNode) {
+            dayStops.push(window.tripEndNode);
+        }
+
         try {
-            const orsCoordinates = day.stops.map(s => [Number(s.lng), Number(s.lat)]);
+            const orsCoordinates = dayStops.map(s => [Number(s.lng), Number(s.lat)]);
             console.log(`Routing Day (${day.color})...`, orsCoordinates);
 
             const response = await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson", {
@@ -2663,7 +3455,7 @@ window.shareVaultCard = async function() {
     try {
         const visitedArray = Array.from(userVisitedPlaces.values());
         const uid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : null;
-        const achievements = await gamificationEngine.evaluateAndStoreAchievements(uid, visitedArray, null);
+        const achievements = await gamificationEngine.evaluateAndStoreAchievements(uid, visitedArray, null, window.currentWalkPoints || 0);
 
         // Check if user is GLOBAL #1 (Alpha Dog Unlocked)
         const isGlobalNumberOne = achievements.mysteryFeats.some(f => f.id === 'alphaDog' && f.status === 'unlocked');
@@ -2807,7 +3599,17 @@ window.handleTrainingClick = function() {
                 alert('Halfway Point Verified! +0.5 Pts and Streak Extended 🔥. Enjoy the walk home!');
                 localStorage.setItem('trainingState', 'idle');
                 
-                // TODO: Sync +0.5 points and Streak++ to Firebase here
+                // Award walk points and attempt streak increment
+                if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
+                    const user = firebase.auth().currentUser;
+                    const docRef = firebase.firestore().collection('users').doc(user.uid);
+                    incrementRequestCount();
+                    docRef.set({
+                        walkPoints: firebase.firestore.FieldValue.increment(0.5)
+                    }, { merge: true });
+
+                    window.attemptDailyStreakIncrement();
+                }
                 
                 initTrainingUI();
             }
@@ -2850,3 +3652,6 @@ function initTrainingUI() {
 
 // Run on page load
 initTrainingUI();
+
+// Force the planner UI to render immediately on load
+setTimeout(() => updateTripUI(), 500);

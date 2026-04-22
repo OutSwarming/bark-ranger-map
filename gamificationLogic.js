@@ -43,8 +43,8 @@ class GamificationEngine {
         this.totalSystemParks = Object.values(counts).reduce((a, b) => a + b, 0);
     }
 
-    evaluate(visitedParksArray, userRank = null) {
-        let totalScore = 0;
+    evaluate(visitedParksArray, userRank = null, walkPoints = 0) {
+        let totalScore = Math.floor(walkPoints || 0);
         let verifiedCount = 0;
         let stateVisitsTotalMap = {};
         let stateVisitsVerifiedMap = {};
@@ -89,8 +89,8 @@ class GamificationEngine {
         };
     }
 
-    async evaluateAndStoreAchievements(userId, visitedParksArray, userRank = null) {
-        const achievementsData = this.evaluate(visitedParksArray, userRank);
+    async evaluateAndStoreAchievements(userId, visitedParksArray, userRank = null, walkPoints = 0) {
+        const achievementsData = this.evaluate(visitedParksArray, userRank, walkPoints);
         if (!userId || typeof firebase === 'undefined') return achievementsData;
 
         const db = firebase.firestore();
@@ -152,11 +152,11 @@ class GamificationEngine {
 
     calculatePaws(totalVisits, verifiedCount) {
         const thresholds = [
-            { id: 'bronzePaw', name: 'Bronze Paw', icon: '🐾', count: 10 },
-            { id: 'silverPaw', name: 'Silver Paw', icon: '🐾', count: 25 },
-            { id: 'goldPaw', name: 'Gold Paw', icon: '🏆', count: 50 },
-            { id: 'platinumPaw', name: 'Platinum Paw', icon: '💎', count: 100 },
-            { id: 'obsidianPaw', name: 'Obsidian Paw', icon: '🖤', count: 200 }
+            { id: 'bronzePaw', name: 'Bronze Paw', icon: '🐾', count: 10, criteria: 'Visit 10 Parks' },
+            { id: 'silverPaw', name: 'Silver Paw', icon: '🐾', count: 25, criteria: 'Visit 25 Parks' },
+            { id: 'goldPaw', name: 'Gold Paw', icon: '🏆', count: 50, criteria: 'Visit 50 Parks' },
+            { id: 'platinumPaw', name: 'Platinum Paw', icon: '💎', count: 100, criteria: 'Visit 100 Parks' },
+            { id: 'obsidianPaw', name: 'Obsidian Paw', icon: '🖤', count: 200, criteria: 'Visit 200 Parks' }
         ];
         return thresholds.map(t => {
             let status = (totalVisits >= t.count) ? 'unlocked' : 'locked';
@@ -177,10 +177,10 @@ class GamificationEngine {
         const hvW = this.westCoastStates.some(st => verifiedMap[st] > 0);
 
         return [
-            { id: 'theExplorer', name: 'The Explorer', icon: '🗺️', ...evalF(uniqueTotal >= 5, uniqueVerified >= 5), dateEarnedTs: uniqueTotal >= 5 ? Date.now() : 0 },
-            { id: 'theLocalLegend', name: 'The Local Legend', icon: '🏡', ...evalF(maxTotal >= 3, maxVerified >= 3), dateEarnedTs: maxTotal >= 3 ? Date.now() : 0 },
-            { id: 'coastToCoast', name: 'Coast-to-Coast', icon: '🌊', ...evalF(hasE && hasW, hvE && hvW), dateEarnedTs: (hasE && hasW) ? Date.now() : 0 },
-            { id: 'fiftyStateClub', name: '50-State Club', icon: '🦅', ...evalF(uniqueTotal >= 50, uniqueVerified >= 50), dateEarnedTs: uniqueTotal >= 50 ? Date.now() : 0 }
+            { id: 'theExplorer', name: 'The Explorer', icon: '🗺️', ...evalF(uniqueTotal >= 5, uniqueVerified >= 5), criteria: '5 Unique States', dateEarnedTs: uniqueTotal >= 5 ? Date.now() : 0 },
+            { id: 'theLocalLegend', name: 'The Local Legend', icon: '🏡', ...evalF(maxTotal >= 3, maxVerified >= 3), criteria: '3 Visits to 1 Park', dateEarnedTs: maxTotal >= 3 ? Date.now() : 0 },
+            { id: 'coastToCoast', name: 'Coast-to-Coast', icon: '🌊', ...evalF(hasE && hasW, hvE && hvW), criteria: 'E & W Coast Visits', dateEarnedTs: (hasE && hasW) ? Date.now() : 0 },
+            { id: 'fiftyStateClub', name: '50-State Club', icon: '🦅', ...evalF(uniqueTotal >= 50, uniqueVerified >= 50), criteria: 'Visit all 50 States', dateEarnedTs: uniqueTotal >= 50 ? Date.now() : 0 }
         ];
     }
 
@@ -197,7 +197,7 @@ class GamificationEngine {
             const tier = (status === 'unlocked' && verified >= required) ? 'verified' : 'honor';
             
             return {
-                id: `state-${code.toLowerCase()}`, name: this.statesMetadata[code], icon: '📍', status, percentComplete, tier,
+                id: `state-${code.toLowerCase()}`, name: this.statesMetadata[code], icon: '📍', status, percentComplete, tier, criteria: '100% Region Cleared',
                 dateEarned: status === 'unlocked' ? new Date().toLocaleDateString() : null, dateEarnedTs: status === 'unlocked' ? Date.now() : 0
             };
         });
@@ -221,16 +221,17 @@ class GamificationEngine {
         let loneW = vArray.some(p => { let d = new Date(p.ts || 0); return d.getMonth() === 11 && d.getDate() === 25; });
         
         return [
-            { id: 'alphaDog', name: 'The Alpha Dog', hint: 'Prove you are the true leader of the pack.', icon: '🐺', ...check(userRank === 1, userRank === 1), isMystery: true, dateEarnedTs: userRank === 1 ? Date.now() : 0 },
-            { id: 'nightRanger', name: 'The Night Ranger', hint: 'The best time to explore is when everyone else is asleep.', icon: '🦉', ...check(nightR, nightR), isMystery: true, dateEarnedTs: nightR ? Date.now() : 0 },
-            { id: 'earlyBird', name: 'The Early Bird', hint: 'The best trails belong to those who beat the sunrise.', icon: '🌅', ...check(earlyB, earlyB), isMystery: true, dateEarnedTs: earlyB ? Date.now() : 0 },
-            { id: 'marathoner', name: 'The Marathoner', hint: 'Visit 4 parks in a single 24-hour window.', icon: '🏃', ...check(marathoner, marathoner), isMystery: true, dateEarnedTs: marathoner ? Date.now() : 0 },
-            { id: 'loneWolf', name: 'The Lone Wolf', hint: 'Explore a park on the quietest day of the year.', icon: '❄️', ...check(loneW, loneW), isMystery: true, dateEarnedTs: loneW ? Date.now() : 0 },
+            { id: 'alphaDog', name: 'The Alpha Dog', hint: 'Prove you are the true leader of the pack.', icon: '🐺', ...check(userRank === 1, userRank === 1), criteria: 'Reach #1 on Leaderboard', isMystery: true, dateEarnedTs: userRank === 1 ? Date.now() : 0 },
+            { id: 'nightRanger', name: 'The Night Ranger', hint: 'The best time to explore is when everyone else is asleep.', icon: '🦉', ...check(nightR, nightR), criteria: 'Visit after Midnight', isMystery: true, dateEarnedTs: nightR ? Date.now() : 0 },
+            { id: 'earlyBird', name: 'The Early Bird', hint: 'The best trails belong to those who beat the sunrise.', icon: '🌅', ...check(earlyB, earlyB), criteria: 'Visit before 7 AM', isMystery: true, dateEarnedTs: earlyB ? Date.now() : 0 },
+            { id: 'marathoner', name: 'The Marathoner', hint: 'Visit 4 parks in a single 24-hour window.', icon: '🏃', ...check(marathoner, marathoner), criteria: '4 Parks in 24 Hours', isMystery: true, dateEarnedTs: marathoner ? Date.now() : 0 },
+            { id: 'loneWolf', name: 'The Lone Wolf', hint: 'Explore a park on the quietest day of the year.', icon: '❄️', ...check(loneW, loneW), criteria: 'Visit on Christmas Day', isMystery: true, dateEarnedTs: loneW ? Date.now() : 0 },
             { 
                 id: 'mapConqueror', 
                 name: 'The Map Conqueror', 
                 hint: 'Leave no stone unturned. Visit every single official site on the map.', 
                 icon: '🗺️', 
+                criteria: 'Visit 100% of Map',
                 status: (vArray.length >= (this.totalSystemParks || 1) && (this.totalSystemParks || 0) > 0) ? 'unlocked' : 'locked', 
                 tier: (vArray.length >= (this.totalSystemParks || 1)) ? 'verified' : 'honor', 
                 isMystery: true, 
