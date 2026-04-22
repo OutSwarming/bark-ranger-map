@@ -1787,6 +1787,19 @@ if (typeof firebase !== 'undefined') {
                         const data = doc.data();
                         const placeList = data.visitedPlaces || [];
                         
+                        // Admin Dashboard Reveal
+                        const adminContainer = document.getElementById('admin-controls-container');
+                        if (adminContainer) {
+                            if (data.isAdmin === true) {
+                                adminContainer.innerHTML = `<button onclick="window.location.href='admin.html'" class="glass-btn primary-btn" style="width: 100%; background: #10b981; color: white; border: none; padding: 14px; border-radius: 12px; font-weight: 800; display: flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"></path></svg>
+                                    Enter Data Refinery
+                                </button>`;
+                            } else {
+                                adminContainer.innerHTML = '';
+                            }
+                        }
+                        
                         // New: Fetch and sync streak & walk points
                         const streakVal = data.streakCount || 0;
                         const walkVal = data.walkPoints || 0;

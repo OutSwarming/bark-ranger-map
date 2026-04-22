@@ -1,9 +1,13 @@
-const functions = require("firebase-functions");
+const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
 const axios = require("axios");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { defineSecret } = require("firebase-functions/params");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
+
+// const geminiApiKey = defineSecret("GEMINI_API_KEY"); // Removed in favor of string-based runWith secrets
 
 exports.getPremiumRoute = functions.https.onCall(async (requestOrData, context) => {
     // 1. The "Bulletproof" Unwrapper
@@ -30,7 +34,7 @@ exports.getPremiumRoute = functions.https.onCall(async (requestOrData, context) 
             coordinates: coordinates
         }, {
             headers: {
-                "Authorization": hardcodedApiKey, // <--- FIX: The prefix is completely gone!
+                "Authorization": hardcodedApiKey,
                 "Content-Type": "application/json",
                 "Accept": "application/json, application/geo+json; charset=utf-8"
             }
@@ -87,3 +91,51 @@ exports.generateHourlyLeaderboard = functions.pubsub.schedule("0 * * * *")
             return null;
         }
     });
+
+/**
+ * Data Refinery GenAI Extraction Endpoint
+ */
+exports.extractParkData = functions.runWith({ secrets: ["GEMINI_API_KEY"], memory: '1GB' }).https.onCall(async (requestOrData, context) => {
+    // Support modular web SDK (data object wrapper)
+    const payload = requestOrData.data ? requestOrData.data : requestOrData;
+
+    if (!payload.image && !payload.text) {
+        throw new functions.https.HttpsError("invalid-argument", "Missing image or text payload.");
+    }
+
+    try {
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+        const prompt = "You are an expert data extraction parser for a National Park accessibility database. Analyze the provided Facebook screenshot or text block. Extract specific infrastructure and accessibility data and format it STRICTLY as a JSON object. If a data point is not mentioned, output null. Extraction Targets: parkName, entranceFee, swagLocation, approvedTrails, strictRules, hazards, extraSwag. Output ONLY valid JSON without markdown blocks.";
+
+        let result;
+        if (payload.image) {
+            const imagePart = {
+                inlineData: {
+                    data: payload.image,
+                    mimeType: payload.mimeType || 'image/jpeg'
+                }
+            };
+            result = await model.generateContent([prompt, imagePart]);
+        } else {
+            result = await model.generateContent([prompt, payload.text]);
+        }
+        
+        const response = result.response;
+        let output = response.text() || "{}";
+        
+        // Failsafe strip markdown if present
+        if (output.includes('```json')) {
+            output = output.replace(/```json/g, '').replace(/```/g, '').trim();
+        } else if (output.includes('```')) {
+            output = output.replace(/```/g, '').trim();
+        }
+
+        console.log("AI RAW OUTPUT:", output);
+        return JSON.parse(output);
+
+    } catch (error) {
+        console.error("GenAI Extraction Error:", error);
+        throw new functions.https.HttpsError("internal", "Failed to parse data via GenAI.");
+    }
+});
