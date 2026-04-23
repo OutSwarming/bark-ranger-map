@@ -246,9 +246,38 @@
         <div class="grid">
             <!-- INTAKE -->
             <div class="card">
-                <h2 style="margin-top: 0;">1. Data Intake</h2>
-                <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">Upload a Facebook screenshot or paste text from a post. The AI will extract the structured data.</p>
-                
+                <div style="margin-bottom: 20px;">
+                    <label for="engineSelector" style="font-size: 0.85em; font-weight: bold; color: #64748b; text-transform: uppercase;">AI Engine Routing</label>
+                    <select id="engineSelector" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-weight: 600; color: #1e293b; outline: none; margin-top: 5px;">
+                        <optgroup label="LIGHTWEIGHT (Best for 1-2 images)">
+                            <option value="free-31-lite">Account 1 (Free) - Gemini 3.1 Flash Lite</option>
+                            <option value="free-25-lite">Account 1 (Free) - Gemini 2.5 Flash Lite</option>
+                            <option value="free-20-lite">Account 1 (Free) - Gemini 2.0 Flash Lite</option>
+                        </optgroup>
+                        <optgroup label="HEAVYWEIGHT (Best for 3-5 image bundles)">
+                            <option value="free-3">Account 1 (Free) - Gemini 3 Flash</option>
+                            <option value="free-25">Account 1 (Free) - Gemini 2.5 Flash</option>
+                            <option value="free-20">Account 1 (Free) - Gemini 2.0 Flash</option>
+                        </optgroup>
+                        <optgroup label="UNLIMITED HEAVYWEIGHT">
+                            <option value="paid-3">Account 2 (Paid) - Gemini 3 Flash</option>
+                        </optgroup>
+                    </select>
+                    <div style="font-size: 0.75em; color: #64748b; margin-top: 8px; line-height: 1.4;">
+                        💡 <b>Pro-Tip:</b> Use <i>Lightweight</i> models for quick single screenshots. Use <i>Heavyweight</i> models when bundling 3-5 images at once.
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label for="bundleSelector" style="font-size: 0.85em; font-weight: bold; color: #64748b; text-transform: uppercase;">Images Per Request (Bundle Size)</label>
+                    <select id="bundleSelector" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-weight: 600; color: #1e293b; outline: none; margin-top: 5px;">
+                        <option value="1">1 Image (Highest Accuracy, Best for Lite models)</option>
+                        <option value="3" selected>3 Images (Balanced)</option>
+                        <option value="5">5 Images (Max for Heavyweight models)</option>
+                        <option value="all">All at Once (Proceed with caution)</option>
+                    </select>
+                </div>
+
                 <div class="drop-zone" id="drop-zone">
                     <p>Drop screenshot here</p>
                     <span style="font-size: 12px; color: #94a3b8;">or click to select</span>
@@ -265,13 +294,34 @@
             <!-- VERIFICATION -->
             <div class="card">
                 <h2 style="margin-top: 0;">2. Verification & Sync</h2>
-                <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">Verify the extracted data and fuzzy-matched park before syncing.</p>
+                <p style="color: #64748b; font-size: 14px; margin-bottom: 10px;">Verify the extracted data and fuzzy-matched park before syncing.</p>
                 
+                <div id="sourceImageDisplay" style="margin-bottom: 15px; font-size: 0.85em; font-weight: bold; color: #0277bd; background: #e1f5fe; padding: 8px 12px; border-radius: 8px; display: none; align-items: center; gap: 8px;">
+                    📄 Source: Image 1
+                </div>
+                
+                <div id="queue-container" style="display: none; margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 800; color: #64748b; text-transform: uppercase;">Review Queue</label>
+                    <select id="park-queue-dropdown" style="width: 100%; padding: 12px; border-radius: 8px; border: 2px solid #10b981; background: #f0fdf4; font-family: inherit; font-weight: 700; color: #166534; outline: none;"></select>
+                </div>
+
                 <div class="form-group search-dropdown">
                     <label>Park Name (Fuzzy Matched)</label>
                     <input type="text" id="park-name-search" placeholder="Search park name..." autocomplete="off">
                     <input type="hidden" id="park-id-hidden">
                     <div id="search-results" class="search-dropdown-results"></div>
+                </div>
+
+                <div class="form-group">
+                    <label>Date of Info</label>
+                    <input type="text" id="date-input" placeholder="e.g. April 2026" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-size: 14px; font-weight: 600; box-sizing: border-box; outline: none;">
+                    
+                    <div style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="force-geocode" style="cursor: pointer; width: 14px; height: 14px;">
+                        <label for="force-geocode" style="font-size: 0.75em; color: #ef4444; font-weight: 800; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">
+                            Force Re-Geocode <span style="font-weight: 400; opacity: 0.7;">(Overwrites Lat/Long)</span>
+                        </label>
+                    </div>
                 </div>
 
                 <div class="grid" style="gap: 15px;">
@@ -287,25 +337,28 @@
 
                 <div class="form-group">
                     <label>Approved Trails</label>
-                    <input type="text" id="approved-trails" placeholder="e.g. All trails except... / Specific trails">
+                    <textarea id="approved-trails" placeholder="e.g. All trails except... / Specific trails" rows="3" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-size: 14px; font-weight: 600; resize: vertical; box-sizing: border-box; outline: none;"></textarea>
                 </div>
 
                 <div class="form-group">
                     <label>Strict Rules</label>
-                    <input type="text" id="strict-rules" placeholder="e.g. 6ft leash max, remain on paved paths">
+                    <textarea id="strict-rules" placeholder="e.g. 6ft leash max, remain on paved paths" rows="3" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-size: 14px; font-weight: 600; resize: vertical; box-sizing: border-box; outline: none;"></textarea>
                 </div>
 
                 <div class="form-group">
                     <label>Hazards</label>
-                    <input type="text" id="hazards" placeholder="e.g. Ticks, Bears, Heat, Cyanobacteria">
+                    <textarea id="hazards" placeholder="e.g. Ticks, Bears, Heat, Cyanobacteria" rows="3" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-size: 14px; font-weight: 600; resize: vertical; box-sizing: border-box; outline: none;"></textarea>
                 </div>
                 
                 <div class="form-group">
                     <label>Extra Swag</label>
-                    <input type="text" id="extra-swag" placeholder="e.g. Patch, Collar Tag, Bandana">
+                    <textarea id="extra-swag" placeholder="e.g. Patch, Collar Tag, Bandana" rows="3" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-size: 14px; font-weight: 600; resize: vertical; box-sizing: border-box; outline: none;"></textarea>
                 </div>
 
-                <button id="sync-btn" class="primary-btn" style="background: #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); margin-top: 20px;">Sync to Map</button>
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button id="sync-btn" class="primary-btn" style="flex: 2; background: #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);">Sync to Map</button>
+                    <button id="discard-btn" class="primary-btn" style="flex: 1; background: #ef4444; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);">Discard</button>
+                </div>
                 
                 <details style="margin-top: 20px;">
                     <summary style="font-size: 12px; font-weight: 800; color: #94a3b8; cursor: pointer; text-transform: uppercase;">Raw AI Output</summary>
@@ -318,7 +371,7 @@
     <div id="loading-overlay">
         <div class="spinner"></div>
         <h3 style="margin-top: 20px; color: #1e293b;">Refining Data...</h3>
-        <p style="color: #64748b; font-size: 14px;">Gemini is reading the image/text.</p>
+        <p id="loadingSubtitle" style="color: #64748b; font-size: 14px;">Gemini is reading the image/text.</p>
     </div>
 
     <!-- Firebase SDK (Compat Version) -->
