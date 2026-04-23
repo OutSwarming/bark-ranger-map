@@ -14,10 +14,11 @@ class MapMarkerConfig {
         // Decide which base JPEG to use depending on category
         const isNational = (parkData.parkCategory === 'National');
         const iconUrl = isNational ? 'bark-logo.jpeg' : 'bark-tag.jpeg';
-        
+
         // Setup state classes that trigger mapStyles.css
         const stateClass = isVisited ? 'visited-marker' : 'unvisited-marker';
-        
+        const catClass = isNational ? 'cat-national' : 'cat-state';
+
         // Create the DivIcon HTML string
         // The wrapper handles the geometry (50% border radius) and the premium halo (via padding+box-shadow)
         // The img scales to fill the circle identically.
@@ -29,7 +30,7 @@ class MapMarkerConfig {
 
         // Initialize Leaflet divIcon
         const divIcon = L.divIcon({
-            className: `custom-bark-marker ${stateClass}`,
+            className: `custom-bark-marker ${stateClass} ${catClass}`,
             html: markerHtml,
             iconSize: [36, 36], // Increased slightly to account for the padding ring
             iconAnchor: [18, 18], // Center it smoothly
@@ -38,10 +39,10 @@ class MapMarkerConfig {
 
         // Initialize and return the L.marker
         const marker = L.marker([parkData.lat, parkData.lng], { icon: divIcon });
-        
+
         // Keep parkData securely bound for UI handlers downstream
         marker._parkData = parkData;
-        
+
         return marker;
     }
 }
