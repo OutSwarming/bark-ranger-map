@@ -938,3 +938,20 @@ details[open] .chevron {
     transition: transform 0.3s ease;
     display: inline-block;
 }
+/* --- Map & Location Enhancements --- */
+.pulse-location-dot {
+    background-color: #2196F3;
+    border-radius: 50%;
+    border: 3px solid white;
+    box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.7);
+    animation: pulse-ring 2s infinite cubic-bezier(0.66, 0, 0, 1);
+}
+
+@keyframes pulse-ring {
+    to { box-shadow: 0 0 0 20px rgba(33, 150, 243, 0); }
+}
+
+.custom-location-pulse {
+    background: transparent !important;
+    border: none !important;
+}

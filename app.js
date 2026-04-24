@@ -112,6 +112,7 @@ window.attemptDailyStreakIncrement = async function () {
 })();
 
 // Initialize map centered on the US
+// Initialize map
 const map = L.map('map', {
     zoomControl: false,
     worldCopyJump: true,
@@ -123,7 +124,25 @@ const map = L.map('map', {
     doubleTapDragZoomOptions: {
         reverse: true, // Google Maps style: slide down to zoom in, up to zoom out
     }
-}).setView([39.8283, -98.5795], 4);
+});
+
+// 🎯 MAP MEMORY INJECTION
+const savedView = JSON.parse(localStorage.getItem('barkMapView'));
+if (savedView && savedView.lat && savedView.lng && savedView.zoom) {
+    map.setView([savedView.lat, savedView.lng], savedView.zoom);
+} else {
+    map.setView([39.8283, -98.5795], 4); // Default US center
+}
+
+// Save the view every time the user stops dragging or zooming
+map.on('moveend', () => {
+    const center = map.getCenter();
+    localStorage.setItem('barkMapView', JSON.stringify({
+        lat: center.lat,
+        lng: center.lng,
+        zoom: map.getZoom()
+    }));
+});
 
 // Helper to manually dismiss the cold-start loader exactly when we want to (e.g. after sync)
 window.dismissBarkLoader = function() {
@@ -190,15 +209,15 @@ map.on('locationfound', function (e) {
         map.removeLayer(userLocationMarker);
     }
 
-    userLocationMarker = L.circleMarker(e.latlng, {
-        radius: 8,
-        fillColor: '#2196F3',
-        color: '#ffffff',
-        weight: 3,
-        opacity: 1,
-        fillOpacity: 1
-    }).addTo(map);
+    // 🎯 PULSING BLUE DOT UPGRADE
+    const pulsingIcon = L.divIcon({
+        className: 'custom-location-pulse',
+        html: '<div class="pulse-location-dot" style="width: 16px; height: 16px;"></div>',
+        iconSize: [16, 16],
+        iconAnchor: [8, 8]
+    });
 
+    userLocationMarker = L.marker(e.latlng, { icon: pulsingIcon }).addTo(map);
     userLocationMarker.bindPopup('You are here!').openPopup();
 });
 
@@ -1214,24 +1233,11 @@ function processParsedResults(results) {
                 stickyFooter.innerHTML = `
                     <a href="https://www.google.com/maps/search/?api=1&query=${d.lat},${d.lng}" target="_blank" class="dir-btn">🗺️ Google</a>
                     <a href="http://maps.apple.com/?q=${encodeURIComponent(d.name)}&ll=${d.lat},${d.lng}" target="_blank" class="dir-btn">🧭 Apple</a>
-                    <button class="glass-btn btn-trip">📍 Add to Trip</button>
+                    <button class="glass-btn btn-trip">➕ Add to Trip</button>
                 `;
 
                 const btnTrip = stickyFooter.querySelector('.btn-trip');
                 if (btnTrip) {
-                    // Check if already in ANY day to style button initially
-                    let foundDayIdx = -1;
-                    tripDays.forEach((day, dIdx) => {
-                        if (day.stops.find(stop => stop.lat === d.lat && stop.lng === d.lng)) foundDayIdx = dIdx;
-                    });
-
-                    stickyFooter.innerHTML = `
-                        <a href="http://googleusercontent.com/maps.google.com/maps?daddr=${d.lat},${d.lng}" target="_blank" class="dir-btn">🗺️ Google</a>
-                        <a href="http://maps.apple.com/?q=${encodeURIComponent(d.name)}&ll=${d.lat},${d.lng}" target="_blank" class="dir-btn">🧭 Apple</a>
-                        <button class="glass-btn btn-trip">➕ Add to Trip</button>
-                    `;
-
-                    const btnTrip = stickyFooter.querySelector('.btn-trip');
                     const syncPopupUI = () => {
                         const inTripDay = Array.from(tripDays).findIndex(day => day.stops.some(s => s.id === d.id));
                         if (inTripDay > -1) {
@@ -1369,6 +1375,22 @@ function processParsedResults(results) {
                     visitedSection.style.display = 'none';
                 }
             }
+
+            // 🎯 SMART AUTO-PAN (No Zoom, Correct Desktop Offset)
+            // Locks the current zoom level so it never zooms in or out
+            const currentZoom = map.getZoom();
+            
+            // Negative X: Shifts camera left, pushing the pin RIGHT (out from under your left panel)
+            // Positive Y: Shifts camera down, pushing the pin UP (out from under mobile bottom panel)
+            const xOffset = window.innerWidth >= 768 ? -250 : 0; 
+            const yOffset = window.innerWidth < 768 ? 180 : 0; 
+
+            // Project coordinates to flat pixels, apply the offset, and unproject back to GPS
+            const targetPoint = map.project([d.lat, d.lng], currentZoom).add([xOffset, yOffset]);
+            const targetLatLng = map.unproject(targetPoint, currentZoom);
+            
+            // Use panTo instead of setView to guarantee it only moves the camera X/Y
+            map.panTo(targetLatLng, { animate: true, duration: 0.5 });
 
             slidePanel.classList.add('open');
         });
@@ -1576,6 +1598,8 @@ function loadData() {
 
 function updateMarkers() {
     markerLayer.clearLayers();
+    let visibleBounds = L.latLngBounds(); // 🎯 Track the boundaries
+
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
 
@@ -1611,6 +1635,7 @@ function updateMarkers() {
 
         if ((matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip) {
             markerLayer.addLayer(item.marker);
+            visibleBounds.extend(item.marker.getLatLng()); // 🎯 Expand the invisible frame
 
             if (item.marker._icon) {
                 if (isVisited) {
@@ -1621,6 +1646,11 @@ function updateMarkers() {
             }
         }
     });
+
+    // 🎯 If the user specifically filtered for something, elegantly fly the camera to frame it!
+    if ((activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
+        map.flyToBounds(visibleBounds, { padding: [50, 50], maxZoom: 12, duration: 0.8 });
+    }
 }
 
 // Event Listeners
