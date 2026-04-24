@@ -11,7 +11,7 @@ const TRAIL_METADATA = {
     'harding_icefield': 'Harding Icefield Trail',
     'old_rag': 'Old Rag Trail',
     'emerald_lake': 'Emerald Lake Trail',
-    'precipice_trail': 'Precipice Trail',
+    'precipice_trail': 'Precipice Trail|Champlain North Ridge Trail|Orange & Black Path',
     'skyline_loop': 'Skyline Trail'
 };
 

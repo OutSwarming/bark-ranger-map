@@ -114,8 +114,19 @@ window.attemptDailyStreakIncrement = async function () {
 // Initialize map centered on the US
 const map = L.map('map', {
     zoomControl: false,
-    worldCopyJump: true
+    worldCopyJump: true,
+    renderer: L.canvas({ padding: 0.5 }),
+    preferCanvas: true
 }).setView([39.8283, -98.5795], 4);
+
+// Dismiss the cold-start loader once the map tiles are ready
+map.whenReady(() => {
+    const loader = document.getElementById('bark-loader');
+    if (loader) {
+        loader.style.opacity = '0';
+        setTimeout(() => loader.remove(), 600);
+    }
+});
 
 L.control.zoom({
     position: 'bottomleft'
@@ -770,7 +781,7 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
         const toggleBtn = document.getElementById('toggle-virtual-trail');
         if (toggleBtn && toggleBtn.classList.contains('active')) {
             virtualTrailLayerGroup.addTo(map);
-            map.fitBounds(virtualTrailLayerGroup.getBounds(), { padding: [50, 50], maxZoom: 14 });
+            // Don't auto-zoom here — only zoom when user explicitly clicks the Active Trail toggle
         }
     } catch (error) {
         console.error("Error rendering virtual trail:", error);

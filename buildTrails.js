@@ -11,7 +11,7 @@ const TRAIL_METADATA = {
     'harding_icefield': { name: 'Harding Icefield', total_miles: 8.2 },
     'old_rag': { name: 'Old Rag Trail', total_miles: 9.3 },
     'emerald_lake': { name: 'Emerald Lake', total_miles: 3.2 },
-    'precipice_trail': { name: 'Precipice Trail', total_miles: 2.1 },
+    'precipice_trail': { name: 'Precipice Trail', total_miles: 3.2 },
     'skyline_loop': { name: 'Skyline Trail Loop', total_miles: 5.5 }
 };
 
@@ -39,7 +39,7 @@ function stitchMultiLineString(lines) {
 
     while (remaining.length > 0) {
         // Prevent tracing orphaned path segments miles away
-        let bestIdx = -1, bestDist = 0.0001; // ~1km max jump threshold
+        let bestIdx = -1, bestDist = 0.0005; // increased threshold for gaps in road connections
         let needsReverse = false, addToEnd = true;
 
         const startPt = stitched[0];
@@ -119,15 +119,28 @@ files.forEach(file => {
 
                 if (feature.geometry.type === "MultiLineString") {
                     let rawLines = feature.geometry.coordinates;
-                    
+
                     // 🌲 PRE-STITCH FILTER: Drop the Northern Highline backcountry & McDonald Creek extensions
                     // This forces the stitcher to follow the Granite Park Trail descent and stop accurately at The Loop
                     if (trailId === 'highline_trail') {
-                        rawLines = rawLines.map(line => line.filter(coord => 
+                        rawLines = rawLines.map(line => line.filter(coord =>
                             coord[1] < 48.775 && !(coord[0] < -113.78 && coord[1] < 48.754)
                         )).filter(line => line.length > 1);
                     }
-                    
+
+                    // 🏔️ PRE-STITCH FILTER: Drop trail extensions that overshoot the loop junctions
+                    // Champlain North Ridge continues north past the junction & Orange & Black Path
+                    // extends east toward Schooner Head — both create straight-line artifacts
+                    if (trailId === 'precipice_trail') {
+                        rawLines = rawLines.filter(line => {
+                            const maxLat = Math.max(...line.map(c => c[1]));
+                            const maxLon = Math.max(...line.map(c => c[0]));  // lon is negative; less negative = farther east
+                            if (maxLat > 44.360) return false;   // Champlain NR north tail
+                            if (maxLon > -68.186) return false;  // O&B Path east tail
+                            return true;
+                        });
+                    }
+
                     coordinates = stitchMultiLineString(rawLines);
                 } else {
                     coordinates = feature.geometry.coordinates;
@@ -141,7 +154,6 @@ files.forEach(file => {
                 // 🏔️ THE UNIVERSAL TRAIL GUILLOTINE 🏔️
                 const TRAIL_TERMINALS = {
                     'angels_landing': { lat: 37.269384, lon: -112.947980 },   // Summit
-                    'precipice_trail': { lat: 44.3507, lon: -68.1940 },      // Champlain Summit (actual endpoint)
                     'highline_trail': { lat: 48.7547, lon: -113.8005 }       // The Loop Trailhead on GTSR
                 };
 
@@ -169,7 +181,7 @@ files.forEach(file => {
                     const target = TRAIL_TERMINALS[trailId];
                     let bestIndex = 0;
                     let minDist = Infinity;
-                    
+
                     for (let i = 0; i < coordinates.length; i++) {
                         const d = Math.pow(coordinates[i][1] - target.lat, 2) + Math.pow(coordinates[i][0] - target.lon, 2);
                         if (d < minDist) {
@@ -185,7 +197,7 @@ files.forEach(file => {
 
                 // ✂️ SPAGHETTI LOOP REMOVAL ✂️
                 // If the trail crosses itself, snip out the redundant loop (must run AFTER terminal slice)
-                if (trailId !== 'skyline_loop') {
+                if (trailId !== 'skyline_loop' && trailId !== 'precipice_trail') {
                     for (let i = 0; i < coordinates.length - 5; i++) {
                         for (let j = coordinates.length - 1; j > i + 5; j--) {
                             const dist = Math.pow(coordinates[i][0] - coordinates[j][0], 2) + Math.pow(coordinates[i][1] - coordinates[j][1], 2);
@@ -200,8 +212,8 @@ files.forEach(file => {
                 }
 
                 // 🔄 SPECIAL LOOP ROTATION: Close the mountaintop gap for Skyline Loop
-                if (trailId === 'skyline_loop' && coordinates.length > 0) {
-                    const paradise = { lat: 46.7860, lon: -121.7350 };
+                if ((trailId === 'skyline_loop' || trailId === 'precipice_trail') && coordinates.length > 0) {
+                    const paradise = trailId === 'skyline_loop' ? { lat: 46.7860, lon: -121.7350 } : { lat: 44.3495, lon: -68.1879 };
                     let bestIndex = 0;
                     let minDist = Infinity;
                     for (let i = 0; i < coordinates.length; i++) {
@@ -215,15 +227,16 @@ files.forEach(file => {
                         const p1 = coordinates.slice(bestIndex);
                         const p2 = coordinates.slice(0, bestIndex);
                         coordinates = p1.concat(p2);
-                        console.log(`🔄 Rotated Skyline Loop to anchor exactly at Paradise (Node ${bestIndex})`);
+                        if (trailId === 'precipice_trail') coordinates.reverse();
+                        console.log(`🔄 Rotated ${trailId} to anchor exactly at trailhead (Node ${bestIndex})${trailId === 'precipice_trail' ? ' and reversed' : ''}`);
                     }
                 }
 
                 // 🪓 THE FINAL SAFETY AXE 🪓
                 // Catch any remaining massive jumps, UNLESS it has a precision terminal
-                if (coordinates.length > 0 && !TRAIL_TERMINALS[trailId] && trailId !== 'skyline_loop') {
+                if (coordinates.length > 0 && !TRAIL_TERMINALS[trailId] && trailId !== 'skyline_loop' && trailId !== 'precipice_trail') {
                     for (let i = 1; i < coordinates.length; i++) {
-                        const dSq = Math.pow(coordinates[i][1] - coordinates[i-1][1], 2) + Math.pow(coordinates[i][0] - coordinates[i-1][0], 2);
+                        const dSq = Math.pow(coordinates[i][1] - coordinates[i - 1][1], 2) + Math.pow(coordinates[i][0] - coordinates[i - 1][0], 2);
                         if (dSq > MAX_JUMP_SQ) {
                             console.log(`🪓 Chopped rogue segment in ${trailId} at node ${i}!`);
                             coordinates = coordinates.slice(0, i);
