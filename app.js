@@ -2,7 +2,7 @@ const APP_VERSION = 1;
 
 // ====== SAFETY & COST CONTROLS ======
 let globalRequestCounter = 0;
-const SESSION_MAX_REQUESTS = 500; // Auto-shutdown background activity if hit
+const SESSION_MAX_REQUESTS = 10000; // Auto-shutdown background activity if hit
 
 function incrementRequestCount() {
     globalRequestCounter++;
@@ -12,43 +12,43 @@ function incrementRequestCount() {
     }
 }
 
-window.attemptDailyStreakIncrement = async function() {
+window.attemptDailyStreakIncrement = async function () {
     if (typeof firebase === 'undefined' || !firebase.auth().currentUser) return { success: false, message: "Not logged in" };
-    
+
     const user = firebase.auth().currentUser;
     const today = new Date().toISOString().split('T')[0];
-    
+
     const docRef = firebase.firestore().collection('users').doc(user.uid);
     const doc = await docRef.get();
     const data = doc.exists ? doc.data() : {};
-    
+
     const lastStreakDate = data.lastStreakDate || localStorage.getItem('lastStreakDate');
     if (lastStreakDate === today) return { success: false, message: "Already incremented today" };
-    
+
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toISOString().split('T')[0];
-    
+
     let currentStreak = parseInt(data.streakCount || localStorage.getItem('streakCount') || 0);
-    
+
     if (lastStreakDate === yesterdayStr) {
         currentStreak += 1;
     } else {
         currentStreak = 1;
     }
-    
+
     incrementRequestCount();
     await docRef.set({
         streakCount: currentStreak,
         lastStreakDate: today
     }, { merge: true });
-    
+
     localStorage.setItem('lastStreakDate', today);
     localStorage.setItem('streakCount', currentStreak);
-    
+
     const streakLabel = document.getElementById('streak-count-label');
     if (streakLabel) streakLabel.textContent = currentStreak;
-    
+
     return { success: true, count: currentStreak };
 };
 
@@ -357,7 +357,25 @@ async function evaluateAchievements(visitedPlacesMap) {
     const progressFill = document.getElementById('tier-progress-fill');
     const fractionEl = document.getElementById('rank-progress-fraction');
 
-    if (titleEl) titleEl.textContent = achievements.title;
+    // 🎉 RANK-UP CELEBRATION: Compare old title to new title
+    if (titleEl) {
+        const oldTitle = window._lastKnownRank || titleEl.textContent || 'B.A.R.K. Trainee';
+        const newTitle = achievements.title;
+        
+        // Check if user is authenticated (prevents confetti firing on logout when data goes to 0)
+        const isAuth = typeof firebase !== 'undefined' && firebase.auth().currentUser;
+        
+        // The system is fully hydrated ONLY if we received a server payload and it has completely settled
+        const isSecurelyHydrated = window._serverPayloadSettled;
+
+        if (isAuth && isSecurelyHydrated && window._lastKnownRank && oldTitle !== newTitle && newTitle !== 'B.A.R.K. Trainee') {
+             // The system has securely hydrated from the server. Any rank shift here is a genuine upgrade! 
+             showRankUpCelebration(oldTitle, newTitle);
+        }
+        
+        window._lastKnownRank = newTitle;
+        titleEl.textContent = newTitle;
+    }
     if (scoreEl) scoreEl.textContent = achievements.totalScore;
     if (progressFill) {
         const thresholds = [10, 25, 50, 100, 200, 300, 500];
@@ -394,7 +412,7 @@ async function evaluateAchievements(visitedPlacesMap) {
         const upgradeCta = (isU && b.tier === 'honor') ? '<div class="upgrade-pill">⭐ VERIFY TO UPGRADE</div>' : '';
         const sub = getSubtitle(b);
         const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${esc(b.name)}', '${esc(b.icon)}', '${esc(b.tier)}', false, '${esc(sub)}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
-        
+
         let progressHtml = '';
         if (!isU && typeof b.percentComplete !== 'undefined') {
             const pct = b.percentComplete;
@@ -458,7 +476,7 @@ async function evaluateAchievements(visitedPlacesMap) {
         const isU = b.status === 'unlocked';
         const sub = getSubtitle(b);
         const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${esc(b.name)}', '${esc(b.icon)}', 'verified', true, '${esc(sub)}')" class="mystery-share-btn" title="Share Milestone">📸</button>` : '';
-        
+
         return `
         <div class="mystery-card ${isU ? 'unlocked' : 'locked'}">
             <div class="mystery-icon">${isU ? b.icon : '?'}</div>
@@ -477,7 +495,7 @@ async function evaluateAchievements(visitedPlacesMap) {
 
     if (gridRare) gridRare.innerHTML = achievements.rareFeats.map(renderCoin).join('');
     if (gridPaws) gridPaws.innerHTML = achievements.paws.map(renderCoin).join('');
-    
+
     // --- NATIONAL PROGRESS ANCHOR CARD ---
     const nationalCardHtml = `
         <div class="flip-scene" style="flex: 0 0 auto; width: 140px; scroll-snap-align: center;">
@@ -659,6 +677,136 @@ const filterBtns = document.querySelectorAll('.filter-btn');
 const searchInput = document.getElementById('park-search');
 const clearSearchBtn = document.getElementById('clear-search-btn');
 const typeSelect = document.getElementById('type-filter');
+
+// --- Virtual Trail Overlay System ---
+let virtualTrailLayerGroup = L.featureGroup();
+let completedTrailsLayerGroup = L.featureGroup();
+
+async function renderCompletedTrailsOverlay(completedExpeditions) {
+    completedTrailsLayerGroup.clearLayers();
+    if (!completedExpeditions || completedExpeditions.length === 0) return;
+
+    try {
+        const response = await fetch('trails.json');
+        const trailsData = await response.json();
+
+        completedExpeditions.forEach(exp => {
+            const trailId = exp.id || exp.trail_id;
+            const trailGeoJson = trailsData[trailId];
+            if (trailGeoJson) {
+                // Drop the physical path
+                L.geoJSON(trailGeoJson, {
+                    style: { color: '#22c55e', weight: 4, opacity: 0.8, lineCap: 'round', dashArray: '1, 6' }
+                }).addTo(completedTrailsLayerGroup);
+
+                // Calculate a center point on the line geometry and drop a massive Trophy pin
+                const pt = turf.pointOnFeature(trailGeoJson);
+                const coords = pt.geometry.coordinates; // [lon, lat]
+                const pinIcon = L.divIcon({
+                    className: 'custom-completed-icon',
+                    html: `<div style="font-size: 16px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5)); background: #22c55e; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 3px solid white;">🏆</div>`,
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16]
+                });
+                
+                const trailName = trailGeoJson.properties ? trailGeoJson.properties.name : "Conquered Trail";
+                L.marker([coords[1], coords[0]], { icon: pinIcon })
+                 .bindPopup(`<div style="text-align:center;font-weight:800;color:#22c55e;">${trailName}</div><div style="font-size:11px;color:#64748b;text-align:center;margin-top:2px;">Expedition Conquered!</div>`)
+                 .addTo(completedTrailsLayerGroup);
+            }
+        });
+
+        const toggleBtn = document.getElementById('toggle-completed-trails');
+        if (toggleBtn && toggleBtn.classList.contains('active')) {
+            completedTrailsLayerGroup.addTo(map);
+        }
+    } catch (error) {
+        console.error("Error rendering completed trails:", error);
+    }
+}
+
+async function renderVirtualTrailOverlay(trailId, milesCompleted) {
+    virtualTrailLayerGroup.clearLayers();
+    try {
+        const response = await fetch('trails.json');
+        const trailsData = await response.json();
+        const trailGeoJson = trailsData[trailId];
+
+        if (!trailGeoJson) return;
+
+        const totalMiles = trailGeoJson.properties.total_miles;
+        
+        // Scale mathematical progress accurately onto the literal geographical vector length
+        const actualGeoLength = turf.length(trailGeoJson, { units: 'miles' });
+        const progressPct = totalMiles > 0 ? Math.min(1, milesCompleted / totalMiles) : 0;
+        const geoSafeMiles = actualGeoLength * progressPct;
+
+        if (geoSafeMiles > 0) {
+            const completedLine = turf.lineSliceAlong(trailGeoJson, 0, geoSafeMiles, { units: 'miles' });
+            L.geoJSON(completedLine, {
+                style: { color: '#22c55e', weight: 6, opacity: 0.9, lineCap: 'round' }
+            }).addTo(virtualTrailLayerGroup);
+        }
+
+        if (geoSafeMiles < actualGeoLength) {
+            const remainingLine = turf.lineSliceAlong(trailGeoJson, geoSafeMiles, actualGeoLength, { units: 'miles' });
+            L.geoJSON(remainingLine, {
+                style: { color: '#ef4444', weight: 4, opacity: 0.6, dashArray: '5, 10', lineCap: 'round' }
+            }).addTo(virtualTrailLayerGroup);
+        }
+
+        const currentAvatarPoint = turf.along(trailGeoJson, geoSafeMiles, { units: 'miles' });
+        
+        const dogIcon = L.divIcon({
+            className: 'custom-avatar-icon',
+            html: '<div style="font-size: 24px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));">🐕</div>',
+            iconSize: [30, 30],
+            iconAnchor: [15, 15]
+        });
+
+        L.marker([currentAvatarPoint.geometry.coordinates[1], currentAvatarPoint.geometry.coordinates[0]], { icon: dogIcon })
+            .addTo(virtualTrailLayerGroup);
+
+        const toggleBtn = document.getElementById('toggle-virtual-trail');
+        if (toggleBtn && toggleBtn.classList.contains('active')) {
+            virtualTrailLayerGroup.addTo(map);
+            map.fitBounds(virtualTrailLayerGroup.getBounds(), { padding: [50, 50], maxZoom: 14 });
+        }
+    } catch (error) {
+        console.error("Error rendering virtual trail:", error);
+    }
+}
+
+const toggleVirtualBtn = document.getElementById('toggle-virtual-trail');
+if (toggleVirtualBtn) {
+    toggleVirtualBtn.addEventListener('click', function() {
+        this.classList.toggle('active');
+        if (this.classList.contains('active')) {
+            virtualTrailLayerGroup.addTo(map);
+            if (virtualTrailLayerGroup.getLayers().length > 0) {
+                map.fitBounds(virtualTrailLayerGroup.getBounds(), { padding: [50, 50] });
+            }
+        } else {
+            virtualTrailLayerGroup.removeFrom(map);
+        }
+    });
+}
+
+const toggleCompletedBtn = document.getElementById('toggle-completed-trails');
+if (toggleCompletedBtn) {
+    toggleCompletedBtn.addEventListener('click', function() {
+        this.classList.toggle('active');
+        if (this.classList.contains('active')) {
+            completedTrailsLayerGroup.addTo(map);
+            if (completedTrailsLayerGroup.getLayers().length > 0) {
+                map.fitBounds(completedTrailsLayerGroup.getBounds(), { padding: [50, 50] });
+            }
+        } else {
+            completedTrailsLayerGroup.removeFrom(map);
+        }
+    });
+}
+// -------------------------------------
 
 const closeSlideBtn = document.getElementById('close-slide-panel');
 
@@ -941,7 +1089,7 @@ function processParsedResults(results) {
             // Read data from the marker itself, not from a closure
             const d = marker._parkData;
             titleEl.textContent = d.name || 'Unknown Park';
-            
+
             const metaContainer = document.getElementById('panel-meta-container');
             if (metaContainer) {
                 metaContainer.innerHTML = `
@@ -964,10 +1112,10 @@ function processParsedResults(results) {
                 const container = document.getElementById('panel-info-container');
                 const showMoreBtn = document.getElementById('show-more-info');
                 infoEl.innerHTML = d.info.replace(/\n/g, '<br>');
-                
+
                 // Show "More" button if character count > 250 OR if it has many line breaks
                 const hasManyLines = (infoEl.innerHTML.match(/<br>/g) || []).length > 4;
-                
+
                 if (d.info.length > 250 || hasManyLines) {
                     container.classList.add('report-collapsed');
                     showMoreBtn.style.display = 'block';
@@ -1034,7 +1182,7 @@ function processParsedResults(results) {
                     <a href="http://maps.apple.com/?q=${encodeURIComponent(d.name)}&ll=${d.lat},${d.lng}" target="_blank" class="dir-btn">🧭 Apple</a>
                     <button class="glass-btn btn-trip">📍 Add to Trip</button>
                 `;
-                
+
                 const btnTrip = stickyFooter.querySelector('.btn-trip');
                 if (btnTrip) {
                     // Check if already in ANY day to style button initially
@@ -1493,7 +1641,7 @@ searchInput.addEventListener('input', (e) => {
         const topMatches = matches.slice(0, 10);
 
         searchSuggestions.innerHTML = '';
-        
+
         // 1. Render local map matches
         if (topMatches.length > 0) {
             topMatches.forEach(match => {
@@ -1518,7 +1666,7 @@ searchInput.addEventListener('input', (e) => {
         // 2. BLENDED FALLBACK: Always offer global search if query is > 2 chars
         if (activeSearchQuery.trim().length > 2) {
             const isPremium = (typeof firebase !== 'undefined' && firebase.auth().currentUser !== null);
-            
+
             if (topMatches.length === 0 && isPremium) {
                 // If NO local matches, show the "Searching..." status and auto-trigger
                 const statusDiv = document.createElement('div');
@@ -1533,7 +1681,7 @@ searchInput.addEventListener('input', (e) => {
                 federatedBtn.className = 'suggestion-item';
                 federatedBtn.style.cssText = 'background: #f0fdf4; color: #15803d; font-weight: 700; border-top: 1px solid #bbf7d0; display: flex; align-items: center; gap: 8px; cursor: pointer; margin-top: 4px;';
                 federatedBtn.innerHTML = `🌍 <div>Search towns & cities for "${activeSearchQuery}"<br><span style="font-size:10px; font-weight:normal; color:#166534;">Query global database</span></div>`;
-                
+
                 federatedBtn.addEventListener('click', () => {
                     if (!isPremium) {
                         alert('Searching for custom towns and locations is a Premium feature. Please log in via the Profile tab.');
@@ -1544,17 +1692,17 @@ searchInput.addEventListener('input', (e) => {
                     searchSuggestions.style.display = 'none';
                     executeGeocode(queryToFetch, 'stop');
                 });
-                
+
                 // Show a locked state if not premium
                 if (!isPremium) {
                     federatedBtn.style.opacity = '0.7';
                     federatedBtn.innerHTML = `🔒 <div style="color:#64748b;">Search global towns for "${activeSearchQuery}"<br><span style="font-size:10px; font-weight:normal;">Sign in to unlock global routing</span></div>`;
                 }
-                
+
                 searchSuggestions.appendChild(federatedBtn);
             }
         }
-        
+
         if (searchSuggestions.innerHTML !== '') {
             searchSuggestions.style.display = 'block';
         } else {
@@ -1634,7 +1782,7 @@ async function loadSavedRoutes(uid) {
     const savedList = document.getElementById('saved-routes-list');
     const plannerList = document.getElementById('planner-saved-routes-list');
     const savedCount = document.getElementById('saved-routes-count');
-    
+
     if (!savedList && !plannerList) return;
 
     const renderTo = (container) => {
@@ -1711,7 +1859,7 @@ async function loadSavedRoutes(uid) {
                     if (tripNameInput) tripNameInput.value = data.tripName || "";
 
                     updateTripUI();
-                    
+
                     // If we loaded from the planner list, hide it automatically
                     const plannerContainer = document.getElementById('planner-saved-routes-container');
                     if (plannerContainer) plannerContainer.style.display = 'none';
@@ -1740,10 +1888,10 @@ async function loadSavedRoutes(uid) {
     }
 }
 
-window.togglePlannerRoutes = function() {
+window.togglePlannerRoutes = function () {
     const container = document.getElementById('planner-saved-routes-container');
     if (!container) return;
-    
+
     if (container.style.display === 'none') {
         container.style.display = 'block';
         const user = firebase.auth().currentUser;
@@ -1775,6 +1923,10 @@ if (typeof firebase !== 'undefined') {
         const profileName = document.getElementById('user-profile-name');
 
         if (user) {
+            // Reset hydration locks on login
+            window._serverPayloadSettled = false;
+            window._firstServerPayloadReceived = false;
+
             if (loginContainer) loginContainer.style.display = 'none';
             if (offlineStatusContainer) offlineStatusContainer.style.display = 'block';
             if (logoutBtn) logoutBtn.style.display = 'block';
@@ -1783,10 +1935,17 @@ if (typeof firebase !== 'undefined') {
             incrementRequestCount(); // Count initial snapshot fetch
             visitedSnapshotUnsubscribe = firebase.firestore().collection('users').doc(user.uid)
                 .onSnapshot((doc) => {
+                    // Monitor when the first authoritative server payload arrives vs local cache
+                    if (!doc.metadata.fromCache && !window._firstServerPayloadReceived) {
+                        window._firstServerPayloadReceived = true;
+                        // Give the UI 1000ms to finish evaluating the massive server data spike before unlocking the celebration engine
+                        setTimeout(() => { window._serverPayloadSettled = true; }, 1000);
+                    }
+
                     if (doc.exists) {
                         const data = doc.data();
                         const placeList = data.visitedPlaces || [];
-                        
+
                         // Admin Dashboard Reveal
                         const adminContainer = document.getElementById('admin-controls-container');
                         if (adminContainer) {
@@ -1799,16 +1958,62 @@ if (typeof firebase !== 'undefined') {
                                 adminContainer.innerHTML = '';
                             }
                         }
-                        
+
                         // New: Fetch and sync streak & walk points
                         const streakVal = data.streakCount || 0;
                         const walkVal = data.walkPoints || 0;
-                        
+
                         const streakLabel = document.getElementById('streak-count-label');
                         if (streakLabel) streakLabel.textContent = streakVal;
-                        
+
                         // Sync window state for evaluateAchievements
                         window.currentWalkPoints = walkVal;
+
+                        // Unified Virtual Expedition Sync & State Swap
+                        if (data.virtual_expedition && data.virtual_expedition.active_trail) {
+                            const miles = data.virtual_expedition.miles_logged || 0;
+                            const total = data.virtual_expedition.trail_total_miles || 0;
+                            
+                            // Trigger the map overlay
+                            renderVirtualTrailOverlay(data.virtual_expedition.active_trail, miles);
+                            hydrateEducationModal(data.virtual_expedition.active_trail);
+
+                            // Only complete if we have a valid total and miles >= total
+                            const isComplete = total > 0 && miles >= total;
+
+                            document.getElementById('expedition-intro-state').style.display = 'none';
+                            document.getElementById('expedition-active-state').style.display = isComplete ? 'none' : 'block';
+                            document.getElementById('expedition-complete-state').style.display = isComplete ? 'block' : 'none';
+
+                            const nameEl = document.getElementById('expedition-name');
+                            if (nameEl) {
+                                nameEl.textContent = isComplete ? "CONQUERED" : data.virtual_expedition.trail_name;
+                                nameEl.dataset.trailName = data.virtual_expedition.trail_name;
+                            }
+
+                            // Populate the celebration UI with trail name and dynamic points
+                            if (isComplete) {
+                                const celebName = document.getElementById('celebration-trail-name');
+                                if (celebName) celebName.textContent = data.virtual_expedition.trail_name;
+                                const claimBtn = document.getElementById('claim-reward-btn');
+                                const trailPts = Math.max(1, Math.round(total / 2));
+                                if (claimBtn) claimBtn.textContent = `🎁 Claim +${trailPts} PTS & Reset`;
+                            }
+
+                            const lifetime = data.lifetime_miles || 0;
+                            renderExpeditionProgress(miles, total, lifetime);
+                            renderExpeditionHistory(data.virtual_expedition.history || [], data.virtual_expedition.trail_name);
+                        } else {
+                            document.getElementById('expedition-intro-state').style.display = 'block';
+                            document.getElementById('expedition-active-state').style.display = 'none';
+                            document.getElementById('expedition-complete-state').style.display = 'none';
+                            document.getElementById('expedition-name').textContent = '';
+                        }
+
+                        // Sync Digital Trophy Case
+                        const cExpeditions = data.completed_expeditions || [];
+                        renderCompletedExpeditions(cExpeditions);
+                        renderCompletedTrailsOverlay(cExpeditions);
 
                         if (Array.isArray(placeList)) {
                             userVisitedPlaces = new Map();
@@ -1945,7 +2150,7 @@ loadData();
 map.on('click', () => {
     slidePanel.classList.remove('open');
     clearActivePin(); // 🔥 Fixes the ghost pin
-    
+
     // 🔥 NEW: Auto-collapse filter on empty map click
     document.getElementById('filter-panel').classList.add('collapsed');
 });
@@ -2078,7 +2283,7 @@ function renderLeaderboard(topUsers) {
 
         if (rank <= leaderboardVisibleLimit) {
             const li = document.createElement('li');
-            
+
             // Base Styles for Podium & Others
             let bg = 'white';
             let border = '1px solid rgba(0,0,0,0.05)';
@@ -2341,6 +2546,575 @@ if (shareSelect && qrContainer && typeof QRCode !== 'undefined') {
     }
 }
 
+// ====== VIRTUAL EXPEDITION ENGINE ======
+const TOP_10_TRAILS = [
+    { id: 'half_dome', name: 'Half Dome', miles: 16.0, park: 'Yosemite National Park', info: 'An iconic, strenuous hike culminating in a steep cable ascent. Very popular, requiring permits in season.' },
+    { id: 'angels_landing', name: 'Angels Landing', miles: 5.0, park: 'Zion National Park', info: 'Famous for its sheer drop-offs and chain-assisted narrow ridges. Not for the faint of heart!' },
+    { id: 'zion_narrows', name: 'Zion Narrows', miles: 16.0, park: 'Zion National Park', info: 'Wade through the Virgin River inside a spectacular slot canyon. Flash flood awareness is critical.' },
+    { id: 'cascade_pass', name: 'Cascade Pass / Sahale Arm', miles: 12.1, park: 'North Cascades National Park', info: 'Offers some of the most breathtaking alpine scenery, glaciers, and wildlife viewing in the Cascades.' },
+    { id: 'highline_trail', name: 'Highline Trail', miles: 11.8, park: 'Glacier National Park', info: 'Follows the Continental Divide with sweeping views of glacier-carved valleys.' },
+    { id: 'harding_icefield', name: 'Harding Icefield', miles: 8.2, park: 'Kenai Fjords National Park', info: 'A steep climb alongside Exit Glacier, rewarding you with endless views of ice and snow.' },
+    { id: 'old_rag', name: 'Old Rag Trail', miles: 9.3, park: 'Shenandoah National Park', info: 'A challenging rock scramble that is arguably the most popular and dangerous hike in the park.' },
+    { id: 'emerald_lake', name: 'Emerald Lake', miles: 3.2, park: 'Rocky Mountain National Park', info: 'A family-friendly stroll past several stunning alpine lakes nestled beneath jagged peaks.' },
+    { id: 'precipice_trail', name: 'Precipice Trail', miles: 2.1, park: 'Acadia National Park', info: 'A thrilling, iron-rung climbing route up the sheer cliffs of Champlain Mountain.' },
+    { id: 'skyline_loop', name: 'Skyline Trail Loop', miles: 5.5, park: 'Mount Rainier National Park', info: 'Wanders through subalpine meadows filled with wildflowers and marmots, offering up-close views of Rainier.' }
+];
+
+// --- TRAIL NAVIGATION & EDUCATION ENGINE ---
+window.flyToActiveTrail = function() {
+    // 1. Programmatically click your existing Nav Bar 'Map' button to switch views
+    const mapNavBtn = document.querySelector('.nav-item[data-target="map-view"]');
+    if (mapNavBtn) mapNavBtn.click();
+    
+    // 2. Ensure the Virtual Trail toggle is enabled so the line is visible
+    const toggleBtn = document.getElementById('toggle-virtual-trail');
+    if (toggleBtn && !toggleBtn.classList.contains('active')) {
+        toggleBtn.click(); 
+    }
+    
+    // 3. Leaflet rendering sequence
+    if (virtualTrailLayerGroup && virtualTrailLayerGroup.getLayers().length > 0) {
+        // We use a slight timeout because switching UI views (display: block) 
+        // temporarily breaks Leaflet's size calculations.
+        setTimeout(() => {
+            map.invalidateSize(); 
+            map.flyToBounds(virtualTrailLayerGroup.getBounds(), { 
+                padding: [50, 50], 
+                maxZoom: 14, 
+                animate: true, 
+                duration: 1.5 
+            });
+        }, 350);
+    } else {
+        alert("Trail map data is still loading. Please try again in a moment.");
+    }
+};
+
+window.hydrateEducationModal = function(trailId) {
+    const trailData = TOP_10_TRAILS.find(t => t.id === trailId);
+    if (!trailData) return;
+    
+    const parkEl = document.getElementById('edu-park-name');
+    const descEl = document.getElementById('edu-trail-desc');
+    const distEl = document.getElementById('edu-trail-distance');
+
+    if (parkEl) parkEl.textContent = trailData.park;
+    if (descEl) descEl.textContent = trailData.info;
+    if (distEl) distEl.textContent = `${trailData.miles.toFixed(1)} Miles`;
+};
+
+const spinBtn = document.getElementById('spin-wheel-btn');
+if (spinBtn) {
+    spinBtn.addEventListener('click', async () => {
+        const user = firebase.auth().currentUser;
+        if (!user) {
+            alert("Please sign in to start your expedition!");
+            return;
+        }
+
+        spinBtn.textContent = '🎡 Spinning...';
+        spinBtn.disabled = true;
+        spinBtn.style.opacity = '0.7';
+
+        // 1. Fetch user data to see what they have already completed
+        incrementRequestCount();
+        const userRef = firebase.firestore().collection('users').doc(user.uid);
+        
+        try {
+            const docSnap = await userRef.get();
+            const userData = docSnap.data() || {};
+            
+            const completedExpeditions = userData.completed_expeditions || [];
+            const completedIds = completedExpeditions.map(exp => exp.id || exp.trail_id);
+            
+            // 2. Filter out trails they already conquered
+            let availableTrails = TOP_10_TRAILS.filter(trail => !completedIds.includes(trail.id));
+            
+            // 3. Prestige Mode Fallback (If they beat the game, let them replay)
+            if (availableTrails.length === 0) {
+                alert("🌟 Incredible! You've hiked every trail. Prestige Mode unlocked: Trails will now repeat!");
+                availableTrails = TOP_10_TRAILS; 
+            }
+
+            let spinCount = 0;
+            let finalTrail = null;
+            const nameHeader = document.getElementById('expedition-name');
+
+            const shuffleInterval = setInterval(() => {
+                // Spin only using the available (uncompleted) trails
+                const randomTrail = availableTrails[Math.floor(Math.random() * availableTrails.length)];
+                if (nameHeader) nameHeader.textContent = randomTrail.name;
+                spinCount++;
+
+                if (spinCount > 15) {
+                    clearInterval(shuffleInterval);
+                    finalTrail = availableTrails[Math.floor(Math.random() * availableTrails.length)];
+                    if (nameHeader) nameHeader.textContent = finalTrail.name;
+                    
+                    assignTrailToUser(user.uid, finalTrail);
+
+                    // 🔥 THE FIX: Reset the button state in the background so it's ready for the next loop
+                    setTimeout(() => {
+                        spinBtn.textContent = '🎡 Spin for a Trail';
+                        spinBtn.disabled = false;
+                        spinBtn.style.opacity = '1';
+                    }, 500);
+                }
+            }, 120);
+
+        } catch (error) {
+            console.error("Error fetching spin data:", error);
+            alert("Error spinning the wheel. Please check your connection.");
+            spinBtn.textContent = '🎡 Spin for a Trail';
+            spinBtn.disabled = false;
+            spinBtn.style.opacity = '1';
+        }
+    });
+}
+
+async function assignTrailToUser(uid, trail) {
+    incrementRequestCount();
+    const userRef = firebase.firestore().collection('users').doc(uid);
+
+    const doc = await userRef.get();
+    const data = doc.data() || {};
+    const existingHistory = (data.virtual_expedition && data.virtual_expedition.history) || [];
+
+    await userRef.set({
+        virtual_expedition: {
+            active_trail: trail.id,
+            trail_name: trail.name,
+            miles_logged: 0,
+            trail_total_miles: trail.miles,
+            history: existingHistory
+        }
+    }, { merge: true });
+
+    document.getElementById('expedition-intro-state').style.display = 'none';
+    const activeEl = document.getElementById('expedition-active-state');
+    const nameHeader = document.getElementById('expedition-name');
+    if (nameHeader) {
+        nameHeader.textContent = trail.name;
+        nameHeader.dataset.trailName = trail.name;
+    }
+    activeEl.style.display = 'block';
+    hydrateEducationModal(trail.id);
+    activeEl.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 400, fill: 'forwards' });
+
+    renderExpeditionProgress(0, trail.miles);
+    renderExpeditionHistory(existingHistory, trail.name);
+}
+
+// Helper: Calculate distance in meters
+function getDistanceMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371e3;
+    const p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+    const dp = (lat2 - lat1) * Math.PI / 180, dl = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Global function to process ANY mileage addition (GPS or Manual)
+async function processMileageAddition(milesToAdd, typeLabel) {
+    const user = firebase.auth().currentUser;
+    if (!user) return;
+
+    const userRef = firebase.firestore().collection('users').doc(user.uid);
+    incrementRequestCount();
+
+    try {
+        const docSnap = await userRef.get();
+        const userData = docSnap.data();
+
+        let currentMiles = 0;
+        let totalMiles = 10;
+        let history = [];
+        let lifetimeTotal = userData.lifetime_miles || 0;
+
+        // Grab the trail name from the user data
+        const currentTrailName = (userData.virtual_expedition && userData.virtual_expedition.trail_name) || "Active Trail";
+
+        if (userData.virtual_expedition) {
+            currentMiles = userData.virtual_expedition.miles_logged || 0;
+            totalMiles = userData.virtual_expedition.trail_total_miles || 0;
+            history = userData.virtual_expedition.history || [];
+        }
+
+        let newTotal = currentMiles + milesToAdd;
+        if (totalMiles > 0 && newTotal > totalMiles) newTotal = totalMiles;
+
+        // The updated object structure for the array
+        const logEntry = {
+            ts: Date.now(),
+            miles: parseFloat(milesToAdd.toFixed(2)),
+            type: typeLabel,
+            trailName: currentTrailName // Added for grouping
+        };
+        history.unshift(logEntry);
+
+        await userRef.update({
+            "virtual_expedition.miles_logged": newTotal,
+            "virtual_expedition.history": history,
+            "lifetime_miles": firebase.firestore.FieldValue.increment(parseFloat(milesToAdd.toFixed(2)))
+        });
+
+        renderExpeditionProgress(newTotal, totalMiles, lifetimeTotal + milesToAdd);
+        renderExpeditionHistory(history, currentTrailName);
+
+        if (newTotal >= totalMiles) {
+            setTimeout(() => alert("🎉 Expedition Complete! You conquered the trail!"), 800);
+        }
+
+    } catch (error) {
+        console.error("Failed to log miles:", error);
+    }
+}
+
+// The Manual Override Action
+const logManualBtn = document.getElementById('log-manual-miles-btn');
+if (logManualBtn) {
+    logManualBtn.addEventListener('click', () => {
+        const inputEl = document.getElementById('miles-input');
+        let milesToLog = parseFloat(inputEl.value);
+
+        if (isNaN(milesToLog) || milesToLog <= 0) return;
+        if (milesToLog > 15) {
+            alert("Whoa there! You can only log a maximum of 15 miles per day manually.");
+            milesToLog = 15;
+            inputEl.value = 15;
+        }
+
+        processMileageAddition(milesToLog, 'Manual Entry');
+        inputEl.value = '';
+    });
+}
+
+function renderExpeditionProgress(current, total, lifetime) {
+    const fillEl = document.getElementById('expedition-fill');
+    const textEl = document.getElementById('expedition-progress-text');
+    const lifetimeEl = document.getElementById('lifetime-miles-display');
+    const activeState = document.getElementById('expedition-active-state');
+    const completeState = document.getElementById('expedition-complete-state');
+    if (!fillEl || !textEl) return;
+
+    const pct = (total > 0) ? Math.min(100, (current / total) * 100) : 0;
+    fillEl.style.width = `${pct.toFixed(1)}%`;
+    textEl.textContent = `${current.toFixed(1)} / ${total.toFixed(1)} Miles (${pct.toFixed(1)}%)`;
+
+    if (total > 0 && current >= total && activeState && completeState) {
+        activeState.style.display = 'none';
+        completeState.style.display = 'block';
+        document.getElementById('expedition-name').textContent = "CONQUERED";
+        
+        // Ensure celebration trail name is set
+        const trailName = document.getElementById('celebration-trail-name');
+        if (trailName) {
+            const currentTrailName = document.getElementById('expedition-name').dataset.trailName || "Expedition";
+            trailName.textContent = currentTrailName;
+        }
+    } else if (activeState && completeState) {
+        // Not complete or total is 0, ensure the name isn't stuck on "CONQUERED"
+        const nameHeader = document.getElementById('expedition-name');
+        if (nameHeader && nameHeader.textContent === "CONQUERED") {
+            nameHeader.textContent = nameHeader.dataset.trailName || "";
+        }
+    }
+
+    if (lifetimeEl && lifetime !== undefined) {
+        lifetimeEl.textContent = `${lifetime.toFixed(1)} mi`;
+    }
+}
+
+function renderExpeditionHistory(historyArray, activeTrailName = "Expedition") {
+    // 1. Update the mini-log in the expedition card (FILTERED FOR CURRENT TRAIL ONLY)
+    const list = document.getElementById('expedition-history-list');
+    if (list) {
+        // Filter the array so we only show logs belonging to the active trail
+        const currentTrailLogs = historyArray.filter(log => {
+            // Only show logs that explicitly match the active trail name
+            return log.trailName && log.trailName === activeTrailName;
+        });
+
+        if (!currentTrailLogs || currentTrailLogs.length === 0) {
+            list.innerHTML = '<li style="color: #94a3b8; font-size: 11px; text-align: center; padding: 10px 0; font-style: italic;">No miles logged yet.</li>';
+        } else {
+            // Render only the filtered logs (limited to the 5 most recent)
+            list.innerHTML = currentTrailLogs.slice(0, 5).map(log => {
+                const dateStr = new Date(log.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const icon = log.type === 'GPS Verified' ? '📍' : '✏️';
+                return `
+                <li class="log-item">
+                    <div class="log-item-left">
+                        <span class="log-item-type">${icon} ${log.type}</span>
+                        <span class="log-item-date">${dateStr}</span>
+                    </div>
+                    <div class="log-item-miles">+${log.miles.toFixed(2)} mi</div>
+                </li>`;
+            }).join('');
+        }
+    }
+
+    // 2. Update the master management list in the side panel (NO CHANGES - SHOWS ALL TIME)
+    const masterList = document.getElementById('manage-walks-list');
+    const masterCount = document.getElementById('manage-walks-count');
+    if (masterList) {
+        if (masterCount) masterCount.textContent = historyArray.length;
+        if (!historyArray || historyArray.length === 0) {
+            masterList.innerHTML = '<div style="color: #94a3b8; font-size: 12px; text-align: center; padding: 20px; font-style: italic;">No walks logged yet.</div>';
+            return;
+        }
+
+        // Group by trailName
+        const grouped = historyArray.reduce((acc, log) => {
+            // Smart fallback: if trailName is missing or generic, use the current activeTrailName
+            const isGeneric = !log.trailName || log.trailName === "Expedition" || log.trailName === "Active Trail";
+            const trail = isGeneric ? (activeTrailName || "Expedition") : log.trailName;
+            
+            if (!acc[trail]) acc[trail] = [];
+            acc[trail].push(log);
+            return acc;
+        }, {});
+
+        masterList.innerHTML = Object.keys(grouped).map(trail => {
+            const logs = grouped[trail];
+            const totalTrailMiles = logs.reduce((sum, l) => sum + l.miles, 0);
+            return `
+            <div style="margin-bottom: 20px;">
+                <div style="font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; margin-bottom: 10px; display: flex; justify-content: space-between; padding: 0 4px;">
+                    <span>${trail}</span>
+                    <span>${totalTrailMiles.toFixed(2)} mi</span>
+                </div>
+                <ul style="list-style: none; padding: 0; margin: 0; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #f1f5f9;">
+                    ${logs.map(log => {
+                        const dateStr = new Date(log.ts).toLocaleString([], { month: 'short', day: 'numeric' });
+                        const icon = log.type === 'GPS Verified' ? '📍' : '✏️';
+                        return `
+                        <li style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #f8fafc;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 14px;">${icon}</span>
+                                <div style="display: flex; flex-direction: column;">
+                                    <span style="font-weight: 700; color: #1e293b; font-size: 13px;">${log.miles.toFixed(2)} mi</span>
+                                    <span style="font-size: 10px; color: #64748b;">${dateStr}</span>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 12px;">
+                                <button onclick="editWalkMiles('${log.ts}')" style="background: none; border: none; color: #3b82f6; font-size: 10px; font-weight: 800; cursor: pointer; padding: 4px; letter-spacing: 0.5px;">EDIT</button>
+                                <button onclick="deleteWalkLog('${log.ts}')" style="background: none; border: none; color: #ef4444; font-size: 10px; font-weight: 800; cursor: pointer; padding: 4px; letter-spacing: 0.5px;">DELETE</button>
+                            </div>
+                        </li>`;
+                    }).join('')}
+                </ul>
+            </div>`;
+        }).join('');
+    }
+}
+
+window.editWalkMiles = async function (timestamp) {
+    const user = firebase.auth().currentUser;
+    if (!user) return;
+
+    const userRef = firebase.firestore().collection('users').doc(user.uid);
+    try {
+        const doc = await userRef.get();
+        const data = doc.data();
+        let history = (data.virtual_expedition && data.virtual_expedition.history) || [];
+        const logIndex = history.findIndex(l => l.ts.toString() === timestamp.toString());
+
+        if (logIndex === -1) return;
+
+        const currentLog = history[logIndex];
+        const activeTrailName = data.virtual_expedition.trail_name;
+
+        // 1. Edit Miles
+        const newMilesStr = prompt("Enter new miles for this walk:", currentLog.miles);
+        if (newMilesStr === null) return;
+        const newMiles = parseFloat(newMilesStr);
+        if (isNaN(newMiles) || newMiles < 0) {
+            alert("Please enter a valid mileage.");
+            return;
+        }
+
+        // 2. Edit Trail Name
+        const newTrailName = prompt("Which trail was this on? (e.g. Grand Canyon, Bright Angel):", currentLog.trailName || "Expedition");
+        if (newTrailName === null) return;
+
+        // 3. Edit Date
+        const currentDateStr = new Date(currentLog.ts).toISOString().slice(0, 16);
+        const newDateStr = prompt("Edit Date/Time (YYYY-MM-DDTHH:MM):", currentDateStr);
+        if (newDateStr === null) return;
+        const newTs = new Date(newDateStr).getTime();
+        if (isNaN(newTs)) {
+            alert("Invalid date format.");
+            return;
+        }
+
+        const oldMiles = currentLog.miles;
+        const oldTrail = currentLog.trailName;
+        const diff = newMiles - oldMiles;
+
+        // Update Log Entry
+        history[logIndex].miles = newMiles;
+        history[logIndex].trailName = newTrailName;
+        history[logIndex].ts = newTs;
+
+        // Sort history by timestamp descending
+        history.sort((a, b) => b.ts - a.ts);
+
+        // Update Current Trail Progress (If Trail Migration occurs or miles change on active trail)
+        let currentProgress = data.virtual_expedition.miles_logged || 0;
+
+        if (oldTrail === activeTrailName && newTrailName === activeTrailName) {
+            currentProgress += diff;
+        } else if (oldTrail === activeTrailName && newTrailName !== activeTrailName) {
+            currentProgress -= oldMiles;
+        } else if (oldTrail !== activeTrailName && newTrailName === activeTrailName) {
+            currentProgress += newMiles;
+        }
+
+        if (currentProgress < 0) currentProgress = 0;
+        const maxMiles = data.virtual_expedition.trail_total_miles || 10;
+        if (currentProgress > maxMiles) currentProgress = maxMiles;
+
+        await userRef.update({
+            "virtual_expedition.history": history,
+            "virtual_expedition.miles_logged": currentProgress,
+            "lifetime_miles": firebase.firestore.FieldValue.increment(diff)
+        });
+
+        showTripToast("Walk log updated ✏️");
+    } catch (e) {
+        console.error(e);
+        alert("Failed to update walk.");
+    }
+};
+
+window.deleteWalkLog = async function (timestamp) {
+    if (!confirm("Are you sure? Removing this walk will subtract these miles from your progress, but you keep your reward points.")) return;
+
+    const user = firebase.auth().currentUser;
+    if (!user) return;
+
+    const userRef = firebase.firestore().collection('users').doc(user.uid);
+    try {
+        const doc = await userRef.get();
+        const data = doc.data();
+        let history = (data.virtual_expedition && data.virtual_expedition.history) || [];
+        const logIndex = history.findIndex(l => l.ts.toString() === timestamp.toString());
+
+        if (logIndex === -1) return;
+
+        const currentLog = history[logIndex];
+        const milesToRemove = currentLog.miles;
+        const walkTrail = currentLog.trailName;
+        const activeTrail = data.virtual_expedition.trail_name;
+
+        history.splice(logIndex, 1);
+
+        let currentProgress = data.virtual_expedition.miles_logged || 0;
+        // Only subtract from progress if the deleted walk was on the ACTIVE trail
+        if (walkTrail === activeTrail) {
+            currentProgress -= milesToRemove;
+        }
+
+        if (currentProgress < 0) currentProgress = 0;
+
+        await userRef.update({
+            "virtual_expedition.history": history,
+            "virtual_expedition.miles_logged": currentProgress,
+            "lifetime_miles": firebase.firestore.FieldValue.increment(-milesToRemove)
+        });
+
+        showTripToast("Walk removed 🗑️");
+    } catch (e) {
+        console.error(e);
+        alert("Failed to delete walk.");
+    }
+};
+
+window.claimRewardAndReset = async function() {
+    const user = firebase.auth().currentUser;
+    if (!user) return;
+
+    const userRef = firebase.firestore().collection('users').doc(user.uid);
+    try {
+        const docSnap = await userRef.get();
+        const userData = docSnap.data();
+        if (!userData || !userData.virtual_expedition) return;
+
+        const currentTrailName = userData.virtual_expedition.trail_name || "Expedition";
+        const trailMiles = userData.virtual_expedition.trail_total_miles || 0;
+
+        // Dynamic points: 1 PT per 2 miles of trail length, minimum 1
+        const pointsEarned = Math.max(1, Math.round(trailMiles / 2));
+
+        // 1. Create the Trophy Object
+        const completedTrail = {
+            id: userData.virtual_expedition.active_trail,
+            name: currentTrailName,
+            miles: trailMiles,
+            points_earned: pointsEarned,
+            date_completed: Date.now()
+        };
+
+        const completedArray = userData.completed_expeditions || [];
+
+        // 🔥 THE DUPLICATE LOCK: Check if they already have this badge
+        const existingIndex = completedArray.findIndex(exp => exp.id === completedTrail.id);
+
+        if (existingIndex > -1) {
+            // They beat it again on Prestige Mode! Just update the date.
+            completedArray[existingIndex].date_completed = Date.now();
+        } else {
+            // Brand new badge, add it to the array.
+            completedArray.push(completedTrail);
+        }
+
+        // 2. Database Update — now includes walkPoints increment!
+        await userRef.update({
+            "completed_expeditions": completedArray,
+            "virtual_expedition.active_trail": null,
+            "virtual_expedition.trail_name": null,
+            "virtual_expedition.miles_logged": 0,
+            "virtual_expedition.trail_total_miles": 0,
+            "walkPoints": firebase.firestore.FieldValue.increment(pointsEarned)
+        });
+
+        showTripToast(`🏆 +${pointsEarned} PTS! Reward Claimed: ${currentTrailName}`);
+    } catch (e) {
+        console.error(e);
+        alert("Failed to claim reward.");
+    }
+};
+
+function renderCompletedExpeditions(expeditionsArray) {
+    const grid = document.getElementById('completed-expeditions-grid');
+    const caseEl = document.getElementById('expedition-trophy-case');
+    if (!grid || !caseEl) return;
+    
+    if (!expeditionsArray || expeditionsArray.length === 0) {
+        caseEl.style.display = 'none';
+        return;
+    }
+
+    caseEl.style.display = 'block';
+
+    // Use robust fallbacks for property names to support older logs
+    grid.innerHTML = expeditionsArray.map(exp => {
+        const name = exp.name || exp.trail_name || "Expedition";
+        const rawDate = exp.date_completed || exp.ts || Date.now();
+        const dateStr = new Date(rawDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+        
+        return `
+        <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 10px; flex: 0 0 180px; scroll-snap-align: start;">
+            <div style="font-size: 24px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.1));">🏅</div>
+            <div style="display: flex; flex-direction: column;">
+                <span style="font-size: 12px; font-weight: 800; color: #1e293b; line-height: 1.2; white-space: normal;">${name}</span>
+                <span style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-top: 2px;">${dateStr}</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
 // --- DRAFT TRIP VISUALS ENGINE ---
 let draftTripLines = [];
 
@@ -2377,29 +3151,29 @@ function updateTripMapVisuals() {
 
     // 3. Draw Bookend Map Markers
     if (startLatLng) {
-        let bg = isRoundTrip ? '#8b5cf6' : '#22c55e'; 
+        let bg = isRoundTrip ? '#8b5cf6' : '#22c55e';
         let iconText = isRoundTrip ? '🔄' : 'A';
-        let startIcon = L.divIcon({ className: 'bookend-icon', html: `<div style="background:${bg}; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; border:2px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.5); font-size:12px; z-index: 1000;">${iconText}</div>`, iconSize: [24,24], iconAnchor: [12,12] });
-        window.draftBookendMarkers.push(L.marker(startLatLng, {icon: startIcon}).addTo(map));
+        let startIcon = L.divIcon({ className: 'bookend-icon', html: `<div style="background:${bg}; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; border:2px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.5); font-size:12px; z-index: 1000;">${iconText}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
+        window.draftBookendMarkers.push(L.marker(startLatLng, { icon: startIcon }).addTo(map));
     }
     if (endLatLng && !isRoundTrip) {
-        let endIcon = L.divIcon({ className: 'bookend-icon', html: `<div style="background:#ef4444; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; border:2px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.5); font-size:12px; z-index: 1000;">B</div>`, iconSize: [24,24], iconAnchor: [12,12] });
-        window.draftBookendMarkers.push(L.marker(endLatLng, {icon: endIcon}).addTo(map));
+        let endIcon = L.divIcon({ className: 'bookend-icon', html: `<div style="background:#ef4444; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; border:2px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.5); font-size:12px; z-index: 1000;">B</div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
+        window.draftBookendMarkers.push(L.marker(endLatLng, { icon: endIcon }).addTo(map));
     }
 
     // 4. Decorate map pins and draw continuous dotted lines
     tripDays.forEach((day, dayIdx) => {
         const latlngs = [];
         if (dayIdx === 0 && startLatLng) latlngs.push(startLatLng);
-        if (dayIdx > 0 && tripDays[dayIdx-1].stops.length > 0) {
-            const prevLast = tripDays[dayIdx-1].stops[tripDays[dayIdx-1].stops.length - 1];
+        if (dayIdx > 0 && tripDays[dayIdx - 1].stops.length > 0) {
+            const prevLast = tripDays[dayIdx - 1].stops[tripDays[dayIdx - 1].stops.length - 1];
             latlngs.push([prevLast.lat, prevLast.lng]);
         }
 
         day.stops.forEach((stop, stopIdx) => {
             latlngs.push([stop.lat, stop.lng]);
             const point = allPoints.find(p => p.id === stop.id && p.id !== undefined);
-            
+
             let badgeContainer;
             if (point && point.marker && point.marker._icon) {
                 badgeContainer = point.marker._icon;
@@ -2411,7 +3185,7 @@ function updateTripMapVisuals() {
                     iconSize: [14, 14],
                     iconAnchor: [7, 7]
                 });
-                const customMarker = L.marker([stop.lat, stop.lng], {icon: customIcon, interactive: false}).addTo(map);
+                const customMarker = L.marker([stop.lat, stop.lng], { icon: customIcon, interactive: false }).addTo(map);
                 window.draftCustomMarkers.push(customMarker);
                 // Strict check: Leaflet may not create the icon if it's off-screen
                 if (customMarker._icon) badgeContainer = customMarker._icon.firstChild;
@@ -2436,7 +3210,7 @@ function updateTripMapVisuals() {
 }
 
 // --- LOCAL NEAREST NEIGHBOR OPTIMIZATION ---
-window.autoSortDay = function() {
+window.autoSortDay = function () {
     const day = tripDays[activeDayIdx];
     if (day.stops.length <= 2) {
         alert('You need at least 3 stops to sort a route!');
@@ -2470,11 +3244,11 @@ window.autoSortDay = function() {
 };
 
 // --- GLOBAL TRIP OPTIMIZER ---
-window.executeSmartOptimization = function() {
+window.executeSmartOptimization = function () {
     // 1. Setup & User Inputs
     const userMaxStops = parseInt(document.getElementById('opt-max-stops').value) || 5;
     const userMaxHours = parseFloat(document.getElementById('opt-max-hours').value) || 4;
-    
+
     const totalStops = tripDays.reduce((sum, d) => sum + d.stops.length, 0);
     if (totalStops < 2) {
         alert('Add at least two stops before optimizing!');
@@ -2489,8 +3263,8 @@ window.executeSmartOptimization = function() {
                 allUniqueStops.push(stop);
             } else {
                 const lastStop = allUniqueStops[allUniqueStops.length - 1];
-                const isDuplicate = stop.id && lastStop.id 
-                    ? stop.id === lastStop.id 
+                const isDuplicate = stop.id && lastStop.id
+                    ? stop.id === lastStop.id
                     : (stop.lat === lastStop.lat && stop.lng === lastStop.lng);
                 if (!isDuplicate) {
                     allUniqueStops.push(stop);
@@ -2500,12 +3274,12 @@ window.executeSmartOptimization = function() {
     });
 
     // 3. Nearest Neighbor Sort
-    let sorted = []; 
+    let sorted = [];
     let unvisited = [...allUniqueStops];
     let currentStop;
 
     if (window.tripStartNode) {
-        currentStop = window.tripStartNode; 
+        currentStop = window.tripStartNode;
     } else {
         currentStop = unvisited.shift();
         sorted.push(currentStop);
@@ -2533,7 +3307,7 @@ window.executeSmartOptimization = function() {
 
     for (let i = 0; i < sorted.length; i++) {
         const stop = sorted[i];
-        
+
         // Calculate drive time from previous stop
         if (currentDayStops.length > 0) {
             const prev = currentDayStops[currentDayStops.length - 1];
@@ -2574,7 +3348,7 @@ window.executeSmartOptimization = function() {
 };
 
 // --- EXPORT DAY TO GOOGLE MAPS ---
-window.exportDayToMaps = function(dayIdx) {
+window.exportDayToMaps = function (dayIdx) {
     const day = tripDays[dayIdx];
     const waypoints = [];
 
@@ -2582,18 +3356,18 @@ window.exportDayToMaps = function(dayIdx) {
     if (dayIdx === 0 && window.tripStartNode) {
         waypoints.push(`${window.tripStartNode.lat},${window.tripStartNode.lng}`);
     }
-    
+
     // 2. Add Carry-over from previous day if it's Day 2+
-    if (dayIdx > 0 && tripDays[dayIdx-1].stops.length > 0) {
-        const prevLast = tripDays[dayIdx-1].stops[tripDays[dayIdx-1].stops.length - 1];
+    if (dayIdx > 0 && tripDays[dayIdx - 1].stops.length > 0) {
+        const prevLast = tripDays[dayIdx - 1].stops[tripDays[dayIdx - 1].stops.length - 1];
         waypoints.push(`${prevLast.lat},${prevLast.lng}`);
     }
-    
+
     // 3. Add the day's actual stops
     day.stops.forEach(stop => {
         waypoints.push(`${stop.lat},${stop.lng}`);
     });
-    
+
     // 4. Add End Node if it's the last day
     if (dayIdx === tripDays.length - 1 && window.tripEndNode) {
         waypoints.push(`${window.tripEndNode.lat},${window.tripEndNode.lng}`);
@@ -2620,12 +3394,12 @@ function getTotalStops() {
 }
 
 // --- GLOBAL AUTO-SPILLOVER ENGINE ---
-window.addStopToTrip = function(stopData) {
+window.addStopToTrip = function (stopData) {
     // 1. Prevent duplicates across the ENTIRE trip, not just the current day
     for (let i = 0; i < tripDays.length; i++) {
         if (tripDays[i].stops.find(s => s.lat === stopData.lat && s.lng === stopData.lng)) {
             alert(`This location is already in your trip on Day ${i + 1}!`);
-            return false; 
+            return false;
         }
     }
 
@@ -2634,7 +3408,7 @@ window.addStopToTrip = function(stopData) {
         const lastStopOfCurrentDay = tripDays[activeDayIdx].stops[tripDays[activeDayIdx].stops.length - 1];
 
         if (activeDayIdx + 1 < tripDays.length) {
-            activeDayIdx++; 
+            activeDayIdx++;
         } else {
             const nextColor = DAY_COLORS[tripDays.length % DAY_COLORS.length];
             // 🔥 CARRY-OVER LOGIC: Inject the end point of the previous day as Stop 1
@@ -2647,19 +3421,19 @@ window.addStopToTrip = function(stopData) {
     // 3. Inject the stop and render
     tripDays[activeDayIdx].stops.push(stopData);
     updateTripUI();
-    
+
     // Slight delay so the toast doesn't get instantly overwritten by the auto-move toast
     setTimeout(() => showTripToast(`Added to Day ${activeDayIdx + 1}!`), 50);
-    return true; 
+    return true;
 };
 
 // --- INTERACTIVE BOOKEND CONTROLLER ---
-window.editBookend = function(type) {
+window.editBookend = function (type) {
     const el = document.getElementById(type === 'start' ? 'ui-start-node' : 'ui-end-node');
     const currentName = type === 'start' ? (window.tripStartNode ? window.tripStartNode.name : '') : (window.tripEndNode ? window.tripEndNode.name : '');
     const color = type === 'start' ? '#22c55e' : '#ef4444';
     const bg = type === 'start' ? '#f0fdf4' : '#fef2f2';
-    
+
     // Transform the bookend into an inline search bar
     el.innerHTML = `
     <div style="background: ${bg}; border: 2px solid ${color}; border-radius: 12px; padding: 12px; margin-top: ${type === 'end' ? '15px' : '0'}; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
@@ -2672,24 +3446,24 @@ window.editBookend = function(type) {
         <div id="inline-suggest-${type}" style="display: none; background: white; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; margin-top: 8px; max-height: 200px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></div>
         ${currentName ? `<div style="text-align:right; margin-top: 8px;"><button onclick="window.trip${type === 'start' ? 'Start' : 'End'}Node=null; updateTripUI()" style="background: transparent; color: #dc2626; border: none; font-size: 11px; font-weight: 800; cursor: pointer; text-decoration: underline;">Remove ${type.toUpperCase()}</button></div>` : ''}
     </div>`;
-    
+
     // Auto-focus the input box so the user can just start typing
     setTimeout(() => {
         const input = document.getElementById(`inline-${type}-input`);
-        if(input) { input.focus(); input.select(); }
+        if (input) { input.focus(); input.select(); }
     }, 50);
-    
+
     // Allow the Enter key to submit the search
-    document.getElementById(`inline-${type}-input`).addEventListener('keypress', function(e) {
+    document.getElementById(`inline-${type}-input`).addEventListener('keypress', function (e) {
         if (e.key === 'Enter') { processInlineSearch(type); }
     });
 };
 
-window.processInlineSearch = function(type) {
+window.processInlineSearch = function (type) {
     const input = document.getElementById(`inline-${type}-input`);
     if (input && input.value.trim() !== '') {
         const suggestBox = document.getElementById(`inline-suggest-${type}`);
-        if(suggestBox) {
+        if (suggestBox) {
             suggestBox.style.display = 'block';
             suggestBox.innerHTML = '<p style="padding: 10px; font-size: 12px; color: #666; text-align: center;">Searching...</p>';
         }
@@ -2698,7 +3472,7 @@ window.processInlineSearch = function(type) {
 };
 
 // --- DAY MANAGEMENT ENGINE ---
-window.shiftDayLeft = function() {
+window.shiftDayLeft = function () {
     if (activeDayIdx === 0) return;
     const temp = tripDays[activeDayIdx - 1];
     tripDays[activeDayIdx - 1] = tripDays[activeDayIdx];
@@ -2708,7 +3482,7 @@ window.shiftDayLeft = function() {
     updateTripMapVisuals();
 };
 
-window.shiftDayRight = function() {
+window.shiftDayRight = function () {
     if (activeDayIdx === tripDays.length - 1) return;
     const temp = tripDays[activeDayIdx + 1];
     tripDays[activeDayIdx + 1] = tripDays[activeDayIdx];
@@ -2718,7 +3492,7 @@ window.shiftDayRight = function() {
     updateTripMapVisuals();
 };
 
-window.insertDayAfter = function() {
+window.insertDayAfter = function () {
     if (tripDays.length >= 5) return;
     const nextColor = DAY_COLORS[tripDays.length % DAY_COLORS.length];
     tripDays.splice(activeDayIdx + 1, 0, { color: nextColor, stops: [], notes: "" });
@@ -2757,7 +3531,7 @@ function updateTripUI() {
         startEl.id = 'ui-start-node';
         tabContainer.parentElement.insertBefore(startEl, tabContainer);
     }
-    
+
     if (startEl && window.tripStartNode) {
         startEl.innerHTML = `
         <div onclick="editBookend('start')" class="trip-node-card" style="background: #f0fdf4; cursor: pointer; padding: 10px; margin-bottom: 10px; border-radius: 8px;">
@@ -2770,7 +3544,7 @@ function updateTripUI() {
             </div>
             <div class="planner-metadata" style="opacity: 0.6; font-size: 10px;">Edit</div>
         </div>`;
-    } else if (startEl) { 
+    } else if (startEl) {
         startEl.innerHTML = `
         <button onclick="editBookend('start')" class="glass-btn" style="width: 100%; height: 36px; background: #fff; border: 1px dashed #22c55e; color: #15803d; font-weight: 800; font-size: 11px; margin-bottom: 10px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 8px;">
             <span>➕</span> SET TRIP START
@@ -2825,17 +3599,17 @@ function updateTripUI() {
         const addDayBtn = document.createElement('button');
         addDayBtn.textContent = '+ Add Day';
         addDayBtn.style.cssText = 'padding:6px 12px; border-radius:20px; border:2px dashed #bbb; background:none; color:#888; font-size:13px; font-weight:600; cursor:pointer;';
-        
+
         addDayBtn.onclick = () => {
             const prevDay = tripDays[tripDays.length - 1];
             const initialStops = [];
-            
+
             // 🔥 CARRY-OVER LOGIC: Clone the last stop of the previous day
             if (prevDay && prevDay.stops.length > 0) {
                 const lastStop = prevDay.stops[prevDay.stops.length - 1];
-                initialStops.push({ ...lastStop }); 
+                initialStops.push({ ...lastStop });
             }
-            
+
             tripDays.push({ color: DAY_COLORS[tripDays.length % DAY_COLORS.length], stops: initialStops, notes: "" });
             activeDayIdx = tripDays.length - 1;
             updateTripUI();
@@ -2874,9 +3648,9 @@ function updateTripUI() {
 
     // 🔥 STATE: Track if the user is editing the list
     if (typeof window.isTripEditMode === 'undefined') window.isTripEditMode = false;
-    window.toggleTripEditMode = () => { 
-        window.isTripEditMode = !window.isTripEditMode; 
-        updateTripUI(); 
+    window.toggleTripEditMode = () => {
+        window.isTripEditMode = !window.isTripEditMode;
+        updateTripUI();
     };
 
     // Clear list FIRST, then build fresh content
@@ -2905,10 +3679,10 @@ function updateTripUI() {
 
     activeDay.stops.forEach((stop, index) => {
         const li = document.createElement('li');
-        li.className = 'stop-list-item'; 
+        li.className = 'stop-list-item';
 
         let controlsHtml = '';
-        
+
         // ONLY render the messy controls if the user clicked "Edit Stops"
         if (window.isTripEditMode) {
             const moveToDayOptions = tripDays
@@ -2957,7 +3731,7 @@ function updateTripUI() {
             // Flash the search bar to draw the eye
             globalSearch.style.boxShadow = `0 0 0 4px ${activeDay.color}44`;
             setTimeout(() => globalSearch.style.boxShadow = '', 1500);
-            
+
             // Auto-switch to map if they are looking at the planner
             document.querySelector('[data-target="map-view"]')?.click();
         }
@@ -3035,28 +3809,28 @@ function updateTripUI() {
         };
     });
 
-        // --- GLOBAL END BOOKEND ---
-        let endEl = document.getElementById('ui-end-node');
-        if (!endEl) {
-            const wrapper = document.getElementById('itinerary-timeline-wrapper');
-            if (wrapper) {
-                endEl = document.createElement('div');
-                endEl.id = 'ui-end-node';
-                wrapper.appendChild(endEl);
-            }
+    // --- GLOBAL END BOOKEND ---
+    let endEl = document.getElementById('ui-end-node');
+    if (!endEl) {
+        const wrapper = document.getElementById('itinerary-timeline-wrapper');
+        if (wrapper) {
+            endEl = document.createElement('div');
+            endEl.id = 'ui-end-node';
+            wrapper.appendChild(endEl);
         }
-        
-        if (endEl && window.tripEndNode) {
-            endEl.innerHTML = `<div onclick="editBookend('end')" style="cursor:pointer; background: #fef2f2; border: 2px solid #ef4444; border-radius: 8px; padding: 10px; margin-top: 10px; margin-bottom: 0; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(239,68,68,0.05); transition: transform 0.1s;">
+    }
+
+    if (endEl && window.tripEndNode) {
+        endEl.innerHTML = `<div onclick="editBookend('end')" style="cursor:pointer; background: #fef2f2; border: 2px solid #ef4444; border-radius: 8px; padding: 10px; margin-top: 10px; margin-bottom: 0; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(239,68,68,0.05); transition: transform 0.1s;">
                 <div style="font-size: 13px; font-weight: 900; color: #b91c1c; display: flex; align-items: center; gap: 8px;">
                     <span style="background: #ef4444; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; justify-content: center; align-items: center; font-size: 11px;">B</span> 
                     TRIP END: <span style="font-weight:600; color:#333; margin-left: 4px;">${window.tripEndNode.name}</span>
                 </div>
                 <div style="font-size:10px; color:#ef4444; font-weight:800; text-transform:uppercase;">Edit</div>
             </div>`;
-        } else if (endEl) { 
-            endEl.innerHTML = `<button onclick="editBookend('end')" style="width:100%; cursor:pointer; background: #fff; border: 1px dashed #ef4444; color:#b91c1c; border-radius: 8px; padding: 10px; margin-top: 10px; margin-bottom: 0; font-weight:800; text-transform:uppercase; font-size:11px;">+ Set Trip End</button>`; 
-        }
+    } else if (endEl) {
+        endEl.innerHTML = `<button onclick="editBookend('end')" style="width:100%; cursor:pointer; background: #fff; border: 1px dashed #ef4444; color:#b91c1c; border-radius: 8px; padding: 10px; margin-top: 10px; margin-bottom: 0; font-weight:800; text-transform:uppercase; font-size:11px;">+ Set Trip End</button>`;
+    }
 
     // Always attempt to update map visuals even if UI elements had issues
     try {
@@ -3146,17 +3920,17 @@ async function executeGeocode(query, targetType) {
                 // Complete Omni-Search Reset & Map Pan
                 const mainSearch = document.getElementById('park-search');
                 const clearBtn = document.getElementById('clear-search-btn');
-                
+
                 if (mainSearch) mainSearch.value = '';
                 if (typeof activeSearchQuery !== 'undefined') activeSearchQuery = '';
                 if (clearBtn) clearBtn.style.display = 'none';
-                
+
                 // Restore the normal map pins
                 if (typeof updateMarkers === 'function') updateMarkers();
-                
+
                 // Pan map to the new custom location
                 if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { animate: true });
-                
+
                 updateTripUI();
             } else {
                 if (disambiguationContainer) {
@@ -3183,14 +3957,14 @@ async function executeGeocode(query, targetType) {
                             // Complete Omni-Search Reset & Map Pan
                             const mainSearch = document.getElementById('park-search');
                             const clearBtn = document.getElementById('clear-search-btn');
-                            
+
                             if (mainSearch) mainSearch.value = '';
                             if (typeof activeSearchQuery !== 'undefined') activeSearchQuery = '';
                             if (clearBtn) clearBtn.style.display = 'none';
-                            
+
                             // Restore the normal map pins
                             if (typeof updateMarkers === 'function') updateMarkers();
-                            
+
                             // Pan map to the new custom location
                             if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { animate: true });
 
@@ -3449,7 +4223,7 @@ document.addEventListener('click', (e) => {
     if (e.target.closest('#scoring-info-btn')) {
         modal.style.display = 'flex';
     }
-    
+
     // Close Modal (clicking X button or the dark background overlay)
     if (e.target.closest('#close-scoring-modal') || e.target === modal) {
         modal.style.display = 'none';
@@ -3457,10 +4231,10 @@ document.addEventListener('click', (e) => {
 });
 
 // --- UPDATED VAULT SHARE (Now with Global #1 Logic & Web-to-Canvas Fix) ---
-window.shareVaultCard = async function() {
+window.shareVaultCard = async function () {
     const btn = document.getElementById('share-vault-btn');
     if (!btn) return;
-    
+
     const originalText = btn.innerHTML;
     btn.innerHTML = '📸 Generating...';
     btn.disabled = true;
@@ -3472,7 +4246,7 @@ window.shareVaultCard = async function() {
 
         // Check if user is GLOBAL #1 (Alpha Dog Unlocked)
         const isGlobalNumberOne = achievements.mysteryFeats.some(f => f.id === 'alphaDog' && f.status === 'unlocked');
-        
+
         let allUnlocked = [
             ...achievements.mysteryFeats, ...achievements.rareFeats, ...achievements.paws, ...achievements.stateBadges
         ].filter(b => b.status === 'unlocked');
@@ -3488,17 +4262,17 @@ window.shareVaultCard = async function() {
         // Inject Title. If #1, add the massive Crown Flex.
         const titleEl = document.getElementById('export-title');
         titleEl.innerHTML = isGlobalNumberOne ? `👑 GLOBAL #1<br><span style="font-size: 50px; color: #94a3b8;">${achievements.title}</span>` : achievements.title;
-        
+
         document.getElementById('export-score').textContent = `${achievements.totalScore} PTS`;
 
         const badgeContainer = document.getElementById('export-badges-container');
-        badgeContainer.innerHTML = ''; 
+        badgeContainer.innerHTML = '';
 
         top3.forEach(b => {
             let bg = b.tier === 'verified' ? 'linear-gradient(135deg, #FFDF00, #DAA520, #B8860B)' : 'linear-gradient(135deg, #A0522D, #8B4513)';
             let border = b.tier === 'verified' ? '#996515' : '#5C4033';
             let textColor = b.tier === 'verified' ? '#3b2f00' : '#fffaf0';
-            
+
             if (b.isMystery) {
                 bg = 'linear-gradient(135deg, #312e81, #7e22ce, #c026d3)';
                 border = '#e879f9';
@@ -3522,7 +4296,7 @@ window.shareVaultCard = async function() {
         canvas.toBlob(async (blob) => {
             const file = new File([blob], "My_Bark_Ranger_Vault.png", { type: "image/png" });
             if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                try { await navigator.share({ files: [file] }); } catch (err) {}
+                try { await navigator.share({ files: [file] }); } catch (err) { }
             } else {
                 const link = document.createElement('a'); link.download = 'My_Bark_Ranger_Vault.png'; link.href = canvas.toDataURL('image/png'); link.click();
             }
@@ -3532,12 +4306,12 @@ window.shareVaultCard = async function() {
 };
 
 // --- NEW: THE SINGLE MILESTONE FLEX ---
-window.shareSingleBadge = async function(name, icon, tier, isMystery, subtitle) {
+window.shareSingleBadge = async function (name, icon, tier, isMystery, subtitle) {
     try {
         let bg = tier === 'verified' ? 'linear-gradient(135deg, #FFDF00, #DAA520, #B8860B)' : 'linear-gradient(135deg, #A0522D, #8B4513)';
         let border = tier === 'verified' ? '#996515' : '#5C4033';
         let textColor = tier === 'verified' ? '#3b2f00' : '#fffaf0';
-        
+
         if (isMystery === 'true' || isMystery === true) {
             bg = 'linear-gradient(135deg, #312e81, #7e22ce, #c026d3)';
             border = '#e879f9';
@@ -3557,7 +4331,7 @@ window.shareSingleBadge = async function(name, icon, tier, isMystery, subtitle) 
         canvas.toBlob(async (blob) => {
             const file = new File([blob], `Unlocked_${name.replace(/\s+/g, '_')}.png`, { type: "image/png" });
             if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                try { await navigator.share({ files: [file] }); } catch (err) {}
+                try { await navigator.share({ files: [file] }); } catch (err) { }
             } else {
                 const link = document.createElement('a'); link.download = file.name; link.href = canvas.toDataURL('image/png'); link.click();
             }
@@ -3567,18 +4341,18 @@ window.shareSingleBadge = async function(name, icon, tier, isMystery, subtitle) 
 
 // --- THE OUT-AND-BACK VERIFICATION ENGINE ---
 function getDistanceMeters(lat1, lon1, lat2, lon2) {
-    const R = 6371e3; 
-    const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
-    const dp = (lat2-lat1) * Math.PI/180, dl = (lon2-lon1) * Math.PI/180;
-    const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const R = 6371e3;
+    const p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+    const dp = (lat2 - lat1) * Math.PI / 180, dl = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-window.handleTrainingClick = function() {
+// The Live GPS Action
+window.handleTrainingClick = function () {
     const btn = document.getElementById('training-action-btn');
     const state = localStorage.getItem('trainingState');
 
-    // 1. START WALK (Saves Home Base Anchor)
     if (!state || state === 'idle') {
         btn.textContent = 'Locating...';
         navigator.geolocation.getCurrentPosition((pos) => {
@@ -3591,49 +4365,43 @@ window.handleTrainingClick = function() {
             localStorage.setItem('trainingState', JSON.stringify(startData));
             initTrainingUI();
         }, () => {
-            alert('GPS required to start training.');
+            alert('GPS required to start walk.');
             btn.textContent = 'Start Walk';
         }, { enableHighAccuracy: true });
-    } 
-    
-    // 2. LOG TURNAROUND (The Anti-Couch Check)
-    else {
+    } else {
         const data = JSON.parse(state);
         btn.textContent = 'Verifying...';
-        
-        navigator.geolocation.getCurrentPosition((pos) => {
-            const dist = getDistanceMeters(data.lat, data.lng, pos.coords.latitude, pos.coords.longitude);
-            
-            // Requirement: 200 meters away from home base (approx 0.12 miles)
-            if (dist < 200) {
-                alert(`Deputy says you're still at home! You are only ${Math.round(dist)} meters away from your start point. Walk a bit further before logging your turnaround!`);
+
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+            const distMeters = getDistanceMeters(data.lat, data.lng, pos.coords.latitude, pos.coords.longitude);
+
+            if (distMeters < 200) {
+                alert(`You are only ${Math.round(distMeters)} meters away from your start point. Walk a bit further to log a valid distance!`);
                 btn.textContent = 'Log Turnaround 📍';
             } else {
-                alert('Halfway Point Verified! +0.5 Pts and Streak Extended 🔥. Enjoy the walk home!');
-                localStorage.setItem('trainingState', 'idle');
-                
-                // Award walk points and attempt streak increment
-                if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
-                    const user = firebase.auth().currentUser;
-                    const docRef = firebase.firestore().collection('users').doc(user.uid);
-                    incrementRequestCount();
-                    docRef.set({
-                        walkPoints: firebase.firestore.FieldValue.increment(0.5)
-                    }, { merge: true });
+                const roundTripMiles = (distMeters * 2) * 0.000621371;
 
+                alert(`Halfway Point Verified! You've logged ~${roundTripMiles.toFixed(2)} miles for your expedition and earned +1 PT. Enjoy the walk home!`);
+                localStorage.setItem('trainingState', 'idle');
+
+                if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
+                    const userRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
+                    incrementRequestCount();
+                    userRef.set({ walkPoints: firebase.firestore.FieldValue.increment(1) }, { merge: true });
                     window.attemptDailyStreakIncrement();
                 }
-                
+
+                await processMileageAddition(roundTripMiles, 'GPS Verified');
                 initTrainingUI();
             }
-        }, () => { 
-            alert('GPS required to verify.'); 
-            btn.textContent = 'Log Turnaround 📍'; 
+        }, () => {
+            alert('GPS required to verify.');
+            btn.textContent = 'Log Turnaround 📍';
         }, { enableHighAccuracy: true });
     }
 };
 
-window.cancelTrainingWalk = function() {
+window.cancelTrainingWalk = function () {
     if (confirm("Are you sure you want to cancel your walk? You won't earn any points.")) {
         localStorage.setItem('trainingState', 'idle');
         initTrainingUI();
@@ -3651,15 +4419,15 @@ function initTrainingUI() {
             btn.textContent = 'Start Walk';
             btn.className = 'glass-btn training-btn';
         }
-        if(cancelBtn) cancelBtn.style.display = 'none'; // Hide cancel
-        if(descEl) descEl.innerHTML = 'Walk 0.15 miles away from home to earn <strong style="color: #f59e0b;">+0.5 PTS</strong> and keep your streak alive.';
+        if (cancelBtn) cancelBtn.style.display = 'none';
+        if (descEl) descEl.innerHTML = 'Start walking away from home. Log your turnaround point to calculate total distance and earn <strong style="color: #f59e0b;">+1 PT</strong>.';
     } else {
         if(btn) {
             btn.textContent = 'Log Turnaround 📍';
             btn.className = 'glass-btn training-btn active';
         }
-        if(cancelBtn) cancelBtn.style.display = 'block'; // Show cancel
-        if(descEl) descEl.innerHTML = '<span style="color:#ef4444; font-weight:800;">Walk in progress...</span> Hit the button below when you reach your halfway point!';
+        if (cancelBtn) cancelBtn.style.display = 'block';
+        if (descEl) descEl.innerHTML = '<span style="color:#ef4444; font-weight:800;">Walk in progress...</span> Hit the button below when you reach your halfway point!';
     }
 }
 
@@ -3668,3 +4436,129 @@ initTrainingUI();
 
 // Force the planner UI to render immediately on load
 setTimeout(() => updateTripUI(), 500);
+
+// --- SHARE ENGINE LOGIC ---
+
+window.shareSingleExpedition = async function() {
+    const trailName = document.getElementById('celebration-trail-name').textContent;
+    const template = document.getElementById('single-export-template');
+    const container = document.getElementById('single-export-card-container');
+    
+    // Inject custom design into your existing export template
+    container.innerHTML = `
+        <div style="background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.1); border-radius: 24px; padding: 40px; text-align: center;">
+            <div style="font-size: 80px; margin-bottom: 20px;">🎒</div>
+            <div style="font-size: 24px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px;">EXPEDITION CONQUERED</div>
+            <div style="font-size: 60px; font-weight: 900; color: #f59e0b;">${trailName}</div>
+        </div>
+    `;
+    
+    await executeCanvasExport(template, `Conquered_${trailName.replace(/\s+/g, '_')}.png`);
+};
+
+window.shareAllExpeditions = async function() {
+    const template = document.getElementById('single-export-template');
+    const container = document.getElementById('single-export-card-container');
+    const grid = document.getElementById('completed-expeditions-grid');
+    if (!grid) return;
+    
+    // Clone the UI badges into the export template layout
+    container.innerHTML = `
+        <div style="font-size: 24px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 40px; text-align: center;">My Expedition Trophy Case</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; max-width: 900px;">
+            ${grid.innerHTML}
+        </div>
+    `;
+    
+    // Remove the scroll properties from the clone so it renders as a grid on the image
+    const clonedElements = container.querySelectorAll('div[style*="flex: 0 0 180px"]');
+    clonedElements.forEach(el => {
+        el.style.flex = '1 1 calc(33% - 20px)';
+        el.style.color = '#1e293b'; // Ensure text is visible
+    });
+
+    await executeCanvasExport(template, 'My_Expedition_Trophy_Case.png');
+};
+
+async function executeCanvasExport(element, filename) {
+    if (!element) return;
+    // Briefly move the template on-screen for rendering
+    element.style.left = '0';
+    element.style.zIndex = '9999';
+    
+    try {
+        const canvas = await html2canvas(element, { scale: 2, backgroundColor: '#0f172a' });
+        const dataUrl = canvas.toDataURL('image/png');
+        
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = dataUrl;
+        link.click();
+    } catch (e) {
+        console.error("Export failed", e);
+        alert("Could not generate image. Please try again.");
+    } finally {
+        // Hide the template again
+        element.style.left = '-9999px';
+    }
+}
+
+// --- RANK-UP CELEBRATION SYSTEM ---
+function showRankUpCelebration(oldTitle, newTitle) {
+    // Create a full-screen celebration overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'rank-up-overlay';
+    overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(15, 23, 42, 0.92); z-index: 99999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        animation: fadeInOverlay 0.3s ease-out;
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    `;
+
+    overlay.innerHTML = `
+        <style>
+            @keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes rankBounce { 0% { transform: scale(0.3); opacity: 0; } 50% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } }
+            @keyframes shimmer { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
+            @keyframes confettiFall { 0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; } 100% { transform: translateY(100vh) rotate(720deg); opacity: 0; } }
+        </style>
+        <div style="text-align: center; animation: rankBounce 0.6s ease-out; max-width: 340px; padding: 0 20px;">
+            <div style="font-size: 72px; margin-bottom: 16px; filter: drop-shadow(0 4px 12px rgba(245, 158, 11, 0.5));">🎖️</div>
+            <div style="font-size: 12px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">RANK UP!</div>
+            <div style="font-size: 14px; color: #64748b; margin-bottom: 4px; font-weight: 600; text-decoration: line-through; opacity: 0.6;">${oldTitle}</div>
+            <div style="font-size: 10px; color: #f59e0b; margin-bottom: 8px;">▼</div>
+            <div style="font-size: 28px; font-weight: 900; background: linear-gradient(90deg, #f59e0b, #fbbf24, #f59e0b); background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 2s linear infinite; margin-bottom: 20px; line-height: 1.3;">${newTitle}</div>
+            <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5; margin-bottom: 24px;">Congratulations, Ranger! Keep exploring to unlock the next rank.</p>
+            <button onclick="document.getElementById('rank-up-overlay').remove()" style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; padding: 14px 40px; border-radius: 12px; font-size: 14px; font-weight: 900; cursor: pointer; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);">
+                🐾 Awesome!
+            </button>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // Spawn confetti particles
+    const confettiColors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#ec4899'];
+    for (let i = 0; i < 40; i++) {
+        const particle = document.createElement('div');
+        const color = confettiColors[Math.floor(Math.random() * confettiColors.length)];
+        const left = Math.random() * 100;
+        const delay = Math.random() * 2;
+        const duration = 2 + Math.random() * 3;
+        const size = 6 + Math.random() * 8;
+        particle.style.cssText = `
+            position: fixed; top: -20px; left: ${left}%; width: ${size}px; height: ${size}px;
+            background: ${color}; border-radius: ${Math.random() > 0.5 ? '50%' : '2px'};
+            z-index: 100000; pointer-events: none;
+            animation: confettiFall ${duration}s ease-in ${delay}s forwards;
+        `;
+        overlay.appendChild(particle);
+    }
+
+    // Auto-dismiss after 8 seconds
+    setTimeout(() => {
+        const el = document.getElementById('rank-up-overlay');
+        if (el) el.remove();
+    }, 8000);
+}
