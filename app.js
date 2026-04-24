@@ -4800,6 +4800,8 @@ if ('ontouchstart' in window) {
     let isOneFingerZooming = false;
     let zoomStartY = 0;
     let initialZoom = 0;
+    let holdTimer = null;
+    let pendingDoubleTap = false;
 
     // Disable Leaflet's built-in double-tap zoom to prevent conflicts
     map.doubleClickZoom.disable();
@@ -4809,20 +4811,37 @@ if ('ontouchstart' in window) {
         const currentTime = new Date().getTime();
         const tapLength = currentTime - lastTap;
         
-        // Detect Double-Tap & Hold
+        // Detect Double-Tap, but WAIT for a hold before activating
         if (tapLength < 300 && tapLength > 0) {
-            e.preventDefault();
-            isOneFingerZooming = true;
-            zoomStartY = e.touches[0].clientY;
-            initialZoom = map.getZoom();
-            map.dragging.disable();
-            // Temporarily unlock sub-pixel zoom for smooth gesture
-            map.options.zoomSnap = 0;
+            pendingDoubleTap = true;
+            const startY = e.touches[0].clientY;
+            
+            // Only activate zoom if finger stays down for 150ms (hold gate)
+            holdTimer = setTimeout(() => {
+                if (pendingDoubleTap) {
+                    isOneFingerZooming = true;
+                    zoomStartY = startY;
+                    initialZoom = map.getZoom();
+                    map.dragging.disable();
+                    map.options.zoomSnap = 0;
+                }
+            }, 150);
         }
         lastTap = currentTime;
     }, { passive: false });
 
     mapContainer.addEventListener('touchmove', (e) => {
+        // If we're in the hold-wait period, check if finger moved enough to confirm zoom intent
+        if (pendingDoubleTap && !isOneFingerZooming && e.touches.length === 1) {
+            // Finger moved before hold timer — activate immediately (user is sliding)
+            clearTimeout(holdTimer);
+            isOneFingerZooming = true;
+            zoomStartY = e.touches[0].clientY;
+            initialZoom = map.getZoom();
+            map.dragging.disable();
+            map.options.zoomSnap = 0;
+        }
+        
         if (!isOneFingerZooming || e.touches.length !== 1) return;
         
         e.preventDefault();
@@ -4835,10 +4854,17 @@ if ('ontouchstart' in window) {
     }, { passive: false });
 
     mapContainer.addEventListener('touchend', () => {
+        // Cancel hold timer if finger lifted before 150ms (it was just a tap)
+        clearTimeout(holdTimer);
+        pendingDoubleTap = false;
+        
         if (isOneFingerZooming) {
             isOneFingerZooming = false;
             map.dragging.enable();
-            // Restore crisp zoom snapping for normal interactions
+            
+            // Snap zoom to nearest 0.5 to prevent jarring jumps on next panTo
+            const snappedZoom = Math.round(map.getZoom() * 2) / 2;
+            map.setZoom(snappedZoom, { animate: false });
             map.options.zoomSnap = 0.5;
         }
     });
