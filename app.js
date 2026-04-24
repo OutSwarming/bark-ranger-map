@@ -4792,7 +4792,7 @@ function showRankUpCelebration(oldTitle, newTitle) {
     }, 8000);
 }
 
-// 🎯 CUSTOM ONE-FINGER ZOOM (Google Maps Style)
+// 🎯 CUSTOM ONE-FINGER ZOOM (Google Maps Style — Crash-Proof)
 // Only activates on touch devices — desktop mouse/trackpad is never affected
 if ('ontouchstart' in window) {
     const mapContainer = document.getElementById('map');
@@ -4802,9 +4802,30 @@ if ('ontouchstart' in window) {
     let initialZoom = 0;
     let holdTimer = null;
     let pendingDoubleTap = false;
+    let zoomRAF = null; // requestAnimationFrame throttle
 
     // Disable Leaflet's built-in double-tap zoom to prevent conflicts
     map.doubleClickZoom.disable();
+
+    // Centralized cleanup — bulletproof against state corruption
+    function resetZoomState() {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+        pendingDoubleTap = false;
+        if (zoomRAF) { cancelAnimationFrame(zoomRAF); zoomRAF = null; }
+        
+        if (isOneFingerZooming) {
+            isOneFingerZooming = false;
+            
+            // Snap zoom to nearest 0.5 to prevent jarring jumps on next panTo
+            const snappedZoom = Math.round(map.getZoom() * 2) / 2;
+            map.setZoom(snappedZoom, { animate: false });
+        }
+        
+        // ALWAYS restore these — safety net
+        map.options.zoomSnap = 0.5;
+        map.dragging.enable();
+    }
 
     mapContainer.addEventListener('touchstart', (e) => {
         if (e.touches.length !== 1) return;
@@ -4831,9 +4852,8 @@ if ('ontouchstart' in window) {
     }, { passive: false });
 
     mapContainer.addEventListener('touchmove', (e) => {
-        // If we're in the hold-wait period, check if finger moved enough to confirm zoom intent
+        // If we're in the hold-wait period, finger movement confirms zoom intent
         if (pendingDoubleTap && !isOneFingerZooming && e.touches.length === 1) {
-            // Finger moved before hold timer — activate immediately (user is sliding)
             clearTimeout(holdTimer);
             isOneFingerZooming = true;
             zoomStartY = e.touches[0].clientY;
@@ -4847,25 +4867,20 @@ if ('ontouchstart' in window) {
         e.preventDefault();
         const currentY = e.touches[0].clientY;
         const deltaY = currentY - zoomStartY;
+        const targetZoom = Math.min(19, Math.max(2, initialZoom + deltaY / 150));
         
-        // Slide down to zoom in, up to zoom out
-        const zoomDelta = deltaY / 150; 
-        map.setZoom(initialZoom + zoomDelta, { animate: false });
+        // 🛡️ RAF THROTTLE: Only update zoom once per animation frame (~60fps)
+        // Prevents canvas renderer overload that causes freezes
+        if (!zoomRAF) {
+            zoomRAF = requestAnimationFrame(() => {
+                map.setZoom(targetZoom, { animate: false });
+                zoomRAF = null;
+            });
+        }
     }, { passive: false });
 
-    mapContainer.addEventListener('touchend', () => {
-        // Cancel hold timer if finger lifted before 150ms (it was just a tap)
-        clearTimeout(holdTimer);
-        pendingDoubleTap = false;
-        
-        if (isOneFingerZooming) {
-            isOneFingerZooming = false;
-            map.dragging.enable();
-            
-            // Snap zoom to nearest 0.5 to prevent jarring jumps on next panTo
-            const snappedZoom = Math.round(map.getZoom() * 2) / 2;
-            map.setZoom(snappedZoom, { animate: false });
-            map.options.zoomSnap = 0.5;
-        }
-    });
+    // Normal touch end
+    mapContainer.addEventListener('touchend', resetZoomState);
+    // Touch cancelled by browser (switching apps, gesture conflict, etc.)
+    mapContainer.addEventListener('touchcancel', resetZoomState);
 }
