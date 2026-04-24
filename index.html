@@ -85,10 +85,12 @@
                     <span class="dot gray"></span> Other
                 </button>
                 <button class="filter-btn active" data-filter="VirtualTrail" id="toggle-virtual-trail">
-                    <span class="dot green" style="background: linear-gradient(90deg, #22c55e, #fee2e2);"></span> Active Trail
+                    <span class="dot green" style="background: linear-gradient(90deg, #22c55e, #fee2e2);"></span> Active
+                    Trail
                 </button>
                 <button class="filter-btn" data-filter="CompletedTrails" id="toggle-completed-trails">
-                    <span class="dot green" style="background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.6);"></span> Conquered Trails
+                    <span class="dot green"
+                        style="background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.6);"></span> Conquered Trails
                 </button>
             </div>
 
@@ -541,8 +543,11 @@
                     <div
                         style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">Virtual Expedition</h3>
-                            <span id="lifetime-miles-display" style="background: #eff6ff; color: #3b82f6; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 800;">0.0 mi</span>
+                            <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">Virtual Expedition
+                            </h3>
+                            <span id="lifetime-miles-display"
+                                style="background: #eff6ff; color: #3b82f6; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 800;">0.0
+                                mi</span>
                         </div>
                         <span id="expedition-name"
                             style="font-size: 11px; font-weight: 900; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.5px;"></span>
@@ -568,17 +573,24 @@
 
                     <div id="expedition-complete-state" style="display: none;">
                         <div id="expedition-celebration-state" style="text-align: center; padding: 24px 12px;">
-                            <div class="bounce-emoji" style="font-size: 50px; margin-bottom: 16px; text-shadow: 0 4px 12px rgba(0,0,0,0.1);">🏆</div>
-                            <h4 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 900; color: #1e293b;">Expedition Complete!</h4>
+                            <div class="bounce-emoji"
+                                style="font-size: 50px; margin-bottom: 16px; text-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                                🏆</div>
+                            <h4 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 900; color: #1e293b;">Expedition
+                                Complete!</h4>
                             <p style="font-size: 13px; color: #64748b; margin-bottom: 20px; line-height: 1.4;">
-                                Incredible work! You've conquered the <strong id="celebration-trail-name" style="color: #f59e0b;"></strong>.
+                                Incredible work! You've conquered the <strong id="celebration-trail-name"
+                                    style="color: #f59e0b;"></strong>.
                             </p>
-                            
+
                             <div style="display: flex; gap: 8px; flex-direction: column;">
-                                <button id="share-single-expedition-btn" onclick="shareSingleExpedition()" class="glass-btn" style="width: 100%; padding: 12px; font-size: 13px; border-radius: 10px; font-weight: 800; background: #f8fafc; color: #1e293b; border: 1px solid #cbd5e1;">
+                                <button id="share-single-expedition-btn" onclick="shareSingleExpedition()"
+                                    class="glass-btn"
+                                    style="width: 100%; padding: 12px; font-size: 13px; border-radius: 10px; font-weight: 800; background: #f8fafc; color: #1e293b; border: 1px solid #cbd5e1;">
                                     📸 Share This Victory
                                 </button>
-                                <button id="claim-reward-btn" onclick="claimRewardAndReset()" class="glass-btn" style="width: 100%; padding: 14px; font-size: 14px; border-radius: 10px; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; font-weight: 900; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);">
+                                <button id="claim-reward-btn" onclick="claimRewardAndReset()" class="glass-btn"
+                                    style="width: 100%; padding: 14px; font-size: 14px; border-radius: 10px; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; font-weight: 900; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);">
                                     🎁 Claim +5 PTS & Reset
                                 </button>
                             </div>
@@ -597,10 +609,13 @@
                         </div>
 
                         <div style="display: flex; gap: 8px; margin-bottom: 20px;">
-                            <button onclick="flyToActiveTrail()" class="glass-btn" style="flex: 1; padding: 8px; font-size: 11px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #1e293b;">
+                            <button onclick="flyToActiveTrail()" class="glass-btn"
+                                style="flex: 1; padding: 8px; font-size: 11px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #1e293b;">
                                 🗺️ View on Map
                             </button>
-                            <button onclick="document.getElementById('trail-education-modal').style.display='flex'" class="glass-btn" style="flex: 1; padding: 8px; font-size: 11px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #1e293b;">
+                            <button onclick="document.getElementById('trail-education-modal').style.display='flex'"
+                                class="glass-btn"
+                                style="flex: 1; padding: 8px; font-size: 11px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #1e293b;">
                                 📖 Trail Brief
                             </button>
                         </div>
@@ -662,14 +677,22 @@
                 </div>
 
                 <!-- Digital Trophy Case (Expedition Rewards) -->
-                <div class="profile-section-card" id="expedition-trophy-case" style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px; overflow: hidden; display: none;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                        <h3 style="margin: 0; font-size: 13px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">🏅 Completed Expeditions</h3>
-                        <button onclick="shareAllExpeditions()" class="glass-btn" style="font-size: 11px; padding: 6px 12px; border-radius: 8px; background: #eff6ff; color: #3b82f6; border: none; font-weight: 800;">📸 Share All</button>
+                <div class="profile-section-card" id="expedition-trophy-case"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px; overflow: hidden; display: none;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3
+                            style="margin: 0; font-size: 13px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">
+                            🏅 Completed Expeditions</h3>
+                        <button onclick="shareAllExpeditions()" class="glass-btn"
+                            style="font-size: 11px; padding: 6px 12px; border-radius: 8px; background: #eff6ff; color: #3b82f6; border: none; font-weight: 800;">📸
+                            Share All</button>
                     </div>
-                    
-                    <div id="completed-expeditions-grid" style="display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding-bottom: 12px; -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory;">
-                        <div style="font-size: 11px; color: #94a3b8; font-style: italic; width: 100%; text-align: center; padding: 10px 0;">
+
+                    <div id="completed-expeditions-grid"
+                        style="display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding-bottom: 12px; -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory;">
+                        <div
+                            style="font-size: 11px; color: #94a3b8; font-style: italic; width: 100%; text-align: center; padding: 10px 0;">
                             No expeditions completed yet. Spin the wheel to start!
                         </div>
                     </div>
@@ -1025,21 +1048,32 @@
         <div class="scoring-modal-card">
             <div class="modal-header">
                 <h3>📖 EXPEDITION BRIEF</h3>
-                <button onclick="document.getElementById('trail-education-modal').style.display='none'" class="modal-close-btn">&times;</button>
+                <button onclick="document.getElementById('trail-education-modal').style.display='none'"
+                    class="modal-close-btn">&times;</button>
             </div>
-            
+
             <div class="modal-section" style="text-align: left;">
-                <div style="font-size: 10px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 1px;">LOCATION</div>
-                <div id="edu-park-name" style="font-size: 18px; font-weight: 900; color: #1e293b; margin-bottom: 20px;">Loading...</div>
-                
-                <div style="font-size: 10px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 1px;">ABOUT THIS TRAIL</div>
-                <div id="edu-trail-desc" style="font-size: 13px; color: #475569; line-height: 1.6; margin-bottom: 24px;">Loading description...</div>
-                
-                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 12px;">
+                <div
+                    style="font-size: 10px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 1px;">
+                    LOCATION</div>
+                <div id="edu-park-name" style="font-size: 18px; font-weight: 900; color: #1e293b; margin-bottom: 20px;">
+                    Loading...</div>
+
+                <div
+                    style="font-size: 10px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 1px;">
+                    ABOUT THIS TRAIL</div>
+                <div id="edu-trail-desc"
+                    style="font-size: 15px; color: #334155; line-height: 1.6; margin-bottom: 24px;">Loading
+                    description...</div>
+
+                <div
+                    style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 12px;">
                     <span style="font-size: 28px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));">🥾</span>
                     <div>
-                        <div style="font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase;">Total Distance</div>
-                        <div id="edu-trail-distance" style="font-size: 16px; font-weight: 900; color: #22c55e;">0.0 Miles</div>
+                        <div style="font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase;">Total
+                            Distance</div>
+                        <div id="edu-trail-distance" style="font-size: 16px; font-weight: 900; color: #22c55e;">0.0
+                            Miles</div>
                     </div>
                 </div>
             </div>

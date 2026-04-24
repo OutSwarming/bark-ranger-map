@@ -372,18 +372,18 @@ async function evaluateAchievements(visitedPlacesMap) {
     if (titleEl) {
         const oldTitle = window._lastKnownRank || titleEl.textContent || 'B.A.R.K. Trainee';
         const newTitle = achievements.title;
-        
+
         // Check if user is authenticated (prevents confetti firing on logout when data goes to 0)
         const isAuth = typeof firebase !== 'undefined' && firebase.auth().currentUser;
-        
+
         // The system is fully hydrated ONLY if we received a server payload and it has completely settled
         const isSecurelyHydrated = window._serverPayloadSettled;
 
         if (isAuth && isSecurelyHydrated && window._lastKnownRank && oldTitle !== newTitle && newTitle !== 'B.A.R.K. Trainee') {
-             // The system has securely hydrated from the server. Any rank shift here is a genuine upgrade! 
-             showRankUpCelebration(oldTitle, newTitle);
+            // The system has securely hydrated from the server. Any rank shift here is a genuine upgrade! 
+            showRankUpCelebration(oldTitle, newTitle);
         }
-        
+
         window._lastKnownRank = newTitle;
         titleEl.textContent = newTitle;
     }
@@ -719,11 +719,11 @@ async function renderCompletedTrailsOverlay(completedExpeditions) {
                     iconSize: [32, 32],
                     iconAnchor: [16, 16]
                 });
-                
+
                 const trailName = trailGeoJson.properties ? trailGeoJson.properties.name : "Conquered Trail";
                 L.marker([coords[1], coords[0]], { icon: pinIcon })
-                 .bindPopup(`<div style="text-align:center;font-weight:800;color:#22c55e;">${trailName}</div><div style="font-size:11px;color:#64748b;text-align:center;margin-top:2px;">Expedition Conquered!</div>`)
-                 .addTo(completedTrailsLayerGroup);
+                    .bindPopup(`<div style="text-align:center;font-weight:800;color:#22c55e;">${trailName}</div><div style="font-size:11px;color:#64748b;text-align:center;margin-top:2px;">Expedition Conquered!</div>`)
+                    .addTo(completedTrailsLayerGroup);
             }
         });
 
@@ -746,7 +746,7 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
         if (!trailGeoJson) return;
 
         const totalMiles = trailGeoJson.properties.total_miles;
-        
+
         // Scale mathematical progress accurately onto the literal geographical vector length
         const actualGeoLength = turf.length(trailGeoJson, { units: 'miles' });
         const progressPct = totalMiles > 0 ? Math.min(1, milesCompleted / totalMiles) : 0;
@@ -767,7 +767,7 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
         }
 
         const currentAvatarPoint = turf.along(trailGeoJson, geoSafeMiles, { units: 'miles' });
-        
+
         const dogIcon = L.divIcon({
             className: 'custom-avatar-icon',
             html: '<div style="font-size: 24px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));">🐕</div>',
@@ -790,7 +790,7 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
 
 const toggleVirtualBtn = document.getElementById('toggle-virtual-trail');
 if (toggleVirtualBtn) {
-    toggleVirtualBtn.addEventListener('click', function() {
+    toggleVirtualBtn.addEventListener('click', function () {
         this.classList.toggle('active');
         if (this.classList.contains('active')) {
             virtualTrailLayerGroup.addTo(map);
@@ -805,7 +805,7 @@ if (toggleVirtualBtn) {
 
 const toggleCompletedBtn = document.getElementById('toggle-completed-trails');
 if (toggleCompletedBtn) {
-    toggleCompletedBtn.addEventListener('click', function() {
+    toggleCompletedBtn.addEventListener('click', function () {
         this.classList.toggle('active');
         if (this.classList.contains('active')) {
             completedTrailsLayerGroup.addTo(map);
@@ -1984,7 +1984,7 @@ if (typeof firebase !== 'undefined') {
                         if (data.virtual_expedition && data.virtual_expedition.active_trail) {
                             const miles = data.virtual_expedition.miles_logged || 0;
                             const total = data.virtual_expedition.trail_total_miles || 0;
-                            
+
                             // Trigger the map overlay
                             renderVirtualTrailOverlay(data.virtual_expedition.active_trail, miles);
                             hydrateEducationModal(data.virtual_expedition.active_trail);
@@ -2559,41 +2559,41 @@ if (shareSelect && qrContainer && typeof QRCode !== 'undefined') {
 
 // ====== VIRTUAL EXPEDITION ENGINE ======
 const TOP_10_TRAILS = [
-    { id: 'half_dome', name: 'Half Dome', miles: 16.0, park: 'Yosemite National Park', info: 'An iconic, strenuous hike culminating in a steep cable ascent. Very popular, requiring permits in season.' },
-    { id: 'angels_landing', name: 'Angels Landing', miles: 5.0, park: 'Zion National Park', info: 'Famous for its sheer drop-offs and chain-assisted narrow ridges. Not for the faint of heart!' },
-    { id: 'zion_narrows', name: 'Zion Narrows', miles: 16.0, park: 'Zion National Park', info: 'Wade through the Virgin River inside a spectacular slot canyon. Flash flood awareness is critical.' },
-    { id: 'cascade_pass', name: 'Cascade Pass / Sahale Arm', miles: 12.1, park: 'North Cascades National Park', info: 'Offers some of the most breathtaking alpine scenery, glaciers, and wildlife viewing in the Cascades.' },
-    { id: 'highline_trail', name: 'Highline Trail', miles: 11.8, park: 'Glacier National Park', info: 'Follows the Continental Divide with sweeping views of glacier-carved valleys.' },
-    { id: 'harding_icefield', name: 'Harding Icefield', miles: 8.2, park: 'Kenai Fjords National Park', info: 'A steep climb alongside Exit Glacier, rewarding you with endless views of ice and snow.' },
-    { id: 'old_rag', name: 'Old Rag Trail', miles: 9.3, park: 'Shenandoah National Park', info: 'A challenging rock scramble that is arguably the most popular and dangerous hike in the park.' },
-    { id: 'emerald_lake', name: 'Emerald Lake', miles: 3.2, park: 'Rocky Mountain National Park', info: 'A family-friendly stroll past several stunning alpine lakes nestled beneath jagged peaks.' },
-    { id: 'precipice_trail', name: 'Precipice Trail', miles: 2.1, park: 'Acadia National Park', info: 'A thrilling, iron-rung climbing route up the sheer cliffs of Champlain Mountain.' },
-    { id: 'skyline_loop', name: 'Skyline Trail Loop', miles: 5.5, park: 'Mount Rainier National Park', info: 'Wanders through subalpine meadows filled with wildflowers and marmots, offering up-close views of Rainier.' }
+    { id: 'half_dome', name: 'Half Dome', miles: 16.0, park: 'Yosemite National Park', info: 'Famous for its sheer granite face, this 16-mile trek ascends over 4,800 feet through the misty waterfalls of the John Muir Trail, culminating in a breath-taking (and permit-required) 400-foot cable climb to the summit.' },
+    { id: 'angels_landing', name: 'Angels Landing', miles: 5.0, park: 'Zion National Park', info: 'Carved into solid rock, this thrilling 5-mile out-and-back trail features 1,500-foot sheer drop-offs. Hikers rely on anchored chain handholds to navigate the final narrow sandstone fin to a panoramic peak above Zion Canyon.' },
+    { id: 'zion_narrows', name: 'Zion Narrows', miles: 16.0, park: 'Zion National Park', info: 'The quintessential slot canyon experience. You literally hike in the Virgin River, surrounded by towering thousand-foot Navajo sandstone walls that glow in the reflected sunlight. Flash flood awareness is absolutely critical.' },
+    { id: 'cascade_pass', name: 'Cascade Pass / Sahale Arm', miles: 12.1, park: 'North Cascades National Park', info: 'A premier alpine journey bridging dense forest to the Sahale Glacier. Hikers are treated to sweeping views of jagged, glaciated peaks (the "American Alps") and frequent encounters with mountain goats and marmots.' },
+    { id: 'highline_trail', name: 'Highline Trail', miles: 11.8, park: 'Glacier National Park', info: 'Hugging the Garden Wall along the Continental Divide, this trail offers unparalleled access to Glacier’s high country. Known for dizzying ledges carved into the cliffside and dramatic, glacier-carved valley vistas.' },
+    { id: 'harding_icefield', name: 'Harding Icefield', miles: 8.2, park: 'Kenai Fjords National Park', info: 'A punishing climb that rewards hikers with a window into the Ice Age. Starting alongside Exit Glacier, the trail breaches the tree line to reveal a 700-square-mile expanse of solid glacial ice stretching to the horizon.' },
+    { id: 'old_rag', name: 'Old Rag Trail', miles: 9.3, park: 'Shenandoah National Park', info: 'A grueling but highly rewarding circuit featuring a mile-long granite boulder scramble. It requires physical strength and route-finding skills, offering spectacular 360-degree views of the sprawling Blue Ridge Mountains.' },
+    { id: 'emerald_lake', name: 'Emerald Lake', miles: 3.2, park: 'Rocky Mountain National Park', info: 'A stunning, high-altitude alpine stroll. This scenic trail weaves past Nymph and Dream Lakes before terminating at Emerald Lake, serving as a masterclass on how ancient glaciers carved out mountainous cirques and valleys.' },
+    { id: 'precipice_trail', name: 'Precipice Trail', miles: 2.1, park: 'Acadia National Park', info: 'Acadia’s most challenging and famous climb. This non-technical climbing route uses iron rungs and ladders embedded directly into the exposed, vertical cliff ledges of Champlain Mountain, overlooking the Atlantic Ocean.' },
+    { id: 'skyline_loop', name: 'Skyline Trail Loop', miles: 5.5, park: 'Mount Rainier National Park', info: 'A vibrant subalpine loop weaving through Paradise’s famous wildflower meadows. It offers up-close, unobstructed views of the imposing Nisqually Glacier and the towering volcanic summit of Mount Rainier.' }
 ];
 
 // --- TRAIL NAVIGATION & EDUCATION ENGINE ---
-window.flyToActiveTrail = function() {
+window.flyToActiveTrail = function () {
     // 1. Programmatically click your existing Nav Bar 'Map' button to switch views
     const mapNavBtn = document.querySelector('.nav-item[data-target="map-view"]');
     if (mapNavBtn) mapNavBtn.click();
-    
+
     // 2. Ensure the Virtual Trail toggle is enabled so the line is visible
     const toggleBtn = document.getElementById('toggle-virtual-trail');
     if (toggleBtn && !toggleBtn.classList.contains('active')) {
-        toggleBtn.click(); 
+        toggleBtn.click();
     }
-    
+
     // 3. Leaflet rendering sequence
     if (virtualTrailLayerGroup && virtualTrailLayerGroup.getLayers().length > 0) {
         // We use a slight timeout because switching UI views (display: block) 
         // temporarily breaks Leaflet's size calculations.
         setTimeout(() => {
-            map.invalidateSize(); 
-            map.flyToBounds(virtualTrailLayerGroup.getBounds(), { 
-                padding: [50, 50], 
-                maxZoom: 14, 
-                animate: true, 
-                duration: 1.5 
+            map.invalidateSize();
+            map.flyToBounds(virtualTrailLayerGroup.getBounds(), {
+                padding: [50, 50],
+                maxZoom: 14,
+                animate: true,
+                duration: 1.5
             });
         }, 350);
     } else {
@@ -2601,10 +2601,10 @@ window.flyToActiveTrail = function() {
     }
 };
 
-window.hydrateEducationModal = function(trailId) {
+window.hydrateEducationModal = function (trailId) {
     const trailData = TOP_10_TRAILS.find(t => t.id === trailId);
     if (!trailData) return;
-    
+
     const parkEl = document.getElementById('edu-park-name');
     const descEl = document.getElementById('edu-trail-desc');
     const distEl = document.getElementById('edu-trail-distance');
@@ -2630,21 +2630,24 @@ if (spinBtn) {
         // 1. Fetch user data to see what they have already completed
         incrementRequestCount();
         const userRef = firebase.firestore().collection('users').doc(user.uid);
-        
+
         try {
             const docSnap = await userRef.get();
             const userData = docSnap.data() || {};
-            
+
             const completedExpeditions = userData.completed_expeditions || [];
             const completedIds = completedExpeditions.map(exp => exp.id || exp.trail_id);
-            
+
             // 2. Filter out trails they already conquered
             let availableTrails = TOP_10_TRAILS.filter(trail => !completedIds.includes(trail.id));
-            
-            // 3. Prestige Mode Fallback (If they beat the game, let them replay)
+
+            // 3. Prevent repeating trails: hard stop if they beat the game
             if (availableTrails.length === 0) {
-                alert("🌟 Incredible! You've hiked every trail. Prestige Mode unlocked: Trails will now repeat!");
-                availableTrails = TOP_10_TRAILS; 
+                alert("🌟 Incredible! You've hiked every B.A.R.K. Ranger trail. There are no more trails to conquer!");
+                spinBtn.textContent = '🎡 Spin for a Trail';
+                spinBtn.disabled = false;
+                spinBtn.style.opacity = '1';
+                return;
             }
 
             let spinCount = 0;
@@ -2661,7 +2664,7 @@ if (spinBtn) {
                     clearInterval(shuffleInterval);
                     finalTrail = availableTrails[Math.floor(Math.random() * availableTrails.length)];
                     if (nameHeader) nameHeader.textContent = finalTrail.name;
-                    
+
                     assignTrailToUser(user.uid, finalTrail);
 
                     // 🔥 THE FIX: Reset the button state in the background so it's ready for the next loop
@@ -2816,7 +2819,7 @@ function renderExpeditionProgress(current, total, lifetime) {
         activeState.style.display = 'none';
         completeState.style.display = 'block';
         document.getElementById('expedition-name').textContent = "CONQUERED";
-        
+
         // Ensure celebration trail name is set
         const trailName = document.getElementById('celebration-trail-name');
         if (trailName) {
@@ -2880,7 +2883,7 @@ function renderExpeditionHistory(historyArray, activeTrailName = "Expedition") {
             // Smart fallback: if trailName is missing or generic, use the current activeTrailName
             const isGeneric = !log.trailName || log.trailName === "Expedition" || log.trailName === "Active Trail";
             const trail = isGeneric ? (activeTrailName || "Expedition") : log.trailName;
-            
+
             if (!acc[trail]) acc[trail] = [];
             acc[trail].push(log);
             return acc;
@@ -2897,9 +2900,9 @@ function renderExpeditionHistory(historyArray, activeTrailName = "Expedition") {
                 </div>
                 <ul style="list-style: none; padding: 0; margin: 0; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #f1f5f9;">
                     ${logs.map(log => {
-                        const dateStr = new Date(log.ts).toLocaleString([], { month: 'short', day: 'numeric' });
-                        const icon = log.type === 'GPS Verified' ? '📍' : '✏️';
-                        return `
+                const dateStr = new Date(log.ts).toLocaleString([], { month: 'short', day: 'numeric' });
+                const icon = log.type === 'GPS Verified' ? '📍' : '✏️';
+                return `
                         <li style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #f8fafc;">
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span style="font-size: 14px;">${icon}</span>
@@ -2913,7 +2916,7 @@ function renderExpeditionHistory(historyArray, activeTrailName = "Expedition") {
                                 <button onclick="deleteWalkLog('${log.ts}')" style="background: none; border: none; color: #ef4444; font-size: 10px; font-weight: 800; cursor: pointer; padding: 4px; letter-spacing: 0.5px;">DELETE</button>
                             </div>
                         </li>`;
-                    }).join('')}
+            }).join('')}
                 </ul>
             </div>`;
         }).join('');
@@ -3042,7 +3045,7 @@ window.deleteWalkLog = async function (timestamp) {
     }
 };
 
-window.claimRewardAndReset = async function() {
+window.claimRewardAndReset = async function () {
     const user = firebase.auth().currentUser;
     if (!user) return;
 
@@ -3101,7 +3104,7 @@ function renderCompletedExpeditions(expeditionsArray) {
     const grid = document.getElementById('completed-expeditions-grid');
     const caseEl = document.getElementById('expedition-trophy-case');
     if (!grid || !caseEl) return;
-    
+
     if (!expeditionsArray || expeditionsArray.length === 0) {
         caseEl.style.display = 'none';
         return;
@@ -3114,7 +3117,7 @@ function renderCompletedExpeditions(expeditionsArray) {
         const name = exp.name || exp.trail_name || "Expedition";
         const rawDate = exp.date_completed || exp.ts || Date.now();
         const dateStr = new Date(rawDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-        
+
         return `
         <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 10px; flex: 0 0 180px; scroll-snap-align: start;">
             <div style="font-size: 24px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.1));">🏅</div>
@@ -4426,14 +4429,14 @@ function initTrainingUI() {
     const state = localStorage.getItem('trainingState');
 
     if (!state || state === 'idle') {
-        if(btn) {
+        if (btn) {
             btn.textContent = 'Start Walk';
             btn.className = 'glass-btn training-btn';
         }
         if (cancelBtn) cancelBtn.style.display = 'none';
         if (descEl) descEl.innerHTML = 'Start walking away from home. Log your turnaround point to calculate total distance and earn <strong style="color: #f59e0b;">+1 PT</strong>.';
     } else {
-        if(btn) {
+        if (btn) {
             btn.textContent = 'Log Turnaround 📍';
             btn.className = 'glass-btn training-btn active';
         }
@@ -4450,11 +4453,11 @@ setTimeout(() => updateTripUI(), 500);
 
 // --- SHARE ENGINE LOGIC ---
 
-window.shareSingleExpedition = async function() {
+window.shareSingleExpedition = async function () {
     const trailName = document.getElementById('celebration-trail-name').textContent;
     const template = document.getElementById('single-export-template');
     const container = document.getElementById('single-export-card-container');
-    
+
     // Inject custom design into your existing export template
     container.innerHTML = `
         <div style="background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.1); border-radius: 24px; padding: 40px; text-align: center;">
@@ -4463,16 +4466,16 @@ window.shareSingleExpedition = async function() {
             <div style="font-size: 60px; font-weight: 900; color: #f59e0b;">${trailName}</div>
         </div>
     `;
-    
+
     await executeCanvasExport(template, `Conquered_${trailName.replace(/\s+/g, '_')}.png`);
 };
 
-window.shareAllExpeditions = async function() {
+window.shareAllExpeditions = async function () {
     const template = document.getElementById('single-export-template');
     const container = document.getElementById('single-export-card-container');
     const grid = document.getElementById('completed-expeditions-grid');
     if (!grid) return;
-    
+
     // Clone the UI badges into the export template layout
     container.innerHTML = `
         <div style="font-size: 24px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 40px; text-align: center;">My Expedition Trophy Case</div>
@@ -4480,7 +4483,7 @@ window.shareAllExpeditions = async function() {
             ${grid.innerHTML}
         </div>
     `;
-    
+
     // Remove the scroll properties from the clone so it renders as a grid on the image
     const clonedElements = container.querySelectorAll('div[style*="flex: 0 0 180px"]');
     clonedElements.forEach(el => {
@@ -4496,11 +4499,11 @@ async function executeCanvasExport(element, filename) {
     // Briefly move the template on-screen for rendering
     element.style.left = '0';
     element.style.zIndex = '9999';
-    
+
     try {
         const canvas = await html2canvas(element, { scale: 2, backgroundColor: '#0f172a' });
         const dataUrl = canvas.toDataURL('image/png');
-        
+
         const link = document.createElement('a');
         link.download = filename;
         link.href = dataUrl;

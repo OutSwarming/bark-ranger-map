@@ -3,13 +3,13 @@ const fs = require('fs');
 const path = require('path');
 
 const TRAIL_METADATA = {
-    'half_dome': 'Half Dome Trail',
-    'angels_landing': "Angels Landing Trail",
-    'zion_narrows': 'Zion Narrows',
-    'cascade_pass': 'Cascade Pass Trail',
-    'highline_trail': 'Highline Trail',
+    'half_dome': 'Half Dome Trail|John Muir Trail|Mist Trail',
+    'angels_landing': "Angels Landing Trail|West Rim Trail",
+    'zion_narrows': 'Riverside Walk|The Narrows Day Hike Section',
+    'cascade_pass': 'Cascade Pass Trail|Sahale Arm Trail',
+    'highline_trail': 'Highline Trail|Granite Park Trail',
     'harding_icefield': 'Harding Icefield Trail',
-    'old_rag': 'Old Rag Trail',
+    'old_rag': 'Ridge Trail|Saddle Trail|Weakley Hollow Fire Road',
     'emerald_lake': 'Emerald Lake Trail',
     'precipice_trail': 'Precipice Trail|Champlain North Ridge Trail|Orange & Black Path',
     'skyline_loop': 'Skyline Trail'

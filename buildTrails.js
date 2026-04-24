@@ -141,6 +141,30 @@ files.forEach(file => {
                         });
                     }
 
+                    // 🏜️ PRE-STITCH FILTER: Drop the West Rim Trail north of Scout Lookout
+                    // This forces the stitcher to only keep the segment from the Grotto, to Scout Lookout, down to AL Summit
+                    if (trailId === 'angels_landing') {
+                        rawLines = rawLines.map(line => line.filter(coord =>
+                            coord[1] < 37.275
+                        )).filter(line => line.length > 1);
+                    }
+
+                    // 🏔️ PRE-STITCH FILTER: Drop the Cascade Pass descent to Cottonwood Camp
+                    // We only want the path from the trailhead up to Sahale Arm
+                    if (trailId === 'cascade_pass') {
+                        rawLines = rawLines.map(line => line.filter(coord =>
+                            coord[1] >= 48.466 // Drops the southern trajectory toward Stehekin/Cottonwood
+                        )).filter(line => line.length > 1);
+                    }
+
+                    // 🏔️ PRE-STITCH FILTER: Drop JMT east of the Half Dome Trail junction
+                    // This forces the stitcher to route from Happy Isles to Half Dome Summit, dropping the remaining hundreds of miles of JMT
+                    if (trailId === 'half_dome') {
+                        rawLines = rawLines.map(line => line.filter(coord =>
+                            coord[0] < -119.49
+                        )).filter(line => line.length > 1);
+                    }
+
                     coordinates = stitchMultiLineString(rawLines);
                 } else {
                     coordinates = feature.geometry.coordinates;
@@ -154,12 +178,17 @@ files.forEach(file => {
                 // 🏔️ THE UNIVERSAL TRAIL GUILLOTINE 🏔️
                 const TRAIL_TERMINALS = {
                     'angels_landing': { lat: 37.269384, lon: -112.947980 },   // Summit
-                    'highline_trail': { lat: 48.7547, lon: -113.8005 }       // The Loop Trailhead on GTSR
+                    'highline_trail': { lat: 48.7547, lon: -113.8005 },      // The Loop Trailhead on GTSR
+                    'cascade_pass': { lat: 48.4852, lon: -121.0460 },        // Sahale Glacier Camp
+                    'half_dome': { lat: 37.7460, lon: -119.5332 }            // Half Dome Summit
                 };
 
                 // 🧭 START ANCHORS: Force a trail to BEGIN at a specific trailhead
                 const TRAIL_START_ANCHORS = {
-                    'highline_trail': { lat: 48.6966, lon: -113.7182 }       // Logan's Pass Trailhead
+                    'highline_trail': { lat: 48.6966, lon: -113.7182 },      // Logan's Pass Trailhead
+                    'angels_landing': { lat: 37.2593, lon: -112.9515 },      // The Grotto Trailhead
+                    'cascade_pass': { lat: 48.4754, lon: -121.0751 },        // Johannesburg / Cascade Pass Trailhead
+                    'half_dome': { lat: 37.7328, lon: -119.5577 }            // Happy Isles Trailhead
                 };
 
                 if (TRAIL_START_ANCHORS[trailId] && coordinates.length > 0) {
@@ -234,7 +263,7 @@ files.forEach(file => {
 
                 // 🪓 THE FINAL SAFETY AXE 🪓
                 // Catch any remaining massive jumps, UNLESS it has a precision terminal
-                if (coordinates.length > 0 && !TRAIL_TERMINALS[trailId] && trailId !== 'skyline_loop' && trailId !== 'precipice_trail') {
+                if (coordinates.length > 0 && !TRAIL_TERMINALS[trailId] && trailId !== 'skyline_loop' && trailId !== 'precipice_trail' && trailId !== 'old_rag') {
                     for (let i = 1; i < coordinates.length; i++) {
                         const dSq = Math.pow(coordinates[i][1] - coordinates[i - 1][1], 2) + Math.pow(coordinates[i][0] - coordinates[i - 1][0], 2);
                         if (dSq > MAX_JUMP_SQ) {
