@@ -117,7 +117,10 @@ const map = L.map('map', {
     worldCopyJump: true,
     renderer: L.canvas({ padding: 0.5 }),
     preferCanvas: true,
-    zoomSnap: 0 // 👈 Enable smooth sub-pixel zooming
+    zoomSnap: 0.5,              // Smooth enough for custom gestures, crisp for scroll wheel
+    zoomDelta: 1,               // Desktop scroll wheel zooms by 1 full level per tick
+    wheelDebounceTime: 40,      // Responsive trackpad feel
+    wheelPxPerZoomLevel: 120    // Natural scroll-to-zoom ratio
 });
 
 // 🎯 MAP MEMORY INJECTION
@@ -4790,43 +4793,53 @@ function showRankUpCelebration(oldTitle, newTitle) {
 }
 
 // 🎯 CUSTOM ONE-FINGER ZOOM (Google Maps Style)
-const mapContainer = document.getElementById('map');
-let lastTap = 0;
-let isOneFingerZooming = false;
-let zoomStartY = 0;
-let initialZoom = 0;
+// Only activates on touch devices — desktop mouse/trackpad is never affected
+if ('ontouchstart' in window) {
+    const mapContainer = document.getElementById('map');
+    let lastTap = 0;
+    let isOneFingerZooming = false;
+    let zoomStartY = 0;
+    let initialZoom = 0;
 
-mapContainer.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) return;
-    const currentTime = new Date().getTime();
-    const tapLength = currentTime - lastTap;
-    
-    // Detect Double-Tap & Hold
-    if (tapLength < 300 && tapLength > 0) {
-        e.preventDefault(); // Take control away from the browser
-        isOneFingerZooming = true;
-        zoomStartY = e.touches[0].clientY;
-        initialZoom = map.getZoom();
-        map.dragging.disable(); // Lock standard map panning
-    }
-    lastTap = currentTime;
-}, { passive: false });
+    // Disable Leaflet's built-in double-tap zoom to prevent conflicts
+    map.doubleClickZoom.disable();
 
-mapContainer.addEventListener('touchmove', (e) => {
-    if (!isOneFingerZooming || e.touches.length !== 1) return;
-    
-    e.preventDefault();
-    const currentY = e.touches[0].clientY;
-    const deltaY = currentY - zoomStartY;
-    
-    // Slide down to zoom in, up to zoom out
-    const zoomDelta = deltaY / 150; 
-    map.setZoom(initialZoom + zoomDelta, { animate: false });
-}, { passive: false });
+    mapContainer.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) return;
+        const currentTime = new Date().getTime();
+        const tapLength = currentTime - lastTap;
+        
+        // Detect Double-Tap & Hold
+        if (tapLength < 300 && tapLength > 0) {
+            e.preventDefault();
+            isOneFingerZooming = true;
+            zoomStartY = e.touches[0].clientY;
+            initialZoom = map.getZoom();
+            map.dragging.disable();
+            // Temporarily unlock sub-pixel zoom for smooth gesture
+            map.options.zoomSnap = 0;
+        }
+        lastTap = currentTime;
+    }, { passive: false });
 
-mapContainer.addEventListener('touchend', () => {
-    if (isOneFingerZooming) {
-        isOneFingerZooming = false;
-        map.dragging.enable(); // Unlock standard map panning
-    }
-});
+    mapContainer.addEventListener('touchmove', (e) => {
+        if (!isOneFingerZooming || e.touches.length !== 1) return;
+        
+        e.preventDefault();
+        const currentY = e.touches[0].clientY;
+        const deltaY = currentY - zoomStartY;
+        
+        // Slide down to zoom in, up to zoom out
+        const zoomDelta = deltaY / 150; 
+        map.setZoom(initialZoom + zoomDelta, { animate: false });
+    }, { passive: false });
+
+    mapContainer.addEventListener('touchend', () => {
+        if (isOneFingerZooming) {
+            isOneFingerZooming = false;
+            map.dragging.enable();
+            // Restore crisp zoom snapping for normal interactions
+            map.options.zoomSnap = 0.5;
+        }
+    });
+}
