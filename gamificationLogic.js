@@ -15,6 +15,7 @@ class GamificationEngine {
             'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah', 'VT': 'Vermont',
             'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming'
         };
+        this.achievementsCache = null; // 🛑 Initialize memory cache
     }
 
     // Bulletproof lookup: Translates "Florida" -> "FL"
@@ -100,9 +101,15 @@ class GamificationEngine {
         try {
             const batch = db.batch();
             let hasChanges = false;
-            const snap = await achievementsRef.get();
-            const existingCache = {};
-            snap.forEach(doc => { existingCache[doc.id] = doc.data(); });
+            
+            // 🛑 PREVENT READ CASCADE: Only fetch from DB if cache is empty
+            if (!this.achievementsCache) {
+                const snap = await achievementsRef.get();
+                this.achievementsCache = {};
+                snap.forEach(doc => { this.achievementsCache[doc.id] = doc.data(); });
+            }
+            
+            const existingCache = this.achievementsCache;
             
             for (const item of allItems) {
                 if (item.status === 'unlocked') {
@@ -112,6 +119,9 @@ class GamificationEngine {
                             achievementId: item.id, tier: item.tier, dateEarned: firebase.firestore.FieldValue.serverTimestamp()
                         }, { merge: true });
                         hasChanges = true;
+                        
+                        // 🛑 Update local cache immediately to prevent re-triggering
+                        this.achievementsCache[item.id] = { tier: item.tier, dateEarned: Date.now() };
                     }
                     if (existing && existing.dateEarned) {
                         const d = existing.dateEarned.toDate ? existing.dateEarned.toDate() : new Date(existing.dateEarned);

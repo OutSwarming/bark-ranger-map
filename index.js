@@ -42,13 +42,14 @@ exports.generateHourlyLeaderboard = functions.pubsub.schedule("0 * * * *")
     .onRun(async (context) => {
         const db = admin.firestore();
         try {
-            const snapshot = await db.collection("leaderboard").orderBy("totalVisited", "desc").limit(100).get();
+            const snapshot = await db.collection("leaderboard").orderBy("totalPoints", "desc").limit(100).get();
             const leaderboardArray = [];
             snapshot.forEach((doc) => {
                 const data = doc.data();
                 leaderboardArray.push({
                     uid: doc.id,
                     displayName: data.displayName || "Anonymous Ranger",
+                    totalPoints: data.totalPoints || data.totalVisited || 0,
                     totalVisited: data.totalVisited || 0,
                     hasVerified: !!data.hasVerified
                 });

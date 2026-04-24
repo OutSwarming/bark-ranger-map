@@ -12,7 +12,8 @@ const TRAIL_METADATA = {
     'old_rag': { name: 'Old Rag Trail', total_miles: 9.3 },
     'emerald_lake': { name: 'Emerald Lake', total_miles: 3.2 },
     'precipice_trail': { name: 'Precipice Trail', total_miles: 3.2 },
-    'skyline_loop': { name: 'Skyline Trail Loop', total_miles: 5.5 }
+    'skyline_loop': { name: 'Skyline Trail Loop', total_miles: 5.5 },
+    'grand_canyon_rim2rim': { name: 'Grand Canyon Rim to Rim', total_miles: 44.0 }
 };
 
 const rawDir = path.join(__dirname, 'raw_trails');
@@ -180,7 +181,8 @@ files.forEach(file => {
                     'angels_landing': { lat: 37.269384, lon: -112.947980 },   // Summit
                     'highline_trail': { lat: 48.7547, lon: -113.8005 },      // The Loop Trailhead on GTSR
                     'cascade_pass': { lat: 48.4852, lon: -121.0460 },        // Sahale Glacier Camp
-                    'half_dome': { lat: 37.7460, lon: -119.5332 }            // Half Dome Summit
+                    'half_dome': { lat: 37.7460, lon: -119.5332 },           // Half Dome Summit
+                    'grand_canyon_rim2rim': { lat: 36.2170, lon: -112.0566 } // North Kaibab Trailhead
                 };
 
                 // 🧭 START ANCHORS: Force a trail to BEGIN at a specific trailhead
@@ -188,7 +190,8 @@ files.forEach(file => {
                     'highline_trail': { lat: 48.6966, lon: -113.7182 },      // Logan's Pass Trailhead
                     'angels_landing': { lat: 37.2593, lon: -112.9515 },      // The Grotto Trailhead
                     'cascade_pass': { lat: 48.4754, lon: -121.0751 },        // Johannesburg / Cascade Pass Trailhead
-                    'half_dome': { lat: 37.7328, lon: -119.5577 }            // Happy Isles Trailhead
+                    'half_dome': { lat: 37.7328, lon: -119.5577 },           // Happy Isles Trailhead
+                    'grand_canyon_rim2rim': { lat: 36.0529, lon: -112.0837 } // South Kaibab Trailhead
                 };
 
                 if (TRAIL_START_ANCHORS[trailId] && coordinates.length > 0) {

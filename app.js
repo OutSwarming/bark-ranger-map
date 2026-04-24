@@ -116,17 +116,23 @@ const map = L.map('map', {
     zoomControl: false,
     worldCopyJump: true,
     renderer: L.canvas({ padding: 0.5 }),
-    preferCanvas: true
+    preferCanvas: true,
+    
+    // Google Maps one-handed zoom (double-tap and slide)
+    doubleTapDragZoom: 'center',
+    doubleTapDragZoomOptions: {
+        reverse: true, // Google Maps style: slide down to zoom in, up to zoom out
+    }
 }).setView([39.8283, -98.5795], 4);
 
-// Dismiss the cold-start loader once the map tiles are ready
-map.whenReady(() => {
+// Helper to manually dismiss the cold-start loader exactly when we want to (e.g. after sync)
+window.dismissBarkLoader = function() {
     const loader = document.getElementById('bark-loader');
-    if (loader) {
+    if (loader && loader.style.opacity !== '0') {
         loader.style.opacity = '0';
         setTimeout(() => loader.remove(), 600);
     }
-});
+};
 
 L.control.zoom({
     position: 'bottomleft'
@@ -388,6 +394,35 @@ async function evaluateAchievements(visitedPlacesMap) {
         titleEl.textContent = newTitle;
     }
     if (scoreEl) scoreEl.textContent = achievements.totalScore;
+
+    // 🏆 EFFICIENT LEADERBOARD SYNC 🏆
+    // Only write to Firestore if the score has actually changed to save tokens & bandwidth
+    if (userId && achievements.totalScore !== window._lastSyncedScore) {
+        console.log(`Syncing verified score to leaderboard: ${achievements.totalScore}`);
+        const db = firebase.firestore();
+        incrementRequestCount();
+
+        // Sync to USER Profile
+        await db.collection('users').doc(userId).set({
+            totalPoints: achievements.totalScore,
+            totalVisited: visitedArray.length,
+            displayName: firebase.auth().currentUser.displayName || 'Bark Ranger',
+            hasVerified: visitedArray.some(p => p.verified)
+        }, { merge: true });
+
+        // Sync to GLOBAL Leaderboard (Immediate View)
+        await db.collection('leaderboard').doc(userId).set({
+            displayName: firebase.auth().currentUser.displayName || 'Bark Ranger',
+            photoURL: firebase.auth().currentUser.photoURL || '',
+            totalPoints: achievements.totalScore,
+            totalVisited: visitedArray.length,
+            hasVerified: visitedArray.some(p => p.verified),
+            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        window._lastSyncedScore = achievements.totalScore;
+    }
+
     if (progressFill) {
         const thresholds = [10, 25, 50, 100, 200, 300, 500];
         const next = thresholds.find(t => t > achievements.totalScore) || 500;
@@ -568,7 +603,7 @@ function updateStatsUI() {
         }
     });
 
-    totalScore = (verifiedCount * 2) + regularCount;
+    totalScore = (verifiedCount * 2) + regularCount + Math.floor(window.currentWalkPoints || 0);
 
     scoreEl.textContent = totalScore;
     verifiedEl.textContent = verifiedCount;
@@ -598,19 +633,7 @@ function updateStatsUI() {
         }
     }
 
-    // Leaderboard sync
-    if (typeof firebase !== 'undefined' && firebase.auth().currentUser && totalScore > 0) {
-        const u = firebase.auth().currentUser;
-        incrementRequestCount(); // Count Achievement Sync
-        firebase.firestore().collection('leaderboard').doc(u.uid).set({
-            displayName: u.displayName || 'Bark Ranger',
-            photoURL: u.photoURL || '',
-            totalVisited: totalScore,
-            hasVerified: (verifiedCount > 0),
-            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true }).catch(err => console.log('Leaderboard sync error:', err));
-    }
-
+    // Consistently update achievements when stats change
     evaluateAchievements(userVisitedPlaces);
     renderManagePortal();
 }
@@ -1294,15 +1317,12 @@ function processParsedResults(results) {
                                 alert(`Check-in Verified! You earned 2 points.`);
                                 const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: true, ts: Date.now() };
 
-                                incrementRequestCount(); // Count Firestore Write
+                                incrementRequestCount(); 
                                 const docRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
-                                if (userVisitedPlaces.has(d.id)) {
-                                    const oldObj = userVisitedPlaces.get(d.id);
-                                    docRef.set({ visitedPlaces: firebase.firestore.FieldValue.arrayRemove(oldObj) }, { merge: true });
-                                }
 
-                                userVisitedPlaces.set(d.id, newObj);
-                                docRef.set({ visitedPlaces: firebase.firestore.FieldValue.arrayUnion(newObj) }, { merge: true });
+                                userVisitedPlaces.set(d.id, newObj); // Overwrite local map memory
+                                const updatedArray = Array.from(userVisitedPlaces.values()); // Flatten map to array
+                                docRef.update({ visitedPlaces: updatedArray }); // Execute a single, clean network write
 
                                 verifyBtn.style.background = '#4CAF50';
                                 verifyBtnText.textContent = '🐾 Verified & Secured';
@@ -1931,6 +1951,14 @@ if (typeof firebase !== 'undefined') {
     firebase.initializeApp(firebaseConfig);
 
     firebase.auth().onAuthStateChanged((user) => {
+        // Redefine globals strictly as window variables for cross-component stability
+        window._lastSyncedScore = window._lastSyncedScore || 0;
+        window.isAdmin = false;
+        window._serverPayloadSettled = false;
+        window._firstServerPayloadReceived = false;
+        window._lastKnownRank = null;
+        window.currentWalkPoints = window.currentWalkPoints || 0;
+
         const profileName = document.getElementById('user-profile-name');
 
         if (user) {
@@ -1959,12 +1987,20 @@ if (typeof firebase !== 'undefined') {
 
                         // Admin Dashboard Reveal
                         const adminContainer = document.getElementById('admin-controls-container');
+                        window.isAdmin = data.isAdmin === true;
+
                         if (adminContainer) {
-                            if (data.isAdmin === true) {
-                                adminContainer.innerHTML = `<button onclick="window.location.href='admin.html'" class="glass-btn primary-btn" style="width: 100%; background: #10b981; color: white; border: none; padding: 14px; border-radius: 12px; font-weight: 800; display: flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"></path></svg>
-                                    Enter Data Refinery
-                                </button>`;
+                            if (window.isAdmin) {
+                                adminContainer.innerHTML = `
+                                    <div style="display: flex; gap: 8px; flex-direction: column;">
+                                        <button onclick="window.location.href='admin.html'" class="glass-btn primary-btn" style="width: 100%; background: #10b981; color: white; border: none; padding: 14px; border-radius: 12px; font-weight: 800; display: flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"></path></svg>
+                                            Enter Data Refinery
+                                        </button>
+                                        <button onclick="adminEditPoints()" class="glass-btn" style="width: 100%; background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; padding: 10px; border-radius: 10px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;">
+                                            ⚙️ EDIT TEST POINTS (ADMIN)
+                                        </button>
+                                    </div>`;
                             } else {
                                 adminContainer.innerHTML = '';
                             }
@@ -1972,13 +2008,25 @@ if (typeof firebase !== 'undefined') {
 
                         // New: Fetch and sync streak & walk points
                         const streakVal = data.streakCount || 0;
-                        const walkVal = data.walkPoints || 0;
+                        let walkVal = data.walkPoints || 0;
+                        const lifetimeVal = data.lifetime_miles || 0;
+
+                        // 🎯 BOUNTY FIX: Self-Correction Logic
+                        // If walkPoints is lagging behind lifetime_miles (due to a legacy bug),
+                        // we auto-correct it here to ensure the user gets credit for every mile walked.
+                        if (lifetimeVal > walkVal) {
+                            console.log(`Bounty Hunter: Correcting point/mileage discrepancy (${walkVal} < ${lifetimeVal})`);
+                            walkVal = lifetimeVal;
+                            // Silently sync back to Firestore
+                            firebase.firestore().collection('users').doc(user.uid).update({ walkPoints: lifetimeVal });
+                        }
 
                         const streakLabel = document.getElementById('streak-count-label');
                         if (streakLabel) streakLabel.textContent = streakVal;
 
                         // Sync window state for evaluateAchievements
                         window.currentWalkPoints = walkVal;
+                        window._lastSyncedScore = data.totalPoints || 0;
 
                         // Unified Virtual Expedition Sync & State Swap
                         if (data.virtual_expedition && data.virtual_expedition.active_trail) {
@@ -2037,6 +2085,11 @@ if (typeof firebase !== 'undefined') {
                     }
                     updateMarkers();
                     updateStatsUI();
+                    
+                    // 🛑 HIDE LOADER HERE (After pins turn green!)
+                    window.dismissBarkLoader();
+
+                    loadLeaderboard(); 
 
                     if (activePinMarker && activePinMarker._parkData && document.getElementById('mark-visited-btn')) {
                         const d = activePinMarker._parkData;
@@ -2054,8 +2107,6 @@ if (typeof firebase !== 'undefined') {
 
             // Load saved routes for this user
             loadSavedRoutes(user.uid);
-            // Refresh leaderboard to show personal rank
-            loadLeaderboard();
 
             // UNLOCK PREMIUM FILTERS
             const premiumWrap = document.getElementById('premium-filters-wrap');
@@ -2078,6 +2129,9 @@ if (typeof firebase !== 'undefined') {
             }
             updateMarkers();
             updateStatsUI();
+
+            // 🛑 HIDE LOADER HERE FOR GUESTS
+            window.dismissBarkLoader();
             // Refresh leaderboard to clear personal rank
             loadLeaderboard();
             // Clear saved routes panel on logout
@@ -2272,6 +2326,7 @@ if (exportCsvBtn) {
  * Leaderboard System (Optimized & Paginated)
  */
 let leaderboardVisibleLimit = 5;
+let lastLeaderboardFetch = 0;
 let cachedLeaderboardData = [];
 
 function renderLeaderboard(topUsers) {
@@ -2378,7 +2433,9 @@ function renderLeaderboard(topUsers) {
                 font-size: 12px; 
                 font-weight: 800;
             `;
-            scorePill.textContent = `${user.totalVisited} PTS`;
+            // USE totalPoints if available, else totalVisited
+            const displayScore = user.totalPoints !== undefined ? user.totalPoints : (user.totalVisited || 0);
+            scorePill.textContent = `${displayScore} PTS`;
 
             rightSide.appendChild(scorePill);
 
@@ -2432,33 +2489,115 @@ function renderLeaderboard(topUsers) {
 
 async function loadLeaderboard() {
     if (typeof firebase === 'undefined') return;
+
+    // 1. Calculate absolute truth from local memory right now
+    let localVerified = 0;
+    let localRegular = 0;
+    userVisitedPlaces.forEach((p) => { if (p.verified) localVerified++; else localRegular++; });
+    const localScore = (localVerified * 2) + localRegular + Math.floor(window.currentWalkPoints || 0);
+
+    // 2. Helper to aggressively inject your local score into the array
+    const applyOptimisticScore = (usersArray) => {
+        const user = firebase.auth().currentUser;
+        if (!user) return usersArray;
+        
+        const meIndex = usersArray.findIndex(u => u.uid === user.uid);
+        if (meIndex > -1) {
+            if (usersArray[meIndex].totalPoints < localScore) {
+                console.log(`Optimistic Update: Patching stale score ${usersArray[meIndex].totalPoints} -> ${localScore}`);
+                usersArray[meIndex].totalPoints = localScore;
+                // Re-sort the array in case you jumped a rank!
+                usersArray.sort((a, b) => b.totalPoints - a.totalPoints);
+            }
+        }
+        return usersArray;
+    };
+
+    // 3. 60-Second Throttle Check
+    if (Date.now() - lastLeaderboardFetch < 60000 && cachedLeaderboardData.length > 0) {
+        // MUST apply the optimistic score to the cached data too!
+        cachedLeaderboardData = applyOptimisticScore(cachedLeaderboardData);
+        renderLeaderboard(cachedLeaderboardData);
+        return;
+    }
+
     try {
-        incrementRequestCount(); // Track Firestore Doc Read
+        lastLeaderboardFetch = Date.now();
+        incrementRequestCount(); 
+        
         const docSnap = await firebase.firestore().collection('system').doc('leaderboardData').get();
+        let topUsers = [];
+
         if (docSnap.exists) {
-            const data = docSnap.data();
-            renderLeaderboard(data.topUsers || []);
+            const rawUsers = docSnap.data().topUsers || [];
+            topUsers = rawUsers.map(u => ({
+                ...u,
+                totalPoints: u.totalPoints !== undefined ? u.totalPoints : (u.totalVisited || 0)
+            }));
         } else {
-            // ── FALLBACK: Use legacy collection until the first hourly run ──
             const snapshot = await firebase.firestore().collection('leaderboard')
-                .orderBy('totalVisited', 'desc')
-                .limit(10)
+                .orderBy('totalPoints', 'desc')
+                .limit(20)
                 .get();
 
-            const legacyUsers = [];
             snapshot.forEach(doc => {
                 const d = doc.data();
-                legacyUsers.push({
+                topUsers.push({
                     uid: doc.id,
                     displayName: d.displayName || 'Bark Ranger',
+                    totalPoints: d.totalPoints !== undefined ? d.totalPoints : (d.totalVisited || 0),
                     totalVisited: d.totalVisited || 0,
                     hasVerified: !!d.hasVerified
                 });
             });
-            renderLeaderboard(legacyUsers);
         }
+
+        // 4. Inject personal fallback if you aren't in the Top 20
+        const user = firebase.auth().currentUser;
+        if (user && !topUsers.find(u => u.uid === user.uid)) {
+            const mySnap = await firebase.firestore().collection('leaderboard').doc(user.uid).get();
+            if (mySnap.exists) {
+                const d = mySnap.data();
+                topUsers.push({
+                    uid: user.uid,
+                    displayName: d.displayName || 'Bark Ranger',
+                    totalPoints: Math.max(d.totalPoints || 0, localScore),
+                    totalVisited: d.totalVisited || 0,
+                    hasVerified: !!d.hasVerified,
+                    isPersonalFallback: true 
+                });
+            }
+        }
+
+        // 5. Final Optimistic Patch & Render
+        cachedLeaderboardData = applyOptimisticScore(topUsers);
+        renderLeaderboard(cachedLeaderboardData);
+
     } catch (err) {
         console.log('Leaderboard load error:', err);
+    }
+}
+
+// --- ADMIN OVERRIDE ENGINE ---
+window.adminEditPoints = async function () {
+    if (!window.isAdmin) return alert("Unauthorized: Admin credentials required.");
+
+    const uid = firebase.auth().currentUser.uid;
+    const currentVal = window.currentWalkPoints || 0;
+    const newScore = prompt("ADMIN: Manually override your Walk Points?", currentVal);
+
+    if (newScore !== null && !isNaN(newScore)) {
+        const finalPoints = parseFloat(newScore);
+        try {
+            incrementRequestCount();
+            const db = firebase.firestore();
+            await db.collection('users').doc(uid).set({
+                walkPoints: finalPoints
+            }, { merge: true });
+            alert(`Admin Success: Walk Points set to ${finalPoints}`);
+        } catch (err) {
+            alert("Failed to override points.");
+        }
     }
 }
 
@@ -2568,7 +2707,8 @@ const TOP_10_TRAILS = [
     { id: 'old_rag', name: 'Old Rag Trail', miles: 9.3, park: 'Shenandoah National Park', info: 'A grueling but highly rewarding circuit featuring a mile-long granite boulder scramble. It requires physical strength and route-finding skills, offering spectacular 360-degree views of the sprawling Blue Ridge Mountains.' },
     { id: 'emerald_lake', name: 'Emerald Lake', miles: 3.2, park: 'Rocky Mountain National Park', info: 'A stunning, high-altitude alpine stroll. This scenic trail weaves past Nymph and Dream Lakes before terminating at Emerald Lake, serving as a masterclass on how ancient glaciers carved out mountainous cirques and valleys.' },
     { id: 'precipice_trail', name: 'Precipice Trail', miles: 2.1, park: 'Acadia National Park', info: 'Acadia’s most challenging and famous climb. This non-technical climbing route uses iron rungs and ladders embedded directly into the exposed, vertical cliff ledges of Champlain Mountain, overlooking the Atlantic Ocean.' },
-    { id: 'skyline_loop', name: 'Skyline Trail Loop', miles: 5.5, park: 'Mount Rainier National Park', info: 'A vibrant subalpine loop weaving through Paradise’s famous wildflower meadows. It offers up-close, unobstructed views of the imposing Nisqually Glacier and the towering volcanic summit of Mount Rainier.' }
+    { id: 'skyline_loop', name: 'Skyline Trail Loop', miles: 5.5, park: 'Mount Rainier National Park', info: 'A vibrant subalpine loop weaving through Paradise’s famous wildflower meadows. It offers up-close, unobstructed views of the imposing Nisqually Glacier and the towering volcanic summit of Mount Rainier.' },
+    { id: 'grand_canyon_rim2rim', name: 'Grand Canyon Rim to Rim', miles: 44.0, park: 'Grand Canyon National Park', info: 'The ultimate Boss challenge. This colossal 44-mile endurance test plunges deep into the canyon via the South Kaibab Trail, crosses the roaring Colorado River, and ascends the North Kaibab Trail to the opposite rim.' }
 ];
 
 // --- TRAIL NAVIGATION & EDUCATION ENGINE ---
@@ -2638,16 +2778,32 @@ if (spinBtn) {
             const completedExpeditions = userData.completed_expeditions || [];
             const completedIds = completedExpeditions.map(exp => exp.id || exp.trail_id);
 
-            // 2. Filter out trails they already conquered
-            let availableTrails = TOP_10_TRAILS.filter(trail => !completedIds.includes(trail.id));
+            // 2. Count how many times each trail has been completed
+            const completionCounts = {};
+            TOP_10_TRAILS.forEach(t => completionCounts[t.id] = 0);
+            
+            completedExpeditions.forEach(exp => {
+                const id = exp.id || exp.trail_id;
+                if (completionCounts[id] !== undefined) {
+                    completionCounts[id]++;
+                }
+            });
 
-            // 3. Prevent repeating trails: hard stop if they beat the game
-            if (availableTrails.length === 0) {
-                alert("🌟 Incredible! You've hiked every B.A.R.K. Ranger trail. There are no more trails to conquer!");
-                spinBtn.textContent = '🎡 Spin for a Trail';
-                spinBtn.disabled = false;
-                spinBtn.style.opacity = '1';
-                return;
+            // 3. Find the lowest completion count (the current "lap" they are on)
+            const minCount = Math.min(...Object.values(completionCounts));
+
+            // 4. Filter available trails to ONLY those on the current lap
+            let availableTrails = TOP_10_TRAILS.filter(trail => completionCounts[trail.id] === minCount);
+            
+            // 👑 BOSS TRAIL LOGIC 👑
+            // Grand Canyon Rim to Rim is an imposing 44-mile endurance test. Force it to be the final challenge.
+            const isGrandCanyonAvailable = availableTrails.some(t => t.id === 'grand_canyon_rim2rim');
+            if (isGrandCanyonAvailable && availableTrails.length > 1) {
+                availableTrails = availableTrails.filter(t => t.id !== 'grand_canyon_rim2rim');
+            }
+
+            if (minCount > 0 && availableTrails.length === TOP_10_TRAILS.length - 1) {
+                alert(`🌟 Prestige Mode Lap ${minCount + 1}! You've conquered every trail. Spin to start your next lap!`);
             }
 
             let spinCount = 0;
@@ -2769,7 +2925,8 @@ async function processMileageAddition(milesToAdd, typeLabel) {
         await userRef.update({
             "virtual_expedition.miles_logged": newTotal,
             "virtual_expedition.history": history,
-            "lifetime_miles": firebase.firestore.FieldValue.increment(parseFloat(milesToAdd.toFixed(2)))
+            "lifetime_miles": firebase.firestore.FieldValue.increment(parseFloat(milesToAdd.toFixed(2))),
+            "walkPoints": firebase.firestore.FieldValue.increment(parseFloat(milesToAdd.toFixed(2)))
         });
 
         renderExpeditionProgress(newTotal, totalMiles, lifetimeTotal + milesToAdd);
@@ -2992,7 +3149,8 @@ window.editWalkMiles = async function (timestamp) {
         await userRef.update({
             "virtual_expedition.history": history,
             "virtual_expedition.miles_logged": currentProgress,
-            "lifetime_miles": firebase.firestore.FieldValue.increment(diff)
+            "lifetime_miles": firebase.firestore.FieldValue.increment(diff),
+            "walkPoints": firebase.firestore.FieldValue.increment(diff)
         });
 
         showTripToast("Walk log updated ✏️");
@@ -3035,7 +3193,10 @@ window.deleteWalkLog = async function (timestamp) {
         await userRef.update({
             "virtual_expedition.history": history,
             "virtual_expedition.miles_logged": currentProgress,
-            "lifetime_miles": firebase.firestore.FieldValue.increment(-milesToRemove)
+            "lifetime_miles": firebase.firestore.FieldValue.increment(-milesToRemove),
+            // Note: We subtract from walkPoints too to maintain parity with lifetime_miles,
+            // as 'walkPoints' is the leaderboard currency.
+            "walkPoints": firebase.firestore.FieldValue.increment(-milesToRemove)
         });
 
         showTripToast("Walk removed 🗑️");
@@ -4401,7 +4562,10 @@ window.handleTrainingClick = function () {
                 if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
                     const userRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
                     incrementRequestCount();
-                    userRef.set({ walkPoints: firebase.firestore.FieldValue.increment(1) }, { merge: true });
+                    // Bounty Fix: Increment by actual miles, not just +1!
+                    userRef.set({ 
+                        walkPoints: firebase.firestore.FieldValue.increment(parseFloat(roundTripMiles.toFixed(2))) 
+                    }, { merge: true });
                     window.attemptDailyStreakIncrement();
                 }
 

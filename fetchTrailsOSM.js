@@ -10,6 +10,7 @@ const TRAIL_METADATA = {
     'highline_trail': 'Highline Trail|Granite Park Trail',
     'harding_icefield': 'Harding Icefield Trail',
     'old_rag': 'Ridge Trail|Saddle Trail|Weakley Hollow Fire Road',
+    'grand_canyon_rim2rim': 'North Kaibab Trail|South Kaibab Trail|River Trail',
     'emerald_lake': 'Emerald Lake Trail',
     'precipice_trail': 'Precipice Trail|Champlain North Ridge Trail|Orange & Black Path',
     'skyline_loop': 'Skyline Trail'
@@ -22,6 +23,7 @@ const BBOXES = {
     'cascade_pass': [48.4, -121.1, 48.5, -120.9],
     'highline_trail': [48.7, -113.8, 48.8, -113.7],
     'harding_icefield': [60.1, -149.7, 60.2, -149.5],
+    'grand_canyon_rim2rim': [36.0, -112.2, 36.3, -111.9],
     'old_rag': [38.5, -78.4, 38.6, -78.3],
     'emerald_lake': [40.3, -105.7, 40.4, -105.6],
     'precipice_trail': [44.3, -68.2, 44.4, -68.1],
