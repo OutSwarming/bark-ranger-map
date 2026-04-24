@@ -662,6 +662,7 @@ body, html {
 
 .visited-pin {
     filter: brightness(1.35) drop-shadow(0 0 10px #4CAF50);
+    z-index: 500 !important;
 }
 
 .visited-pin img {

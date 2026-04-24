@@ -15,8 +15,9 @@ class MapMarkerConfig {
         const isNational = (parkData.parkCategory === 'National');
         const iconUrl = isNational ? 'bark-logo.jpeg' : 'bark-tag.jpeg';
 
-        // Setup state classes that trigger mapStyles.css
-        const stateClass = isVisited ? 'visited-marker' : 'unvisited-marker';
+        // Always create markers in neutral state — visited styling is applied dynamically
+        // by updateMarkers() via the 'visited-pin' class to prevent recycling bugs
+        const stateClass = 'unvisited-marker';
         const catClass = isNational ? 'cat-national' : 'cat-state';
 
         // Create the DivIcon HTML string

@@ -112,18 +112,12 @@ window.attemptDailyStreakIncrement = async function () {
 })();
 
 // Initialize map centered on the US
-// Initialize map
 const map = L.map('map', {
     zoomControl: false,
     worldCopyJump: true,
     renderer: L.canvas({ padding: 0.5 }),
     preferCanvas: true,
-    
-    // Google Maps one-handed zoom (double-tap and slide)
-    doubleTapDragZoom: 'center',
-    doubleTapDragZoomOptions: {
-        reverse: true, // Google Maps style: slide down to zoom in, up to zoom out
-    }
+    zoomSnap: 0 // 👈 Enable smooth sub-pixel zooming
 });
 
 // 🎯 MAP MEMORY INJECTION
@@ -1121,6 +1115,23 @@ function processParsedResults(results) {
         const isVisited = userVisitedPlaces.has(id);
         const marker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
 
+        // 🎯 THE DOM RECYCLING FIX
+        // Scrub the HTML element clean before Leaflet throws it in the recycle bin
+        marker.on('remove', function() {
+            if (this._icon) {
+                this._icon.classList.remove('active-pin');
+                this._icon.classList.remove('visited-pin');
+            }
+        });
+        
+        // Re-apply the correct visual state when Leaflet pulls it out of the bin
+        marker.on('add', function() {
+            if (this._icon) {
+                if (userVisitedPlaces.has(this._parkData.id)) this._icon.classList.add('visited-pin');
+                if (activePinMarker === this) this._icon.classList.add('active-pin');
+            }
+        });
+
         marker.on('click', () => {
             if (activePinMarker && activePinMarker._icon) {
                 activePinMarker._icon.classList.remove('active-pin');
@@ -1647,9 +1658,16 @@ function updateMarkers() {
         }
     });
 
-    // 🎯 If the user specifically filtered for something, elegantly fly the camera to frame it!
-    if ((activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
-        map.flyToBounds(visibleBounds, { padding: [50, 50], maxZoom: 12, duration: 0.8 });
+    // 🎯 SMART AUTO-FRAMING (Interrupt Protection)
+    // Only swoop the camera if the user actually changed the search/filter criteria
+    const currentFilterState = activeSearchQuery + '|' + Array.from(activeSwagFilters).join(',');
+    
+    if (window._lastFilterState !== currentFilterState) {
+        window._lastFilterState = currentFilterState;
+        
+        if ((activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
+            map.flyToBounds(visibleBounds, { padding: [50, 50], maxZoom: 12, duration: 0.8 });
+        }
     }
 }
 
@@ -4770,3 +4788,45 @@ function showRankUpCelebration(oldTitle, newTitle) {
         if (el) el.remove();
     }, 8000);
 }
+
+// 🎯 CUSTOM ONE-FINGER ZOOM (Google Maps Style)
+const mapContainer = document.getElementById('map');
+let lastTap = 0;
+let isOneFingerZooming = false;
+let zoomStartY = 0;
+let initialZoom = 0;
+
+mapContainer.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    const currentTime = new Date().getTime();
+    const tapLength = currentTime - lastTap;
+    
+    // Detect Double-Tap & Hold
+    if (tapLength < 300 && tapLength > 0) {
+        e.preventDefault(); // Take control away from the browser
+        isOneFingerZooming = true;
+        zoomStartY = e.touches[0].clientY;
+        initialZoom = map.getZoom();
+        map.dragging.disable(); // Lock standard map panning
+    }
+    lastTap = currentTime;
+}, { passive: false });
+
+mapContainer.addEventListener('touchmove', (e) => {
+    if (!isOneFingerZooming || e.touches.length !== 1) return;
+    
+    e.preventDefault();
+    const currentY = e.touches[0].clientY;
+    const deltaY = currentY - zoomStartY;
+    
+    // Slide down to zoom in, up to zoom out
+    const zoomDelta = deltaY / 150; 
+    map.setZoom(initialZoom + zoomDelta, { animate: false });
+}, { passive: false });
+
+mapContainer.addEventListener('touchend', () => {
+    if (isOneFingerZooming) {
+        isOneFingerZooming = false;
+        map.dragging.enable(); // Unlock standard map panning
+    }
+});

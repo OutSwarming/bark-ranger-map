@@ -34,16 +34,12 @@
 }
 
 /* 
- * The Premium Halo 
- * Hard rim + heavy gold drop shadow replacing the old green
+ * Visited markers are now styled dynamically via the 'visited-pin' class
+ * in styles.css. This class is intentionally inert to prevent recycling bugs.
  */
 .custom-bark-marker.visited-marker .enamel-pin-wrapper {
     opacity: 1;
     transform: scale(1.0);
-    box-shadow:
-        0 0 0 3px #FBBF24,
-        0 0 25px rgba(250, 204, 21, 1);
-    /* Intense permanent halo */
 }
 
 .custom-bark-marker.visited-marker {
