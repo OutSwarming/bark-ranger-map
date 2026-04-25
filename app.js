@@ -2703,17 +2703,45 @@ async function loadLeaderboard() {
             userVisitedPlaces.forEach(p => { if (p.verified) localVerified++; else localRegular++; });
             const localScore = (localVerified * 2) + localRegular + sanitizeWalkPoints(window.currentWalkPoints);
 
-            // V3.1 DEEP RANK AGGREGATION LOOKUP
+            // V3.1 DEEP RANK ACTUAL LOOKUP (REST API ENFORCED)
             let exactRank = null;
             try {
-                const countSnap = await firebase.firestore()
-                    .collection('leaderboard')
-                    .where('totalPoints', '>', localScore)
-                    .count()
-                    .get();
-                exactRank = countSnap.data().count + 1;
+                // Since compat SDK omits getCountFromServer, we enforce exactly 1 read
+                // by manually calling the highly-optimized Firebase REST API
+                const projectId = firebase.app().options.projectId;
+                const idToken = await firebase.auth().currentUser.getIdToken();
+                const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runAggregationQuery`;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        structuredAggregationQuery: {
+                            structuredQuery: {
+                                from: [{ collectionId: 'leaderboard' }],
+                                where: {
+                                    fieldFilter: {
+                                        field: { fieldPath: 'totalPoints' },
+                                        op: 'GREATER_THAN',
+                                        value: Number.isInteger(localScore) ? { integerValue: localScore } : { doubleValue: localScore }
+                                    }
+                                }
+                            },
+                            aggregations: [{ alias: 'rankCount', count: {} }] // ALIAS IS REQUIRED
+                        }
+                    })
+                });
+
+                const countData = await response.json();
+                // The API returns an array. We target the alias 'rankCount'
+                const countMatched = parseInt(countData[0].result.aggregateFields.rankCount.integerValue);
+                exactRank = countMatched + 1;
             } catch(e) {
-                console.warn('Advanced aggregate rank lookup failed. Falling back to 5+ rank.', e);
+                console.warn('REST API aggregate rank lookup failed.', e);
+                exactRank = null;
             }
 
             topUsers.push({
@@ -2782,12 +2810,37 @@ async function loadMoreLeaderboard() {
             const localScore = (localVerified * 2) + localRegular + sanitizeWalkPoints(window.currentWalkPoints);
 
             try {
-                const countSnap = await firebase.firestore()
-                    .collection('leaderboard')
-                    .where('totalPoints', '>', localScore)
-                    .count()
-                    .get();
-                let exactRank = countSnap.data().count + 1;
+                const projectId = firebase.app().options.projectId;
+                const idToken = await firebase.auth().currentUser.getIdToken();
+                const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runAggregationQuery`;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        structuredAggregationQuery: {
+                            structuredQuery: {
+                                from: [{ collectionId: 'leaderboard' }],
+                                where: {
+                                    fieldFilter: {
+                                        field: { fieldPath: 'totalPoints' },
+                                        op: 'GREATER_THAN',
+                                        value: Number.isInteger(localScore) ? { integerValue: localScore } : { doubleValue: localScore }
+                                    }
+                                }
+                            },
+                            aggregations: [{ alias: 'rankCount', count: {} }]
+                        }
+                    })
+                });
+
+                const countData = await response.json();
+                const countMatched = parseInt(countData[0].result.aggregateFields.rankCount.integerValue);
+                let exactRank = countMatched + 1;
+                
                 cachedLeaderboardData.push({
                     uid: user.uid,
                     displayName: user.displayName || 'Bark Ranger',
@@ -2797,7 +2850,9 @@ async function loadMoreLeaderboard() {
                     isPersonalFallback: true,
                     exactRank: exactRank
                 });
-            } catch(e) {}
+            } catch(e) {
+                console.warn('REST API aggregate rank lookup failed in loadMore', e);
+            }
         }
 
         renderLeaderboard(cachedLeaderboardData);
