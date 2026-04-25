@@ -1,4 +1,4 @@
-const APP_VERSION = 2;
+const APP_VERSION = 4;
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
@@ -238,11 +238,19 @@ map.on('locationfound', function (e) {
 
     userLocationMarker = L.marker(e.latlng, { icon: pulsingIcon }).addTo(map);
     userLocationMarker.bindPopup('You are here!').openPopup();
+
+    // 🎯 RE-CALCULATE AND RE-SORT ACHIEVEMENTS NOW THAT WE HAVE ACTUAL LOCATION
+    evaluateAchievements(userVisitedPlaces);
 });
 
 map.on('locationerror', function (e) {
-    alert("Could not access your location. Please check your browser permissions.");
+    console.warn("Could not access your location. Please check your browser permissions.");
 });
+
+// Prompt for location immediately on load
+setTimeout(() => {
+    map.locate({ setView: false, watch: false });
+}, 500); // Give the map engine a slight delay to settle before prompting
 
 // Create a marker layer group for easy clearing
 const markerLayer = L.layerGroup().addTo(map);
@@ -532,7 +540,7 @@ async function evaluateAchievements(visitedPlacesMap) {
     const getSubtitle = (b) => {
         let s = b.desc || b.hint || '';
         if (!s && b.id.includes('Paw')) s = 'Verified Check-ins';
-        if (!s && b.id.includes('state')) s = '100% Region Cleared';
+        if (!s && b.id.includes('state')) s = '100% cleared!!';
         return s;
     };
 
@@ -629,6 +637,62 @@ async function evaluateAchievements(visitedPlacesMap) {
 
     if (gridRare) gridRare.innerHTML = achievements.rareFeats.map(renderCoin).join('');
     if (gridPaws) gridPaws.innerHTML = achievements.paws.map(renderCoin).join('');
+
+    // --- STATES SORT: DISTANCE & COMPLETION ---
+    const stateDistances = {};
+    const refLatLng = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
+    
+    if (allPoints && allPoints.length > 0) {
+        allPoints.forEach(p => {
+            if (p.state && p.lat && p.lng) {
+                const sts = String(p.state).split(/[,/]/);
+                const dist = haversineDistance(refLatLng.lat, refLatLng.lng, parseFloat(p.lat), parseFloat(p.lng));
+                sts.forEach(s => {
+                    const cleanSt = gamificationEngine.getNormalizedStateCode(s);
+                    if (cleanSt) {
+                        if (stateDistances[cleanSt] === undefined || dist < stateDistances[cleanSt]) {
+                            stateDistances[cleanSt] = dist;
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    let minOverallDist = Infinity;
+    let currentStateCode = null;
+    for (const [code, dist] of Object.entries(stateDistances)) {
+        if (dist < minOverallDist) {
+            minOverallDist = dist;
+            currentStateCode = code;
+        }
+    }
+
+    achievements.stateBadges.sort((a, b) => {
+        const aCode = a.id.replace('state-', '').toUpperCase();
+        const bCode = b.id.replace('state-', '').toUpperCase();
+
+        const aIsCurrent = aCode === currentStateCode;
+        const bIsCurrent = bCode === currentStateCode;
+
+        if (aIsCurrent && !bIsCurrent) return -1;
+        if (!aIsCurrent && bIsCurrent) return 1;
+
+        const aUnlocked = a.status === 'unlocked';
+        const bUnlocked = b.status === 'unlocked';
+
+        if (aUnlocked && !bUnlocked) return -1;
+        if (!aUnlocked && bUnlocked) return 1;
+
+        if (aUnlocked && bUnlocked) {
+             return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0); // newest first
+        }
+
+        const aDist = stateDistances[aCode] !== undefined ? stateDistances[aCode] : Infinity;
+        const bDist = stateDistances[bCode] !== undefined ? stateDistances[bCode] : Infinity;
+        
+        return aDist - bDist; // closest first
+    });
 
     // --- NATIONAL PROGRESS ANCHOR CARD ---
     const nationalCardHtml = `
@@ -1487,6 +1551,8 @@ function processParsedResults(results) {
             state: state || '',
             swagType: swagType,
             category: parkCategory,
+            lat: lat,
+            lng: lng,
             marker: marker
         });
     });
