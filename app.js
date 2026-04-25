@@ -1,5 +1,27 @@
 const APP_VERSION = 1;
 
+// ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
+// Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
+document.addEventListener('contextmenu', function(e) {
+    if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+    }
+});
+
+let lastTouchTime = 0;
+document.addEventListener('touchstart', function(e) {
+    const time = new Date().getTime();
+    const timeSince = time - lastTouchTime;
+    // Intercept the second tap of a double tap (which can lead to a magnifying glass if held)
+    if (timeSince < 300 && timeSince > 0) {
+        if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && !e.target.isContentEditable) {
+            e.preventDefault(); 
+        }
+    }
+    lastTouchTime = time;
+}, { passive: false });
+
+
 // ====== SAFETY & COST CONTROLS ======
 let globalRequestCounter = 0;
 const SESSION_MAX_REQUESTS = 10000; // Auto-shutdown background activity if hit
