@@ -2235,6 +2235,14 @@ if (typeof firebase !== 'undefined') {
                     updateMarkers();
                     updateStatsUI();
 
+                    // Only run leaderboard fetch AFTER the initial visitedPlaces map is hydrated
+                    // This prevents 'localScore' from calculating as 0 on initial page load, which
+                    // was causing mathematically incorrect rank queries.
+                    if (!window._leaderboardLoadedOnce) {
+                        window._leaderboardLoadedOnce = true;
+                        loadLeaderboard();
+                    }
+
                     // 🛑 HIDE LOADER HERE (After pins turn green!)
                     window.dismissBarkLoader();
 
@@ -2791,14 +2799,16 @@ async function loadMoreLeaderboard() {
         cachedLeaderboardData = cachedLeaderboardData.filter(u => !u.isPersonalFallback);
 
         snapshot.forEach(doc => {
-            const d = doc.data();
-            cachedLeaderboardData.push({
-                uid: doc.id,
-                displayName: d.displayName || 'Bark Ranger',
-                totalPoints: d.totalPoints !== undefined ? d.totalPoints : (d.totalVisited || 0),
-                totalVisited: d.totalVisited || 0,
-                hasVerified: !!d.hasVerified
-            });
+            if (!cachedLeaderboardData.find(u => u.uid === doc.id)) {
+                const d = doc.data();
+                cachedLeaderboardData.push({
+                    uid: doc.id,
+                    displayName: d.displayName || 'Bark Ranger',
+                    totalPoints: d.totalPoints !== undefined ? d.totalPoints : (d.totalVisited || 0),
+                    totalVisited: d.totalVisited || 0,
+                    hasVerified: !!d.hasVerified
+                });
+            }
         });
 
         // Re-inject personal fallback if still haven't fetched the user
@@ -2888,8 +2898,6 @@ window.adminEditPoints = async function () {
 }
 
 // Trigger initial load
-loadLeaderboard();
-
 // Public Feedback Portal Logic
 const submitFeedbackBtn = document.getElementById('submit-feedback-btn');
 if (submitFeedbackBtn && typeof firebase !== 'undefined') {
