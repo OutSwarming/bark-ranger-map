@@ -337,6 +337,8 @@
     box-shadow: 0 0 30px rgba(59, 130, 246, 0.2), 0 20px 40px rgba(0,0,0,0.4);
     width: 100%;
     max-width: 400px;
+    max-height: 90vh;
+    overflow-y: auto;
     border-radius: 20px;
     padding: 24px;
     color: #f8fafc;
