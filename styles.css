@@ -67,6 +67,17 @@ html {
     overflow: hidden;
     overscroll-behavior-y: none;
     background-color: #e5e5e5;
+    -webkit-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+/* Allow text selection in inputs and textareas */
+input, textarea {
+    -webkit-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
 }
 
 /* Map Container */
