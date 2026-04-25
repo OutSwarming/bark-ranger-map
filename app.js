@@ -2599,10 +2599,9 @@ async function loadLeaderboard() {
     try {
         incrementRequestCount();
 
-        const snapshot = await firebase.firestore().collection('leaderboard')
-            .orderBy('totalPoints', 'desc')
-            .limit(50)
-            .get();
+        // 🎯 FIX: Fetch all documents without orderBy to catch legacy
+        // accounts that are missing the `totalPoints` field, then sort locally.
+        const snapshot = await firebase.firestore().collection('leaderboard').get();
 
         let topUsers = [];
         snapshot.forEach(doc => {
@@ -2615,6 +2614,12 @@ async function loadLeaderboard() {
                 hasVerified: !!d.hasVerified
             });
         });
+
+        // Sort descending locally
+        topUsers.sort((a, b) => b.totalPoints - a.totalPoints);
+        
+        // Take top 50
+        topUsers = topUsers.slice(0, 50);
 
         // Inject personal fallback if you aren't in the list yet
         const user = firebase.auth().currentUser;
