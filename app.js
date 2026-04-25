@@ -1,4 +1,4 @@
-const APP_VERSION = 5;
+const APP_VERSION = 6;
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
@@ -106,7 +106,7 @@ window.attemptDailyStreakIncrement = async function () {
 
     // Method 2: Focus/blur on input elements (fallback)
     document.addEventListener('focusin', (e) => {
-        if (e.target.matches('input, textarea, select')) {
+        if (e.target.matches('input, textarea')) {
             document.body.classList.add('keyboard-open');
 
             // Explicitly close slide panel on mobile if typing starts
@@ -123,7 +123,7 @@ window.attemptDailyStreakIncrement = async function () {
         }
     });
     document.addEventListener('focusout', (e) => {
-        if (e.target.matches('input, textarea, select')) {
+        if (e.target.matches('input, textarea')) {
             document.body.classList.remove('keyboard-open');
             // Force iOS to recalculate layout
             if (isIOS) {
