@@ -45,7 +45,9 @@ class GamificationEngine {
     }
 
     evaluate(visitedParksArray, userRank = null, walkPoints = 0) {
-        let totalScore = Math.floor(walkPoints || 0);
+        // 🛡️ FLOAT PRECISION GUARD: Round to 2 decimal places before flooring
+        // to prevent IEEE 754 drift (e.g. 10.999999... → 10 instead of 11)
+        let totalScore = Math.floor(Math.round((walkPoints || 0) * 100) / 100);
         let verifiedCount = 0;
         let stateVisitsTotalMap = {};
         let stateVisitsVerifiedMap = {};

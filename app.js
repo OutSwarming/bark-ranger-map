@@ -142,7 +142,7 @@ map.on('moveend', () => {
 });
 
 // Helper to manually dismiss the cold-start loader exactly when we want to (e.g. after sync)
-window.dismissBarkLoader = function() {
+window.dismissBarkLoader = function () {
     const loader = document.getElementById('bark-loader');
     if (loader && loader.style.opacity !== '0') {
         loader.style.opacity = '0';
@@ -361,6 +361,79 @@ async function removeVisitedPlace(place) {
 
 const gamificationEngine = new GamificationEngine();
 
+/**
+ * 🛡️ FLOAT PRECISION GUARD 🛡️
+ * Firestore FieldValue.increment(0.3) accumulates IEEE 754 drift
+ * (e.g. 10.109999999999943 instead of 10.11). This rounds to 2 decimal
+ * places then floors to an integer for score calculation.
+ */
+function sanitizeWalkPoints(raw) {
+    return Math.floor(Math.round((raw || 0) * 100) / 100);
+}
+
+/**
+ * 🏆 CENTRALIZED LEADERBOARD SYNC 🏆
+ * Recalculates totalScore from current in-memory state and writes to both
+ * users/{uid} and leaderboard/{uid} — but ONLY if the score actually changed.
+ * Called from evaluateAchievements AND every walkPoints mutation path.
+ */
+async function syncScoreToLeaderboard() {
+    const user = firebase.auth().currentUser;
+    if (!user) return;
+
+    // Recalculate from authoritative in-memory state
+    let verifiedCount = 0;
+    let regularCount = 0;
+    userVisitedPlaces.forEach(p => { if (p.verified) verifiedCount++; else regularCount++; });
+    const totalScore = (verifiedCount * 2) + regularCount + sanitizeWalkPoints(window.currentWalkPoints);
+
+    // Efficiency guard: skip Firestore write if nothing changed
+    if (totalScore === window._lastSyncedScore) return;
+
+    console.log(`Syncing verified score to leaderboard: ${totalScore}`);
+    const db = firebase.firestore();
+    incrementRequestCount();
+
+    // Sync to USER Profile
+    await db.collection('users').doc(user.uid).set({
+        totalPoints: totalScore,
+        totalVisited: userVisitedPlaces.size,
+        displayName: user.displayName || 'Bark Ranger',
+        hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified)
+    }, { merge: true });
+
+    // Sync to GLOBAL Leaderboard (Immediate View)
+    await db.collection('leaderboard').doc(user.uid).set({
+        displayName: user.displayName || 'Bark Ranger',
+        photoURL: user.photoURL || '',
+        totalPoints: totalScore,
+        totalVisited: userVisitedPlaces.size,
+        hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified),
+        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    window._lastSyncedScore = totalScore;
+
+    // 🎯 INSTANT LOCAL UPDATE: Patch the in-memory leaderboard cache too
+    if (cachedLeaderboardData.length > 0) {
+        const me = cachedLeaderboardData.find(u => u.uid === user.uid);
+        if (me) {
+            me.totalPoints = totalScore;
+            me.totalVisited = userVisitedPlaces.size;
+        } else {
+            cachedLeaderboardData.push({
+                uid: user.uid,
+                displayName: user.displayName || 'Bark Ranger',
+                totalPoints: totalScore,
+                totalVisited: userVisitedPlaces.size,
+                hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified)
+            });
+        }
+        cachedLeaderboardData.sort((a, b) => b.totalPoints - a.totalPoints);
+        renderLeaderboard(cachedLeaderboardData);
+    }
+}
+
 async function evaluateAchievements(visitedPlacesMap) {
     const visitedArray = Array.from(visitedPlacesMap.values());
 
@@ -412,31 +485,8 @@ async function evaluateAchievements(visitedPlacesMap) {
     if (scoreEl) scoreEl.textContent = achievements.totalScore;
 
     // 🏆 EFFICIENT LEADERBOARD SYNC 🏆
-    // Only write to Firestore if the score has actually changed to save tokens & bandwidth
-    if (userId && achievements.totalScore !== window._lastSyncedScore) {
-        console.log(`Syncing verified score to leaderboard: ${achievements.totalScore}`);
-        const db = firebase.firestore();
-        incrementRequestCount();
-
-        // Sync to USER Profile
-        await db.collection('users').doc(userId).set({
-            totalPoints: achievements.totalScore,
-            totalVisited: visitedArray.length,
-            displayName: firebase.auth().currentUser.displayName || 'Bark Ranger',
-            hasVerified: visitedArray.some(p => p.verified)
-        }, { merge: true });
-
-        // Sync to GLOBAL Leaderboard (Immediate View)
-        await db.collection('leaderboard').doc(userId).set({
-            displayName: firebase.auth().currentUser.displayName || 'Bark Ranger',
-            photoURL: firebase.auth().currentUser.photoURL || '',
-            totalPoints: achievements.totalScore,
-            totalVisited: visitedArray.length,
-            hasVerified: visitedArray.some(p => p.verified),
-            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-
-        window._lastSyncedScore = achievements.totalScore;
+    if (userId) {
+        await syncScoreToLeaderboard();
     }
 
     if (progressFill) {
@@ -619,7 +669,7 @@ function updateStatsUI() {
         }
     });
 
-    totalScore = (verifiedCount * 2) + regularCount + Math.floor(window.currentWalkPoints || 0);
+    totalScore = (verifiedCount * 2) + regularCount + sanitizeWalkPoints(window.currentWalkPoints);
 
     scoreEl.textContent = totalScore;
     verifiedEl.textContent = verifiedCount;
@@ -1120,15 +1170,15 @@ function processParsedResults(results) {
 
         // 🎯 THE DOM RECYCLING FIX
         // Scrub the HTML element clean before Leaflet throws it in the recycle bin
-        marker.on('remove', function() {
+        marker.on('remove', function () {
             if (this._icon) {
                 this._icon.classList.remove('active-pin');
                 this._icon.classList.remove('visited-pin');
             }
         });
-        
+
         // Re-apply the correct visual state when Leaflet pulls it out of the bin
-        marker.on('add', function() {
+        marker.on('add', function () {
             if (this._icon) {
                 if (userVisitedPlaces.has(this._parkData.id)) this._icon.classList.add('visited-pin');
                 if (activePinMarker === this) this._icon.classList.add('active-pin');
@@ -1337,7 +1387,7 @@ function processParsedResults(results) {
                                 alert(`Check-in Verified! You earned 2 points.`);
                                 const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: true, ts: Date.now() };
 
-                                incrementRequestCount(); 
+                                incrementRequestCount();
                                 const docRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
 
                                 userVisitedPlaces.set(d.id, newObj); // Overwrite local map memory
@@ -1393,16 +1443,16 @@ function processParsedResults(results) {
             // 🎯 SMART AUTO-PAN (No Zoom, Correct Desktop Offset)
             // Locks the current zoom level so it never zooms in or out
             const currentZoom = map.getZoom();
-            
+
             // Negative X: Shifts camera left, pushing the pin RIGHT (out from under your left panel)
             // Positive Y: Shifts camera down, pushing the pin UP (out from under mobile bottom panel)
-            const xOffset = window.innerWidth >= 768 ? -250 : 0; 
-            const yOffset = window.innerWidth < 768 ? 180 : 0; 
+            const xOffset = window.innerWidth >= 768 ? -250 : 0;
+            const yOffset = window.innerWidth < 768 ? 180 : 0;
 
             // Project coordinates to flat pixels, apply the offset, and unproject back to GPS
             const targetPoint = map.project([d.lat, d.lng], currentZoom).add([xOffset, yOffset]);
             const targetLatLng = map.unproject(targetPoint, currentZoom);
-            
+
             // Use panTo instead of setView to guarantee it only moves the camera X/Y
             map.panTo(targetLatLng, { animate: true, duration: 0.5 });
 
@@ -1664,10 +1714,10 @@ function updateMarkers() {
     // 🎯 SMART AUTO-FRAMING (Interrupt Protection)
     // Only swoop the camera if the user actually changed the search/filter criteria
     const currentFilterState = activeSearchQuery + '|' + Array.from(activeSwagFilters).join(',');
-    
+
     if (window._lastFilterState !== currentFilterState) {
         window._lastFilterState = currentFilterState;
-        
+
         if ((activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
             map.flyToBounds(visibleBounds, { padding: [50, 50], maxZoom: 12, duration: 0.8 });
         }
@@ -2016,6 +2066,9 @@ if (typeof firebase !== 'undefined') {
             // Reset hydration locks on login
             window._serverPayloadSettled = false;
             window._firstServerPayloadReceived = false;
+            // 🏆 FORCE first leaderboard sync on every login to guarantee
+            // leaderboard/{uid} stays in sync with the actual score.
+            window._lastSyncedScore = -1;
 
             if (loginContainer) loginContainer.style.display = 'none';
             if (offlineStatusContainer) offlineStatusContainer.style.display = 'block';
@@ -2075,9 +2128,11 @@ if (typeof firebase !== 'undefined') {
                         const streakLabel = document.getElementById('streak-count-label');
                         if (streakLabel) streakLabel.textContent = streakVal;
 
-                        // Sync window state for evaluateAchievements
-                        window.currentWalkPoints = walkVal;
-                        window._lastSyncedScore = data.totalPoints || 0;
+                        // Sync window state for evaluateAchievements (sanitize float precision)
+                        window.currentWalkPoints = Math.round(walkVal * 100) / 100;
+                        // NOTE: Do NOT set _lastSyncedScore here — syncScoreToLeaderboard()
+                        // is the sole authority for that value and must compare against it
+                        // to decide whether leaderboard/{uid} needs a write.
 
                         // Unified Virtual Expedition Sync & State Swap
                         if (data.virtual_expedition && data.virtual_expedition.active_trail) {
@@ -2136,11 +2191,9 @@ if (typeof firebase !== 'undefined') {
                     }
                     updateMarkers();
                     updateStatsUI();
-                    
+
                     // 🛑 HIDE LOADER HERE (After pins turn green!)
                     window.dismissBarkLoader();
-
-                    loadLeaderboard(); 
 
                     if (activePinMarker && activePinMarker._parkData && document.getElementById('mark-visited-btn')) {
                         const d = activePinMarker._parkData;
@@ -2374,10 +2427,9 @@ if (exportCsvBtn) {
 }
 
 /**
- * Leaderboard System (Optimized & Paginated)
+ * Leaderboard System (Direct Read — No Cache)
  */
 let leaderboardVisibleLimit = 5;
-let lastLeaderboardFetch = 0;
 let cachedLeaderboardData = [];
 
 function renderLeaderboard(topUsers) {
@@ -2530,98 +2582,62 @@ function renderLeaderboard(topUsers) {
         controlsEl.appendChild(showLessBtn);
     }
 
-
     if (data.length === 0) {
-        listEl.innerHTML = '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">Leaderboard updates hourly.</li>';
+        listEl.innerHTML = '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">No leaderboard data yet.</li>';
     }
 
     rankEl.textContent = 'Rank: ' + personalRank;
 }
 
+let leaderboardHasLoaded = false;
+
 async function loadLeaderboard() {
     if (typeof firebase === 'undefined') return;
 
-    // 1. Calculate absolute truth from local memory right now
-    let localVerified = 0;
-    let localRegular = 0;
-    userVisitedPlaces.forEach((p) => { if (p.verified) localVerified++; else localRegular++; });
-    const localScore = (localVerified * 2) + localRegular + Math.floor(window.currentWalkPoints || 0);
-
-    // 2. Helper to aggressively inject your local score into the array
-    const applyOptimisticScore = (usersArray) => {
-        const user = firebase.auth().currentUser;
-        if (!user) return usersArray;
-        
-        const meIndex = usersArray.findIndex(u => u.uid === user.uid);
-        if (meIndex > -1) {
-            if (usersArray[meIndex].totalPoints < localScore) {
-                console.log(`Optimistic Update: Patching stale score ${usersArray[meIndex].totalPoints} -> ${localScore}`);
-                usersArray[meIndex].totalPoints = localScore;
-                // Re-sort the array in case you jumped a rank!
-                usersArray.sort((a, b) => b.totalPoints - a.totalPoints);
-            }
-        }
-        return usersArray;
-    };
-
-    // 3. 60-Second Throttle Check
-    if (Date.now() - lastLeaderboardFetch < 60000 && cachedLeaderboardData.length > 0) {
-        // MUST apply the optimistic score to the cached data too!
-        cachedLeaderboardData = applyOptimisticScore(cachedLeaderboardData);
-        renderLeaderboard(cachedLeaderboardData);
-        return;
-    }
-
+    // 🎯 DIRECT READ: Always pull fresh from `leaderboard` collection.
+    // No hourly cache, no throttle. Pulls once on login/reload.
     try {
-        lastLeaderboardFetch = Date.now();
-        incrementRequestCount(); 
-        
-        const docSnap = await firebase.firestore().collection('system').doc('leaderboardData').get();
+        incrementRequestCount();
+
+        const snapshot = await firebase.firestore().collection('leaderboard')
+            .orderBy('totalPoints', 'desc')
+            .limit(50)
+            .get();
+
         let topUsers = [];
-
-        if (docSnap.exists) {
-            const rawUsers = docSnap.data().topUsers || [];
-            topUsers = rawUsers.map(u => ({
-                ...u,
-                totalPoints: u.totalPoints !== undefined ? u.totalPoints : (u.totalVisited || 0)
-            }));
-        } else {
-            const snapshot = await firebase.firestore().collection('leaderboard')
-                .orderBy('totalPoints', 'desc')
-                .limit(20)
-                .get();
-
-            snapshot.forEach(doc => {
-                const d = doc.data();
-                topUsers.push({
-                    uid: doc.id,
-                    displayName: d.displayName || 'Bark Ranger',
-                    totalPoints: d.totalPoints !== undefined ? d.totalPoints : (d.totalVisited || 0),
-                    totalVisited: d.totalVisited || 0,
-                    hasVerified: !!d.hasVerified
-                });
+        snapshot.forEach(doc => {
+            const d = doc.data();
+            topUsers.push({
+                uid: doc.id,
+                displayName: d.displayName || 'Bark Ranger',
+                totalPoints: d.totalPoints !== undefined ? d.totalPoints : (d.totalVisited || 0),
+                totalVisited: d.totalVisited || 0,
+                hasVerified: !!d.hasVerified
             });
-        }
+        });
 
-        // 4. Inject personal fallback if you aren't in the Top 20
+        // Inject personal fallback if you aren't in the list yet
         const user = firebase.auth().currentUser;
         if (user && !topUsers.find(u => u.uid === user.uid)) {
-            const mySnap = await firebase.firestore().collection('leaderboard').doc(user.uid).get();
-            if (mySnap.exists) {
-                const d = mySnap.data();
-                topUsers.push({
-                    uid: user.uid,
-                    displayName: d.displayName || 'Bark Ranger',
-                    totalPoints: Math.max(d.totalPoints || 0, localScore),
-                    totalVisited: d.totalVisited || 0,
-                    hasVerified: !!d.hasVerified,
-                    isPersonalFallback: true 
-                });
-            }
+            // Calculate local score as fallback
+            let localVerified = 0;
+            let localRegular = 0;
+            userVisitedPlaces.forEach(p => { if (p.verified) localVerified++; else localRegular++; });
+            const localScore = (localVerified * 2) + localRegular + sanitizeWalkPoints(window.currentWalkPoints);
+
+            topUsers.push({
+                uid: user.uid,
+                displayName: user.displayName || 'Bark Ranger',
+                totalPoints: localScore,
+                totalVisited: userVisitedPlaces.size,
+                hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified),
+                isPersonalFallback: true
+            });
+            topUsers.sort((a, b) => b.totalPoints - a.totalPoints);
         }
 
-        // 5. Final Optimistic Patch & Render
-        cachedLeaderboardData = applyOptimisticScore(topUsers);
+        cachedLeaderboardData = topUsers;
+        leaderboardHasLoaded = true;
         renderLeaderboard(cachedLeaderboardData);
 
     } catch (err) {
@@ -2654,15 +2670,6 @@ window.adminEditPoints = async function () {
 
 // Trigger initial load
 loadLeaderboard();
-
-// Optional: Refresh leaderboard whenever user switches to the profile tab
-document.querySelectorAll('.nav-item').forEach(btn => {
-    btn.addEventListener('click', () => {
-        if (btn.getAttribute('data-target') === 'profile-view') {
-            loadLeaderboard();
-        }
-    });
-});
 
 // Public Feedback Portal Logic
 const submitFeedbackBtn = document.getElementById('submit-feedback-btn');
@@ -2832,7 +2839,7 @@ if (spinBtn) {
             // 2. Count how many times each trail has been completed
             const completionCounts = {};
             TOP_10_TRAILS.forEach(t => completionCounts[t.id] = 0);
-            
+
             completedExpeditions.forEach(exp => {
                 const id = exp.id || exp.trail_id;
                 if (completionCounts[id] !== undefined) {
@@ -2845,7 +2852,7 @@ if (spinBtn) {
 
             // 4. Filter available trails to ONLY those on the current lap
             let availableTrails = TOP_10_TRAILS.filter(trail => completionCounts[trail.id] === minCount);
-            
+
             // 👑 BOSS TRAIL LOGIC 👑
             // Grand Canyon Rim to Rim is an imposing 44-mile endurance test. Force it to be the final challenge.
             const isGrandCanyonAvailable = availableTrails.some(t => t.id === 'grand_canyon_rim2rim');
@@ -2979,6 +2986,10 @@ async function processMileageAddition(milesToAdd, typeLabel) {
             "lifetime_miles": firebase.firestore.FieldValue.increment(parseFloat(milesToAdd.toFixed(2))),
             "walkPoints": firebase.firestore.FieldValue.increment(parseFloat(milesToAdd.toFixed(2)))
         });
+
+        // 🏆 LEADERBOARD SYNC: Update in-memory walkPoints and push to leaderboard
+        window.currentWalkPoints = (window.currentWalkPoints || 0) + parseFloat(milesToAdd.toFixed(2));
+        await syncScoreToLeaderboard();
 
         renderExpeditionProgress(newTotal, totalMiles, lifetimeTotal + milesToAdd);
         renderExpeditionHistory(history, currentTrailName);
@@ -3204,6 +3215,10 @@ window.editWalkMiles = async function (timestamp) {
             "walkPoints": firebase.firestore.FieldValue.increment(diff)
         });
 
+        // 🏆 LEADERBOARD SYNC: Update in-memory walkPoints and push to leaderboard
+        window.currentWalkPoints = (window.currentWalkPoints || 0) + diff;
+        await syncScoreToLeaderboard();
+
         showTripToast("Walk log updated ✏️");
     } catch (e) {
         console.error(e);
@@ -3249,6 +3264,10 @@ window.deleteWalkLog = async function (timestamp) {
             // as 'walkPoints' is the leaderboard currency.
             "walkPoints": firebase.firestore.FieldValue.increment(-milesToRemove)
         });
+
+        // 🏆 LEADERBOARD SYNC: Update in-memory walkPoints and push to leaderboard
+        window.currentWalkPoints = Math.max(0, (window.currentWalkPoints || 0) - milesToRemove);
+        await syncScoreToLeaderboard();
 
         showTripToast("Walk removed 🗑️");
     } catch (e) {
@@ -3304,6 +3323,10 @@ window.claimRewardAndReset = async function () {
             "virtual_expedition.trail_total_miles": 0,
             "walkPoints": firebase.firestore.FieldValue.increment(pointsEarned)
         });
+
+        // 🏆 LEADERBOARD SYNC: Update in-memory walkPoints and push to leaderboard
+        window.currentWalkPoints = (window.currentWalkPoints || 0) + pointsEarned;
+        await syncScoreToLeaderboard();
 
         showTripToast(`🏆 +${pointsEarned} PTS! Reward Claimed: ${currentTrailName}`);
     } catch (e) {
@@ -4574,66 +4597,235 @@ function getDistanceMeters(lat1, lon1, lat2, lon2) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// ====== ADVANCED TRACKING ENGINE ======
+const WalkTracker = {
+    watchId: null,
+    wakeLock: null,
+    points: [],
+    totalMiles: 0,
+    lastValidLocation: null,
+    isBlackedOut: false,
+    blackoutStartTime: 0,
+    boundVisibilityHandler: null,
+
+    async start() {
+        if (!navigator.geolocation) return alert('GPS not supported');
+        
+        this.points = [];
+        this.totalMiles = 0;
+        this.lastValidLocation = null;
+
+        // 1. Request Wake Lock to stop iOS from sleeping
+        try {
+            if ('wakeLock' in navigator) {
+                this.wakeLock = await navigator.wakeLock.request('screen');
+            }
+        } catch (err) {
+            console.warn('Wake Lock failed/denied:', err);
+        }
+
+        // 2. Start continuous high-fidelity tracking
+        const btn = document.getElementById('training-action-btn');
+        if (btn) {
+            btn.textContent = 'Tracking Active 🟢';
+            btn.className = 'glass-btn training-btn active';
+            // We overwrite the onclick to stop; initTrainingUI will restore it later
+            btn.onclick = () => this.stopAndSave();
+        }
+        
+        const cancelBtn = document.getElementById('cancel-training-btn');
+        if (cancelBtn) cancelBtn.style.display = 'block';
+
+        this.watchId = navigator.geolocation.watchPosition(
+            (pos) => this.processGpsPing(pos),
+            (err) => console.error("GPS Error:", err),
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+        );
+
+        // Show the global banner
+        this.showFloatingBanner();
+
+        // 3. Set up Blackout Detection with bound context
+        this.boundVisibilityHandler = this.handleVisibilityChange.bind(this);
+        document.addEventListener('visibilitychange', this.boundVisibilityHandler);
+    },
+
+    processGpsPing(pos) {
+        if (this.isBlackedOut) return; // Ignore stale pings queuing up during sleep
+
+        const accMeters = pos.coords.accuracy;
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+
+        // FILTER 1: Ignore garbage data (radius > 25 meters means weak signal)
+        if (accMeters > 25) return; 
+
+        if (!this.lastValidLocation) {
+            this.lastValidLocation = { lat, lng, ts: Date.now() };
+            this.points.push(this.lastValidLocation);
+            return;
+        }
+
+        const distMeters = getDistanceMeters(this.lastValidLocation.lat, this.lastValidLocation.lng, lat, lng);
+
+        // FILTER 2: Anti-Drift. Only count movement if it's > 5 meters from the last point.
+        if (distMeters > 5) {
+            const miles = distMeters * 0.000621371;
+            this.totalMiles += miles;
+            this.lastValidLocation = { lat, lng, ts: Date.now() };
+            this.points.push(this.lastValidLocation);
+            
+            // Update UI real-time
+            this.updateDistanceUI();
+        }
+    },
+
+    handleVisibilityChange() {
+        if (document.hidden) {
+            // App went to background
+            this.isBlackedOut = true;
+            this.blackoutStartTime = Date.now();
+        } else {
+            // App came back to foreground
+            this.isBlackedOut = false;
+            const blackoutDurationMins = (Date.now() - this.blackoutStartTime) / 60000;
+            
+            // Re-acquire Wake Lock if it was dropped (iOS Safari quirk)
+            if ('wakeLock' in navigator) {
+                navigator.wakeLock.request('screen').then(wl => this.wakeLock = wl).catch(()=>{});
+            }
+
+            // If they were locked out for more than 2 minutes, we likely missed a chunk of the loop
+            if (blackoutDurationMins > 2) {
+                this.triggerBlackoutFallback(blackoutDurationMins);
+            }
+        }
+    },
+
+    triggerBlackoutFallback(minutesLost) {
+        const manualMiles = prompt(`Welcome back! iOS paused your GPS for ${Math.round(minutesLost)} minutes while your screen was off.\n\nWe successfully tracked ${this.totalMiles.toFixed(2)} miles before the pause. How many missing miles did you walk while the screen was off? (Enter 0 if none)`);
+        
+        const parsed = parseFloat(manualMiles);
+        if (!isNaN(parsed) && parsed > 0) {
+            this.totalMiles += parsed;
+            this.updateDistanceUI();
+        }
+    },
+
+    async stopAndSave() {
+        this.cleanup();
+
+        if (this.totalMiles < 0.05) {
+            alert("Not enough distance recorded to log an expedition.");
+        } else {
+            alert(`Expedition Complete! You logged ${this.totalMiles.toFixed(2)} miles.`);
+            await processMileageAddition(this.totalMiles, 'GPS Active Track');
+        }
+        
+        initTrainingUI(); // Resets UI and restores original onclick
+    },
+
+    cancel() {
+        this.cleanup();
+        initTrainingUI();
+    },
+
+    cleanup() {
+        if (this.watchId !== null) navigator.geolocation.clearWatch(this.watchId);
+        if (this.boundVisibilityHandler) document.removeEventListener('visibilitychange', this.boundVisibilityHandler);
+        if (this.wakeLock) {
+            this.wakeLock.release().catch(()=>{});
+            this.wakeLock = null;
+        }
+        
+        // Hide the global banner
+        this.hideFloatingBanner();
+
+        this.watchId = null;
+        this.boundVisibilityHandler = null;
+        this.points = [];
+        this.totalMiles = 0;
+        this.lastValidLocation = null;
+        this.isBlackedOut = false;
+    },
+
+    showFloatingBanner() {
+        let banner = document.getElementById('live-walk-banner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'live-walk-banner';
+            banner.style.cssText = `
+                position: fixed;
+                top: 20px; 
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(15, 23, 42, 0.95);
+                color: white;
+                padding: 10px 24px;
+                border-radius: 30px;
+                z-index: 10000;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+                border: 1px solid #10b981;
+                cursor: pointer;
+                font-size: 14px;
+                transition: all 0.3s ease;
+            `;
+            banner.onclick = () => {
+                const profileTab = document.querySelector('.nav-item[data-target="profile-view"]');
+                if (profileTab) profileTab.click();
+            };
+            document.body.appendChild(banner);
+            
+            const style = document.createElement('style');
+            style.innerHTML = `
+                @keyframes pulse {
+                    0% { opacity: 1; }
+                    50% { opacity: 0.5; }
+                    100% { opacity: 1; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        banner.innerHTML = `<span style="animation: pulse 2s infinite;">🟢</span> <strong><span id="floating-distance">0.00</span> mi</strong>`;
+        banner.style.display = 'flex';
+    },
+
+    hideFloatingBanner() {
+        const banner = document.getElementById('live-walk-banner');
+        if (banner) banner.style.display = 'none';
+    },
+
+    updateDistanceUI() {
+        // Update the main UI on the Profile Tab
+        const descEl = document.getElementById('training-desc');
+        if (descEl) {
+            descEl.innerHTML = `Distance: <strong style="color: #10b981;">${this.totalMiles.toFixed(2)} mi</strong>`;
+        }
+
+        // Update the Global Floating Banner
+        const floatDistEl = document.getElementById('floating-distance');
+        if (floatDistEl) floatDistEl.textContent = this.totalMiles.toFixed(2);
+    }
+};
+
 // The Live GPS Action
 window.handleTrainingClick = function () {
     const btn = document.getElementById('training-action-btn');
-    const state = localStorage.getItem('trainingState');
-
-    if (!state || state === 'idle') {
-        btn.textContent = 'Locating...';
-        navigator.geolocation.getCurrentPosition((pos) => {
-            const startData = {
-                lat: pos.coords.latitude,
-                lng: pos.coords.longitude,
-                startTime: Date.now(),
-                status: 'running'
-            };
-            localStorage.setItem('trainingState', JSON.stringify(startData));
-            initTrainingUI();
-        }, () => {
-            alert('GPS required to start walk.');
-            btn.textContent = 'Start Walk';
-        }, { enableHighAccuracy: true });
+    if (btn && btn.textContent.includes('Start')) {
+        WalkTracker.start();
     } else {
-        const data = JSON.parse(state);
-        btn.textContent = 'Verifying...';
-
-        navigator.geolocation.getCurrentPosition(async (pos) => {
-            const distMeters = getDistanceMeters(data.lat, data.lng, pos.coords.latitude, pos.coords.longitude);
-
-            if (distMeters < 200) {
-                alert(`You are only ${Math.round(distMeters)} meters away from your start point. Walk a bit further to log a valid distance!`);
-                btn.textContent = 'Log Turnaround 📍';
-            } else {
-                const roundTripMiles = (distMeters * 2) * 0.000621371;
-
-                alert(`Halfway Point Verified! You've logged ~${roundTripMiles.toFixed(2)} miles for your expedition and earned +1 PT. Enjoy the walk home!`);
-                localStorage.setItem('trainingState', 'idle');
-
-                if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
-                    const userRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
-                    incrementRequestCount();
-                    // Bounty Fix: Increment by actual miles, not just +1!
-                    userRef.set({ 
-                        walkPoints: firebase.firestore.FieldValue.increment(parseFloat(roundTripMiles.toFixed(2))) 
-                    }, { merge: true });
-                    window.attemptDailyStreakIncrement();
-                }
-
-                await processMileageAddition(roundTripMiles, 'GPS Verified');
-                initTrainingUI();
-            }
-        }, () => {
-            alert('GPS required to verify.');
-            btn.textContent = 'Log Turnaround 📍';
-        }, { enableHighAccuracy: true });
+        WalkTracker.stopAndSave();
     }
 };
 
 window.cancelTrainingWalk = function () {
     if (confirm("Are you sure you want to cancel your walk? You won't earn any points.")) {
-        localStorage.setItem('trainingState', 'idle');
-        initTrainingUI();
+        WalkTracker.cancel();
     }
 };
 
@@ -4641,22 +4833,23 @@ function initTrainingUI() {
     const btn = document.getElementById('training-action-btn');
     const cancelBtn = document.getElementById('cancel-training-btn');
     const descEl = document.getElementById('training-desc');
-    const state = localStorage.getItem('trainingState');
 
-    if (!state || state === 'idle') {
+    if (!WalkTracker.watchId) {
         if (btn) {
             btn.textContent = 'Start Walk';
             btn.className = 'glass-btn training-btn';
+            btn.onclick = window.handleTrainingClick; // Restore original handler
         }
         if (cancelBtn) cancelBtn.style.display = 'none';
-        if (descEl) descEl.innerHTML = 'Start walking away from home. Log your turnaround point to calculate total distance and earn <strong style="color: #f59e0b;">+1 PT</strong>.';
+        if (descEl) descEl.innerHTML = 'Start walking away from home. Log your turnaround point to calculate total distance and earn <strong style="color: #f59e0b;">+0.5 PTS</strong>.';
     } else {
         if (btn) {
-            btn.textContent = 'Log Turnaround 📍';
+            btn.textContent = 'Tracking Active 🟢';
             btn.className = 'glass-btn training-btn active';
+            btn.onclick = () => WalkTracker.stopAndSave();
         }
         if (cancelBtn) cancelBtn.style.display = 'block';
-        if (descEl) descEl.innerHTML = '<span style="color:#ef4444; font-weight:800;">Walk in progress...</span> Hit the button below when you reach your halfway point!';
+        if (descEl) descEl.innerHTML = `Distance: <strong style="color: #10b981;">${WalkTracker.totalMiles.toFixed(2)} mi</strong>`;
     }
 }
 
@@ -4813,15 +5006,15 @@ if ('ontouchstart' in window) {
         holdTimer = null;
         pendingDoubleTap = false;
         if (zoomRAF) { cancelAnimationFrame(zoomRAF); zoomRAF = null; }
-        
+
         if (isOneFingerZooming) {
             isOneFingerZooming = false;
-            
+
             // Snap zoom to nearest 0.5 to prevent jarring jumps on next panTo
             const snappedZoom = Math.round(map.getZoom() * 2) / 2;
             map.setZoom(snappedZoom, { animate: false });
         }
-        
+
         // ALWAYS restore these — safety net
         map.options.zoomSnap = 0.5;
         map.dragging.enable();
@@ -4831,12 +5024,12 @@ if ('ontouchstart' in window) {
         if (e.touches.length !== 1) return;
         const currentTime = new Date().getTime();
         const tapLength = currentTime - lastTap;
-        
+
         // Detect Double-Tap, but WAIT for a hold before activating
         if (tapLength < 300 && tapLength > 0) {
             pendingDoubleTap = true;
             const startY = e.touches[0].clientY;
-            
+
             // Only activate zoom if finger stays down for 150ms (hold gate)
             holdTimer = setTimeout(() => {
                 if (pendingDoubleTap) {
@@ -4861,14 +5054,14 @@ if ('ontouchstart' in window) {
             map.dragging.disable();
             map.options.zoomSnap = 0;
         }
-        
+
         if (!isOneFingerZooming || e.touches.length !== 1) return;
-        
+
         e.preventDefault();
         const currentY = e.touches[0].clientY;
         const deltaY = currentY - zoomStartY;
         const targetZoom = Math.min(19, Math.max(2, initialZoom + deltaY / 150));
-        
+
         // 🛡️ RAF THROTTLE: Only update zoom once per animation frame (~60fps)
         // Prevents canvas renderer overload that causes freezes
         if (!zoomRAF) {
