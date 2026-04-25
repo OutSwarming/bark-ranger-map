@@ -1,4 +1,4 @@
-const APP_VERSION = 6;
+const APP_VERSION = 8;
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
@@ -253,6 +253,35 @@ map.on('locationerror', function (e) {
 setTimeout(() => {
     map.locate({ setView: false, watch: false });
 }, 500); // Give the map engine a slight delay to settle before prompting
+
+// ====== SETTINGS UI LOGIC ======
+let allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
+
+document.addEventListener('DOMContentLoaded', () => {
+    const settingsGearBtn = document.getElementById('settings-gear-btn');
+    const settingsModal = document.getElementById('settings-modal');
+    const closeSettingsBtn = document.getElementById('close-settings-btn');
+    const allowUncheckToggle = document.getElementById('allow-uncheck-setting');
+
+    if (settingsGearBtn && settingsModal) {
+        if (allowUncheckToggle) allowUncheckToggle.checked = allowUncheck;
+
+        settingsGearBtn.addEventListener('click', () => {
+            settingsModal.style.display = settingsModal.style.display === 'none' ? 'block' : 'none';
+        });
+
+        closeSettingsBtn.addEventListener('click', () => {
+            settingsModal.style.display = 'none';
+        });
+
+        if (allowUncheckToggle) {
+            allowUncheckToggle.addEventListener('change', (e) => {
+                allowUncheck = e.target.checked;
+                localStorage.setItem('barkAllowUncheck', allowUncheck ? 'true' : 'false');
+            });
+        }
+    }
+});
 
 // Create a marker layer group for easy clearing
 const markerLayer = L.layerGroup().addTo(map);
@@ -1431,9 +1460,24 @@ function processParsedResults(results) {
 
                         markVisitedBtn.classList.add('visited');
                         markVisitedText.textContent = '✓ Visited';
-                        markVisitedBtn.disabled = true;
-                        markVisitedBtn.style.cursor = 'default';
-                        markVisitedBtn.style.opacity = '0.7';
+                        
+                        // Delete logic styling if setting is flipped
+                        if (allowUncheck && !cachedObj.verified) {
+                            markVisitedBtn.disabled = false;
+                            markVisitedBtn.style.cursor = 'pointer';
+                            markVisitedBtn.style.opacity = '1';
+                            markVisitedBtn.style.background = '#4CAF50';
+                            
+                            // Visual cue on hover to delete
+                            markVisitedBtn.onmouseenter = () => markVisitedText.textContent = '✖ Remove Check-in';
+                            markVisitedBtn.onmouseleave = () => markVisitedText.textContent = '✓ Visited';
+                        } else {
+                            markVisitedBtn.disabled = true;
+                            markVisitedBtn.style.cursor = 'default';
+                            markVisitedBtn.style.opacity = '0.7';
+                            markVisitedBtn.onmouseenter = null;
+                            markVisitedBtn.onmouseleave = null;
+                        }
 
                         if (cachedObj.verified) {
                             verifyBtn.style.background = '#4CAF50';
@@ -1454,6 +1498,8 @@ function processParsedResults(results) {
                         markVisitedBtn.disabled = false;
                         markVisitedBtn.style.cursor = 'pointer';
                         markVisitedBtn.style.opacity = '1';
+                        markVisitedBtn.onmouseenter = null;
+                        markVisitedBtn.onmouseleave = null;
 
                         verifyBtn.style.background = '#FF9800';
                         verifyBtnText.textContent = '🐾 Verified Check-In';
@@ -1512,7 +1558,28 @@ function processParsedResults(results) {
                     };
 
                     markVisitedBtn.onclick = async () => {
-                        if (userVisitedPlaces.has(d.id)) return;
+                        // Deletion execution logic
+                        if (userVisitedPlaces.has(d.id)) {
+                            const cachedObj = userVisitedPlaces.get(d.id);
+                            if (allowUncheck && !cachedObj.verified) {
+                                // Undo manual visit
+                                userVisitedPlaces.delete(d.id);
+                                markVisitedBtn.classList.remove('visited');
+                                markVisitedText.textContent = 'Mark as Visited';
+                                markVisitedBtn.onmouseenter = null;
+                                markVisitedBtn.onmouseleave = null;
+                                
+                                // Direct sync
+                                const updatedArray = Array.from(userVisitedPlaces.values());
+                                await firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid).update({ visitedPlaces: updatedArray });
+
+                                updateMarkers();
+                                updateStatsUI();
+                                evaluateAchievements();
+                            }
+                            return; 
+                        }
+
                         const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: false, ts: Date.now() };
                         userVisitedPlaces.set(d.id, newObj);
 
