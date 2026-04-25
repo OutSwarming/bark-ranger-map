@@ -1910,39 +1910,71 @@ const logoutBtn = document.getElementById('logout-btn');
 let visitedSnapshotUnsubscribe = null;
 
 // ── Module-level saved routes loader (needs firebase globally available) ──
-async function loadSavedRoutes(uid) {
+window._lastSavedRouteDoc = null;
+
+async function loadSavedRoutes(uid, isLoadMore = false) {
     const savedList = document.getElementById('saved-routes-list');
     const plannerList = document.getElementById('planner-saved-routes-list');
     const savedCount = document.getElementById('saved-routes-count');
 
     if (!savedList && !plannerList) return;
 
-    const renderTo = (container) => {
-        if (!container) return;
-        container.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Loading...</p>';
-    };
-    renderTo(savedList);
-    renderTo(plannerList);
+    if (!isLoadMore) {
+        window._lastSavedRouteDoc = null;
+        const renderTo = (container) => {
+            if (!container) return;
+            container.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Loading...</p>';
+        };
+        renderTo(savedList);
+        renderTo(plannerList);
+    } else {
+        // Remove existing "Load More" buttons before appending new contents
+        document.querySelectorAll('.load-more-routes-btn').forEach(btn => btn.remove());
+    }
 
     try {
+        const fetchLimit = isLoadMore ? 5 : 3;
         incrementRequestCount(); // Count Firestore Route Fetch
-        const snapshot = await firebase.firestore()
+
+        let query = firebase.firestore()
             .collection('users').doc(uid)
             .collection('savedRoutes')
-            .orderBy('createdAt', 'desc')
-            .limit(20)
-            .get();
+            .orderBy('createdAt', 'desc');
 
-        if (savedCount) savedCount.textContent = snapshot.size;
+        if (isLoadMore && window._lastSavedRouteDoc) {
+            query = query.startAfter(window._lastSavedRouteDoc);
+        }
+
+        const snapshot = await query.limit(fetchLimit).get();
+
+        // Update count ONLY on initial load
+        if (!isLoadMore && savedCount) {
+            // To get accurate size without burning reads, we'd need an aggregation query.
+            // For now, we'll just indicate total loaded or 3+ if it hit the limit.
+            savedCount.textContent = snapshot.size === fetchLimit ? `${fetchLimit}+` : snapshot.size;
+        } else if (isLoadMore && savedCount && snapshot.size > 0) {
+            // Just update the total loaded indicator
+            const currentObj = parseInt(savedCount.textContent) || 0;
+            savedCount.textContent = snapshot.size === fetchLimit ? `${currentObj + snapshot.size}+` : (currentObj + snapshot.size);
+        }
+
+        // Save the cursor
+        if (!snapshot.empty) {
+            window._lastSavedRouteDoc = snapshot.docs[snapshot.docs.length - 1];
+        }
 
         const populateList = (list) => {
             if (!list) return;
-            if (snapshot.empty) {
+            
+            if (snapshot.empty && !isLoadMore) {
                 list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">No saved routes yet. Generate a route to save it here!</p>';
                 return;
             }
 
-            list.innerHTML = '';
+            if (!isLoadMore) {
+                list.innerHTML = '';
+            }
+
             snapshot.forEach(doc => {
                 const data = doc.data();
                 const date = data.createdAt ? new Date(data.createdAt.seconds * 1000).toLocaleDateString() : 'Unknown date';
@@ -1975,6 +2007,7 @@ async function loadSavedRoutes(uid) {
                 list.appendChild(card);
             });
 
+            // Rebind the button handlers for the newly added routes
             list.querySelectorAll('.load-route-btn').forEach(btn => {
                 btn.onclick = async () => {
                     const docId = btn.getAttribute('data-id');
@@ -2008,9 +2041,19 @@ async function loadSavedRoutes(uid) {
                     await firebase.firestore()
                         .collection('users').doc(uid)
                         .collection('savedRoutes').doc(btn.getAttribute('data-id')).delete();
-                    loadSavedRoutes(uid);
+                    loadSavedRoutes(uid); // This will reset and reload from top
                 };
             });
+
+            // If we actually hit the limit, there might be more routes, so add the "Load More" button
+            if (snapshot.size === fetchLimit) {
+                const loadMoreBtn = document.createElement('button');
+                loadMoreBtn.className = 'load-more-routes-btn';
+                loadMoreBtn.textContent = 'Load More (+5)';
+                loadMoreBtn.style.cssText = 'width: 100%; background: rgba(0,0,0,0.05); border: 1px dashed rgba(0,0,0,0.2); border-radius: 8px; padding: 10px; font-size: 13px; cursor: pointer; color: #555; font-weight: 700; margin-top: 5px;';
+                loadMoreBtn.onclick = () => loadSavedRoutes(uid, true);
+                list.appendChild(loadMoreBtn);
+            }
         };
 
         populateList(savedList);
@@ -2429,7 +2472,7 @@ if (exportCsvBtn) {
 /**
  * Leaderboard System (Direct Read — No Cache)
  */
-let leaderboardVisibleLimit = 5;
+let leaderboardVisibleLimit = 4;
 let cachedLeaderboardData = [];
 
 function renderLeaderboard(topUsers) {
@@ -2444,152 +2487,181 @@ function renderLeaderboard(topUsers) {
     listEl.innerHTML = '';
     const uid = (typeof firebase !== 'undefined' && firebase.auth().currentUser) ? firebase.auth().currentUser.uid : null;
     let personalRank = '--';
+    let personalUserObj = null;
+    let personalActualRankNum = -1;
 
+    // Phase 1: Determine ranks and identify the current user
     data.forEach((user, index) => {
-        const rank = index + 1;
+        let rank = index + 1;
+        if (user.isPersonalFallback && user.exactRank) {
+            rank = user.exactRank;
+        }
+
+        if (user.uid === uid) {
+            personalRank = rank;
+            personalUserObj = user;
+            personalActualRankNum = rank;
+        }
+    });
+
+    if (rankEl) {
+        // Format with commas if over 1000 for neatness
+        rankEl.textContent = 'Rank: ' + (personalRank > 1000 ? personalRank.toLocaleString() : personalRank);
+    }
+
+    // Helper function to render a user row
+    const createRow = (user, rank, isPinnedSelf = false) => {
         const isMe = user.uid === uid;
-        if (isMe) personalRank = rank;
+        const li = document.createElement('li');
 
-        if (rank <= leaderboardVisibleLimit) {
-            const li = document.createElement('li');
+        // Base Styles for Podium & Others
+        let bg = 'white';
+        let border = '1px solid rgba(0,0,0,0.05)';
+        let shadow = '0 2px 4px rgba(0,0,0,0.05)';
+        let textColor = '#444';
+        let rankIcon = `#${rank}`;
 
-            // Base Styles for Podium & Others
-            let bg = 'white';
-            let border = '1px solid rgba(0,0,0,0.05)';
-            let shadow = '0 2px 4px rgba(0,0,0,0.05)';
-            let textColor = '#444';
-            let rankIcon = `#${rank}`;
+        if (isPinnedSelf) {
+            bg = 'rgba(59, 130, 246, 0.08)';
+            border = '2px dashed #3b82f6';
+            shadow = '0 4px 10px rgba(59, 130, 246, 0.2)';
+            textColor = '#1e3a8a';
+            // Add slight margin above pinned self to separate them
+            li.style.marginTop = '15px';
+        } else if (rank === 1) {
+            bg = 'linear-gradient(135deg, #fde68a, #f59e0b, #d97706)';
+            border = '2px solid #b45309';
+            shadow = '0 4px 12px rgba(217, 119, 6, 0.3)';
+            textColor = '#451a03';
+            rankIcon = '👑';
+        } else if (rank === 2) {
+            bg = 'linear-gradient(135deg, #f1f5f9, #94a3b8, #475569)';
+            border = '2px solid #334155';
+            shadow = '0 4px 10px rgba(71, 85, 105, 0.2)';
+            textColor = '#0f172a';
+        } else if (rank === 3) {
+            bg = 'linear-gradient(135deg, #ffedd5, #d97706, #92400e)';
+            border = '2px solid #78350f';
+            shadow = '0 4px 10px rgba(146, 64, 14, 0.2)';
+            textColor = '#431407';
+        } else if (isMe) {
+            bg = 'rgba(59, 130, 246, 0.08)';
+            border = '2px solid #3b82f6';
+            textColor = '#1e3a8a';
+        }
 
-            if (rank === 1) {
-                bg = 'linear-gradient(135deg, #fde68a, #f59e0b, #d97706)';
-                border = '2px solid #b45309';
-                shadow = '0 4px 12px rgba(217, 119, 6, 0.3)';
-                textColor = '#451a03';
-                rankIcon = '👑';
-            } else if (rank === 2) {
-                bg = 'linear-gradient(135deg, #f1f5f9, #94a3b8, #475569)';
-                border = '2px solid #334155';
-                shadow = '0 4px 10px rgba(71, 85, 105, 0.2)';
-                textColor = '#0f172a';
-            } else if (rank === 3) {
-                bg = 'linear-gradient(135deg, #ffedd5, #d97706, #92400e)';
-                border = '2px solid #78350f';
-                shadow = '0 4px 10px rgba(146, 64, 14, 0.2)';
-                textColor = '#431407';
-            } else if (isMe) {
-                bg = 'rgba(59, 130, 246, 0.08)';
-                border = '2px solid #3b82f6';
-                textColor = '#1e3a8a';
-            }
+        li.style.cssText = `
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            padding: 12px 16px; 
+            margin-bottom: 10px; 
+            border-radius: 14px; 
+            background: ${bg}; 
+            border: ${border}; 
+            box-shadow: ${shadow};
+            transition: all 0.3s ease;
+        `;
 
-            li.style.cssText = `
-                display: flex; 
-                justify-content: space-between; 
-                align-items: center; 
-                padding: 12px 16px; 
-                margin-bottom: 10px; 
-                border-radius: 14px; 
-                background: ${bg}; 
-                border: ${border}; 
-                box-shadow: ${shadow};
-                transition: all 0.3s ease;
-            `;
+        // Left Section (Rank + Name)
+        const leftSide = document.createElement('div');
+        leftSide.style.cssText = 'display: flex; align-items: center; gap: 12px;';
 
-            // Left Section (Rank + Name)
-            const leftSide = document.createElement('div');
-            leftSide.style.cssText = 'display: flex; align-items: center; gap: 12px;';
+        const rankBadge = document.createElement('span');
+        rankBadge.textContent = rankIcon;
+        rankBadge.style.cssText = `font-weight: 900; font-size: 14px; color: ${textColor}; min-width: 24px;`;
 
-            const rankBadge = document.createElement('span');
-            rankBadge.textContent = rankIcon;
-            rankBadge.style.cssText = `font-weight: 900; font-size: 14px; color: ${textColor}; min-width: 24px;`;
+        const nameInfo = document.createElement('div');
+        nameInfo.style.cssText = 'display: flex; flex-direction: column;';
 
-            const nameInfo = document.createElement('div');
-            nameInfo.style.cssText = 'display: flex; flex-direction: column;';
+        const nameSpan = document.createElement('span');
+        nameSpan.style.cssText = `font-weight: 800; font-size: 13px; color: ${textColor};`;
+        nameSpan.textContent = `${isPinnedSelf ? 'You' : user.displayName} ${user.hasVerified ? '🐾' : ''}`;
 
-            const nameSpan = document.createElement('span');
-            nameSpan.style.cssText = `font-weight: 800; font-size: 13px; color: ${textColor};`;
-            nameSpan.textContent = `${user.displayName} ${user.hasVerified ? '🐾' : ''}`;
+        nameInfo.appendChild(nameSpan);
 
-            nameInfo.appendChild(nameSpan);
+        // Alpha Dog Hook
+        if (isMe && rank === 1) {
+            const alphaBadge = document.createElement('span');
+            alphaBadge.textContent = '🐺 ALPHA DOG';
+            alphaBadge.style.cssText = 'font-size: 9px; font-weight: 900; color: #fff; background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; margin-top: 2px; width: fit-content; letter-spacing: 0.5px;';
+            nameInfo.appendChild(alphaBadge);
+        }
 
-            // Task 3: Alpha Dog Hook
-            if (isMe && rank === 1) {
-                const alphaBadge = document.createElement('span');
-                alphaBadge.textContent = '🐺 ALPHA DOG';
-                alphaBadge.style.cssText = 'font-size: 9px; font-weight: 900; color: #fff; background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; margin-top: 2px; width: fit-content; letter-spacing: 0.5px;';
-                nameInfo.appendChild(alphaBadge);
-            }
+        leftSide.appendChild(rankBadge);
+        leftSide.appendChild(nameInfo);
 
-            leftSide.appendChild(rankBadge);
-            leftSide.appendChild(nameInfo);
+        // Right Section (Score + Rivalry Gap)
+        const rightSide = document.createElement('div');
+        rightSide.style.cssText = 'display: flex; flex-direction: column; align-items: flex-end; gap: 4px;';
 
-            // Right Section (Score + Rivalry Gap)
-            const rightSide = document.createElement('div');
-            rightSide.style.cssText = 'display: flex; flex-direction: column; align-items: flex-end; gap: 4px;';
+        const scorePill = document.createElement('span');
+        scorePill.style.cssText = `
+            background: ${rank <= 3 ? 'rgba(255,255,255,0.3)' : 'rgba(76, 175, 80, 0.1)'}; 
+            color: ${rank <= 3 ? textColor : '#2E7D32'}; 
+            padding: 4px 10px; 
+            border-radius: 20px; 
+            font-size: 12px; 
+            font-weight: 800;
+        `;
+        const displayScore = user.totalPoints !== undefined ? user.totalPoints : (user.totalVisited || 0);
+        scorePill.textContent = `${displayScore} PTS`;
 
-            const scorePill = document.createElement('span');
-            scorePill.style.cssText = `
-                background: ${rank <= 3 ? 'rgba(255,255,255,0.3)' : 'rgba(76, 175, 80, 0.1)'}; 
-                color: ${rank <= 3 ? textColor : '#2E7D32'}; 
-                padding: 4px 10px; 
-                border-radius: 20px; 
-                font-size: 12px; 
-                font-weight: 800;
-            `;
-            // USE totalPoints if available, else totalVisited
-            const displayScore = user.totalPoints !== undefined ? user.totalPoints : (user.totalVisited || 0);
-            scorePill.textContent = `${displayScore} PTS`;
+        rightSide.appendChild(scorePill);
 
-            rightSide.appendChild(scorePill);
-
-            // Task 2: Rivalry Gap Logic
-            if (isMe && rank > 1 && data[index - 1]) {
-                const pointsToOvertake = (data[index - 1].totalVisited - user.totalVisited) + 1;
+        // Rivalry Gap Logic
+        if (isMe && rank > 1 && data[rank - 2]) {
+            const competitorScore = data[rank - 2].totalPoints !== undefined ? data[rank - 2].totalPoints : (data[rank - 2].totalVisited || 0);
+            const myScore = user.totalPoints !== undefined ? user.totalPoints : (user.totalVisited || 0);
+            const pointsToOvertake = parseFloat((competitorScore - myScore + 0.1).toFixed(1));
+            
+            if (pointsToOvertake > 0) {
                 const rivalryPill = document.createElement('span');
                 rivalryPill.className = 'rivalry-pill';
                 rivalryPill.style.cssText = 'background: #fee2e2; color: #dc2626; padding: 3px 8px; border-radius: 12px; font-size: 9px; font-weight: 900; letter-spacing: 0.5px;';
                 rivalryPill.textContent = `🚨 ${pointsToOvertake} PTS TO OVERTAKE`;
                 rightSide.appendChild(rivalryPill);
             }
-
-            li.appendChild(leftSide);
-            li.appendChild(rightSide);
-            listEl.appendChild(li);
         }
+
+        li.appendChild(leftSide);
+        li.appendChild(rightSide);
+        return li;
+    };
+
+    // Phase 2: Render regular fetched data
+    data.forEach((user, index) => {
+        if (user.isPersonalFallback) return; // Skip the tacked-on fallback here
+        listEl.appendChild(createRow(user, index + 1, false));
     });
 
-    if (rankEl) rankEl.textContent = personalRank;
-
-    // Handle "Show More" button logic
-    controlsEl.innerHTML = '';
-    if (data.length > leaderboardVisibleLimit) {
-        const showMoreBtn = document.createElement('button');
-        showMoreBtn.textContent = 'Show More (+5)';
-        showMoreBtn.style.cssText = 'background: rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; padding: 6px 15px; font-size: 12px; cursor: pointer; color: #666; font-weight: 600;';
-        showMoreBtn.onclick = () => {
-            leaderboardVisibleLimit += 5;
-            renderLeaderboard();
-        };
-        controlsEl.appendChild(showMoreBtn);
-    } else if (data.length > 5 && leaderboardVisibleLimit > 5) {
-        const showLessBtn = document.createElement('button');
-        showLessBtn.textContent = 'Show Less';
-        showLessBtn.style.cssText = 'background: none; border: none; font-size: 11px; cursor: pointer; color: #1976D2; font-weight: 600; text-decoration: underline;';
-        showLessBtn.onclick = () => {
-            leaderboardVisibleLimit = 5;
-            renderLeaderboard();
-        };
-        controlsEl.appendChild(showLessBtn);
+    // Phase 3: Pin the current user if they are a fallback
+    if (personalUserObj && personalUserObj.isPersonalFallback) {
+        listEl.appendChild(createRow(personalUserObj, personalUserObj.exactRank, true));
     }
 
     if (data.length === 0) {
         listEl.innerHTML = '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">No leaderboard data yet.</li>';
     }
 
-    rankEl.textContent = 'Rank: ' + personalRank;
+    // Handle "Show More" button logic pointing to the server-side fetcher
+    controlsEl.innerHTML = '';
+    if (window._lastLeaderboardDoc) {
+        const showMoreBtn = document.createElement('button');
+        showMoreBtn.id = 'lb-load-more-btn';
+        showMoreBtn.textContent = 'Show More (+5)';
+        showMoreBtn.style.cssText = 'width: 100%; background: rgba(0,0,0,0.05); border: 1px dashed rgba(0,0,0,0.2); border-radius: 8px; padding: 10px; font-size: 13px; cursor: pointer; color: #555; font-weight: 700; margin-top: 5px;';
+        showMoreBtn.onclick = loadMoreLeaderboard;
+        controlsEl.appendChild(showMoreBtn);
+    }
 }
 
+
+
 let leaderboardHasLoaded = false;
+
+window._lastLeaderboardDoc = null;
+let isFetchingMoreLeaderboard = false;
 
 async function loadLeaderboard() {
     if (typeof firebase === 'undefined') return;
@@ -2599,11 +2671,19 @@ async function loadLeaderboard() {
     try {
         incrementRequestCount();
 
-        // 🎯 FIX: Fetch all documents without orderBy to catch legacy
-        // accounts that are missing the `totalPoints` field, then sort locally.
-        const snapshot = await firebase.firestore().collection('leaderboard').get();
+        // Server-Side cursor pagination: start with 5.
+        const snapshot = await firebase.firestore().collection('leaderboard')
+            .orderBy('totalPoints', 'desc')
+            .limit(5)
+            .get();
 
         let topUsers = [];
+        if (!snapshot.empty) {
+            window._lastLeaderboardDoc = snapshot.docs[snapshot.docs.length - 1];
+        } else {
+            window._lastLeaderboardDoc = null;
+        }
+
         snapshot.forEach(doc => {
             const d = doc.data();
             topUsers.push({
@@ -2615,20 +2695,26 @@ async function loadLeaderboard() {
             });
         });
 
-        // Sort descending locally
-        topUsers.sort((a, b) => b.totalPoints - a.totalPoints);
-        
-        // Take top 50
-        topUsers = topUsers.slice(0, 50);
-
         // Inject personal fallback if you aren't in the list yet
         const user = firebase.auth().currentUser;
         if (user && !topUsers.find(u => u.uid === user.uid)) {
-            // Calculate local score as fallback
             let localVerified = 0;
             let localRegular = 0;
             userVisitedPlaces.forEach(p => { if (p.verified) localVerified++; else localRegular++; });
             const localScore = (localVerified * 2) + localRegular + sanitizeWalkPoints(window.currentWalkPoints);
+
+            // V3.1 DEEP RANK AGGREGATION LOOKUP
+            let exactRank = null;
+            try {
+                const countSnap = await firebase.firestore()
+                    .collection('leaderboard')
+                    .where('totalPoints', '>', localScore)
+                    .count()
+                    .get();
+                exactRank = countSnap.data().count + 1;
+            } catch(e) {
+                console.warn('Advanced aggregate rank lookup failed. Falling back to 5+ rank.', e);
+            }
 
             topUsers.push({
                 uid: user.uid,
@@ -2636,9 +2722,9 @@ async function loadLeaderboard() {
                 totalPoints: localScore,
                 totalVisited: userVisitedPlaces.size,
                 hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified),
-                isPersonalFallback: true
+                isPersonalFallback: true,
+                exactRank: exactRank
             });
-            topUsers.sort((a, b) => b.totalPoints - a.totalPoints);
         }
 
         cachedLeaderboardData = topUsers;
@@ -2646,7 +2732,80 @@ async function loadLeaderboard() {
         renderLeaderboard(cachedLeaderboardData);
 
     } catch (err) {
-        console.log('Leaderboard load error:', err);
+        console.error('Leaderboard load error:', err);
+    }
+}
+
+async function loadMoreLeaderboard() {
+    if (!window._lastLeaderboardDoc || isFetchingMoreLeaderboard) return;
+    isFetchingMoreLeaderboard = true;
+
+    const btn = document.getElementById('lb-load-more-btn');
+    if (btn) btn.textContent = 'Loading...';
+
+    try {
+        incrementRequestCount();
+        const snapshot = await firebase.firestore().collection('leaderboard')
+            .orderBy('totalPoints', 'desc')
+            .startAfter(window._lastLeaderboardDoc)
+            .limit(5)
+            .get();
+
+        if (snapshot.empty) {
+            window._lastLeaderboardDoc = null;
+            renderLeaderboard(cachedLeaderboardData);
+            return;
+        }
+
+        window._lastLeaderboardDoc = snapshot.docs[snapshot.docs.length - 1];
+
+        // Ensure we strip off the temporary personal fallback before pushing real sorted data
+        cachedLeaderboardData = cachedLeaderboardData.filter(u => !u.isPersonalFallback);
+
+        snapshot.forEach(doc => {
+            const d = doc.data();
+            cachedLeaderboardData.push({
+                uid: doc.id,
+                displayName: d.displayName || 'Bark Ranger',
+                totalPoints: d.totalPoints !== undefined ? d.totalPoints : (d.totalVisited || 0),
+                totalVisited: d.totalVisited || 0,
+                hasVerified: !!d.hasVerified
+            });
+        });
+
+        // Re-inject personal fallback if still haven't fetched the user
+        const user = firebase.auth().currentUser;
+        if (user && !cachedLeaderboardData.find(u => u.uid === user.uid)) {
+            let localVerified = 0;
+            let localRegular = 0;
+            userVisitedPlaces.forEach(p => { if (p.verified) localVerified++; else localRegular++; });
+            const localScore = (localVerified * 2) + localRegular + sanitizeWalkPoints(window.currentWalkPoints);
+
+            try {
+                const countSnap = await firebase.firestore()
+                    .collection('leaderboard')
+                    .where('totalPoints', '>', localScore)
+                    .count()
+                    .get();
+                let exactRank = countSnap.data().count + 1;
+                cachedLeaderboardData.push({
+                    uid: user.uid,
+                    displayName: user.displayName || 'Bark Ranger',
+                    totalPoints: localScore,
+                    totalVisited: userVisitedPlaces.size,
+                    hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified),
+                    isPersonalFallback: true,
+                    exactRank: exactRank
+                });
+            } catch(e) {}
+        }
+
+        renderLeaderboard(cachedLeaderboardData);
+
+    } catch (err) {
+        console.error('Error fetching more leaderboard:', err);
+    } finally {
+        isFetchingMoreLeaderboard = false;
     }
 }
 
