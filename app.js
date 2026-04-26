@@ -1,4 +1,4 @@
-const APP_VERSION = 8;
+const APP_VERSION = 13;
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
@@ -259,19 +259,31 @@ let allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
 
 document.addEventListener('DOMContentLoaded', () => {
     const settingsGearBtn = document.getElementById('settings-gear-btn');
+    const settingsOverlay = document.getElementById('settings-overlay');
     const settingsModal = document.getElementById('settings-modal');
     const closeSettingsBtn = document.getElementById('close-settings-btn');
     const allowUncheckToggle = document.getElementById('allow-uncheck-setting');
 
-    if (settingsGearBtn && settingsModal) {
+    if (settingsGearBtn && settingsOverlay) {
         if (allowUncheckToggle) allowUncheckToggle.checked = allowUncheck;
 
+        // Set version dinamically
+        const versionLabel = document.getElementById('settings-app-version');
+        if (versionLabel) versionLabel.textContent = APP_VERSION;
+
         settingsGearBtn.addEventListener('click', () => {
-            settingsModal.style.display = settingsModal.style.display === 'none' ? 'block' : 'none';
+            settingsOverlay.classList.add('active');
         });
 
-        closeSettingsBtn.addEventListener('click', () => {
-            settingsModal.style.display = 'none';
+        const closeSettings = () => {
+            settingsOverlay.classList.remove('active');
+        };
+
+        closeSettingsBtn.addEventListener('click', closeSettings);
+
+        // Close on backdrop click
+        settingsOverlay.addEventListener('click', (e) => {
+            if (e.target === settingsOverlay) closeSettings();
         });
 
         if (allowUncheckToggle) {
