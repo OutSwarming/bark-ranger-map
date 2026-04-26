@@ -1275,16 +1275,28 @@ closeSlideBtn.addEventListener('click', () => {
 // Navigation Logic
 navItems.forEach(btn => {
     btn.addEventListener('click', () => {
+        const targetId = btn.getAttribute('data-target');
+
+        // 1. Immediate UI highlight feedback
         navItems.forEach(n => n.classList.remove('active'));
         btn.classList.add('active');
 
-        const targetId = btn.getAttribute('data-target');
-
         if (targetId === 'map-view') {
+            // 2a. STAGGERED SWITCH: Hide heavy views FIRST to clear GPU memory
             uiViews.forEach(v => v.classList.remove('active'));
-            if (filterPanel) filterPanel.style.display = 'flex';
-            if (leafletControls.length) leafletControls[0].style.display = 'block';
+
+            // 3. Wait for the next frame (let the browser breathe)
+            requestAnimationFrame(() => {
+                if (filterPanel) filterPanel.style.display = 'flex';
+                if (leafletControls.length) leafletControls[0].style.display = 'block';
+
+                // 4. Now that the CPU is free, wake up the map
+                if (window.map) {
+                    window.map.invalidateSize(); // Forces Leaflet to recalculate borders smoothly
+                }
+            });
         } else {
+            // 2b. Standard switch for other views
             uiViews.forEach(v => {
                 if (v.id === targetId) {
                     v.classList.add('active');
@@ -5536,9 +5548,41 @@ initTrainingUI();
 // Force the planner UI to render immediately on load
 setTimeout(() => updateTripUI(), 500);
 
-// --- SHARE ENGINE LOGIC ---
+// --- SHARE ENGINE LOGIC (LAZY-LOADED) ---
+async function loadScreenshotEngine() {
+    if (typeof html2canvas !== 'undefined') return true;
+    if (window.isDownloadingCanvas) {
+        // Wait if another call is already downloading
+        return new Promise((resolve) => {
+            const check = setInterval(() => {
+                if (typeof html2canvas !== 'undefined') {
+                    clearInterval(check);
+                    resolve(true);
+                }
+            }, 100);
+        });
+    }
+
+    window.isDownloadingCanvas = true;
+    console.log("📥 Downloading screenshot engine...");
+
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        script.onload = () => {
+            window.isDownloadingCanvas = false;
+            resolve(true);
+        };
+        script.onerror = (err) => {
+            window.isDownloadingCanvas = false;
+            reject(err);
+        };
+        document.head.appendChild(script);
+    });
+}
 
 window.shareSingleExpedition = async function () {
+    await loadScreenshotEngine();
     const trailName = document.getElementById('celebration-trail-name').textContent;
     const template = document.getElementById('single-export-template');
     const container = document.getElementById('single-export-card-container');
@@ -5556,6 +5600,7 @@ window.shareSingleExpedition = async function () {
 };
 
 window.shareAllExpeditions = async function () {
+    await loadScreenshotEngine();
     const template = document.getElementById('single-export-template');
     const container = document.getElementById('single-export-card-container');
     const grid = document.getElementById('completed-expeditions-grid');
