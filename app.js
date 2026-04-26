@@ -611,10 +611,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.setItem('barkDisable1Finger', window.disable1fingerZoom ? 'true' : 'false');
                 if (window.disable1fingerZoom) {
                     map.doubleClickZoom.disable();
-                    map.tap?.disable();
                 } else {
                     map.doubleClickZoom.enable();
-                    map.tap?.enable();
                 }
             });
         }
@@ -6021,6 +6019,7 @@ if ('ontouchstart' in window) {
 
     // Centralized cleanup — bulletproof against state corruption
     function resetZoomState() {
+        if (window.disable1fingerZoom) return;
         clearTimeout(holdTimer);
         holdTimer = null;
         pendingDoubleTap = false;
@@ -6064,6 +6063,8 @@ if ('ontouchstart' in window) {
     }, { passive: false });
 
     mapContainer.addEventListener('touchmove', (e) => {
+        if (window.disable1fingerZoom) return; // 🛑 Respect the toggle here too!
+        
         // If we're in the hold-wait period, finger movement confirms zoom intent
         if (pendingDoubleTap && !isOneFingerZooming && e.touches.length === 1) {
             clearTimeout(holdTimer);
