@@ -108,7 +108,9 @@ document.addEventListener('touchstart', function (e) {
 
 // ====== SAFETY & COST CONTROLS ======
 let globalRequestCounter = 0;
-const SESSION_MAX_REQUESTS = 10000; // Auto-shutdown background activity if hit
+window.SESSION_MAX_REQUESTS = 600;
+window._SESSION_REQUEST_COUNT = 0;
+window._cloudSettingsLoaded = false; // ✨ Guard flag for cloud sync feedback loops
 
 function incrementRequestCount() {
     globalRequestCounter++;
@@ -3061,8 +3063,9 @@ if (typeof firebase !== 'undefined') {
                     if (doc.exists) {
                         const data = doc.data();
 
-                        // ☁️ LOAD SETTINGS FROM FIREBASE (Included in the existing 1 Read)
-                        if (data.settings) {
+                        // ☁️ LOAD SETTINGS FROM FIREBASE (Guarded against feedback loops)
+                        if (data.settings && !window._cloudSettingsLoaded) {
+                            window._cloudSettingsLoaded = true; // 🛑 The Guard: Only run once per session
                             const cloudSettings = data.settings;
                             
                             // 1. Overwrite localStorage with cloud truth
@@ -3103,7 +3106,7 @@ if (typeof firebase !== 'undefined') {
                             syncToggle('remember-map-toggle', window.rememberMapPosition);
                             syncToggle('national-view-toggle', window.startNationalView);
                             syncToggle('toggle-stop-auto-move', window.stopAutoMovements);
-                            syncToggle('toggle-reduce-motion', window.reducePinMotion);
+                            syncToggle('toggle-stop-resizing', window.stopResizing);
                             
                             // Update Dropdowns
                             const styleDropdown = document.getElementById('map-style-select');
