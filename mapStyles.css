@@ -255,21 +255,21 @@
     width: 46px;
     height: 46px;
     border-radius: 50%;
-    position: relative; 
-    
+    position: relative;
+
     /* Heavy black metal base */
-    border: 3px solid #111111; 
+    border: 3px solid #111111;
     background-color: #111111;
-    
+
     /* THE FIX: Deep, heavy drop shadow + a microscopic dark inner shadow 
        to create a physical "lip", making it look recessed like a coin. */
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4), inset 0 3px 6px rgba(0, 0, 0, 0.3);
-    
+
     /* Flexbox to keep the logo perfectly in the middle */
     display: flex;
     justify-content: center;
     align-items: center;
-    
+
     transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.25s ease;
 }
 
@@ -292,24 +292,25 @@
 /* The Metallic Number Badge (Docked top-right) */
 .cluster-count-badge {
     position: absolute;
-    top: -8px; /* Slightly adjusted to clear the thicker border */
+    top: -8px;
+    /* Slightly adjusted to clear the thicker border */
     right: -8px;
-    
+
     background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
-    
+
     /* 4. THE FIX: Match the badge border to the heavy black rim */
-    border: 2px solid #111111; 
+    border: 2px solid #111111;
     border-radius: 50%;
-    
+
     min-width: 24px;
     height: 24px;
     padding: 0 4px;
-    
+
     color: #ffffff;
     font-family: 'Inter', sans-serif;
     font-weight: 800;
     font-size: 12px;
-    
+
     display: flex;
     justify-content: center;
     align-items: center;
@@ -333,5 +334,6 @@ body.low-graphics .cluster-count-badge {
 }
 
 body.low-graphics .cluster-count-badge {
-    background: #1e293b !important; /* Flat slate color instead of gradient */
+    background: #1e293b !important;
+    /* Flat slate color instead of gradient */
 }

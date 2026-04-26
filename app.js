@@ -3,8 +3,25 @@ console.log(`B.A.R.K. Engine v${APP_VERSION}: Performance Optimized`);
 
 // ====== SETTINGS UI LOGIC ======
 let allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
-let clusteringEnabled = localStorage.getItem('barkClusteringEnabled') === 'true';
-let lowGfxEnabled = localStorage.getItem('barkLowGfxEnabled') === 'true';
+
+// 3-Way Bubble Logic
+let standardClustering = localStorage.getItem('barkStandardClustering') !== 'false'; // Default ON
+let premiumClustering = localStorage.getItem('barkPremiumClustering') === 'true';   // Default OFF
+
+// Master state for the engine
+let clusteringEnabled = standardClustering || premiumClustering;
+
+// 🛡️ STRICT HARDWARE FIX: Only auto-detect if the user has NEVER touched the setting.
+// Once they flip the toggle, their choice is permanent. It does not matter the device.
+let lowGfxSaved = localStorage.getItem('barkLowGfxEnabled');
+let lowGfxEnabled = false;
+
+if (lowGfxSaved !== null) {
+    lowGfxEnabled = lowGfxSaved === 'true';
+} else {
+    const deviceRAM = navigator.deviceMemory || 4;
+    lowGfxEnabled = (deviceRAM < 4);
+}
 let simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
 let instantNav = localStorage.getItem('barkInstantNav') === 'true';
 let rememberMapPosition = localStorage.getItem('remember-map-toggle') === 'true';
@@ -14,8 +31,12 @@ window.parkLookup = new Map();
 
 let mapSaveTimeout;
 
-// Apply initial Low Graphics class
-if (lowGfxEnabled) document.body.classList.add('low-graphics');
+// Apply initial Low Graphics class strictly based on the final setting
+if (lowGfxEnabled) {
+    document.body.classList.add('low-graphics');
+} else {
+    document.body.classList.remove('low-graphics');
+}
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
@@ -193,6 +214,13 @@ map.on('moveend', () => {
     }, 500);
 });
 
+// 🧨 EXPLOSION TRIGGER: Re-evaluate pins every time the zoom changes
+map.on('zoomend', () => {
+    if (premiumClustering) {
+        window.syncState(); 
+    }
+});
+
 // Helper to manually dismiss the cold-start loader exactly when we want to (e.g. after sync)
 window.dismissBarkLoader = function () {
     const loader = document.getElementById('bark-loader');
@@ -301,19 +329,18 @@ const markerClusterGroup = L.markerClusterGroup({
     disableClusteringAtZoom: 16, // Ungroups when zoomed in close
     animate: false, // Turned off specifically to save CPU on older phones
 
-    // 🎛️ THE FIX: Dynamic Cluster Sizing
     maxClusterRadius: function (zoom) {
-        // LOW ZOOM (Zoomed out to country level): 
-        // Use a small radius so regions stay separated (e.g., FL doesn't merge with GA)
-        if (zoom <= 7) return 60;
-
-        // MID ZOOM (State level): 
-        // Start grouping slightly more to keep the screen clean
-        if (zoom <= 8) return 20;
-
-        // HIGH ZOOM (City/Park level): 
-        // Use the Leaflet default (80) to aggressively group pins that are physically overlapping
-        return 0;
+        if (premiumClustering) {
+            // Aggressive grouping for country-level only
+            return 80; 
+        }
+        if (standardClustering) {
+            // Standard behavior
+            if (zoom <= 5) return 40; 
+            if (zoom <= 8) return 60; 
+            return 80; 
+        }
+        return 80;
     },
 
     // ✨ THE PREMIUM B.A.R.K. LOGO CLUSTER ✨
@@ -353,7 +380,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const settingsModal = document.getElementById('settings-modal');
     const closeSettingsBtn = document.getElementById('close-settings-btn');
     const allowUncheckToggle = document.getElementById('allow-uncheck-setting');
-    const clusterToggle = document.getElementById('cluster-toggle');
+    const standardToggle = document.getElementById('standard-cluster-toggle');
+    const premiumToggle = document.getElementById('premium-cluster-toggle');
     const lowGfxToggle = document.getElementById('low-gfx-toggle');
     const simplifyTrailToggle = document.getElementById('simplify-trail-toggle');
     const instantNavToggle = document.getElementById('instant-nav-toggle');
@@ -361,7 +389,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (settingsGearBtn && settingsOverlay) {
         if (allowUncheckToggle) allowUncheckToggle.checked = allowUncheck;
-        if (clusterToggle) clusterToggle.checked = clusteringEnabled;
         if (lowGfxToggle) lowGfxToggle.checked = lowGfxEnabled;
         if (simplifyTrailToggle) simplifyTrailToggle.checked = simplifyTrails;
         if (instantNavToggle) instantNavToggle.checked = instantNav;
@@ -395,11 +422,39 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        if (clusterToggle) {
-            clusterToggle.addEventListener('change', (e) => {
-                clusteringEnabled = e.target.checked;
-                localStorage.setItem('barkClusteringEnabled', clusteringEnabled ? 'true' : 'false');
-                window.syncState(); // Instant re-render
+        if (standardToggle) {
+            standardToggle.checked = standardClustering;
+            standardToggle.addEventListener('change', (e) => {
+                standardClustering = e.target.checked;
+                localStorage.setItem('barkStandardClustering', standardClustering);
+                
+                // If turning on standard, turn off premium to avoid math conflicts
+                if (standardClustering && premiumToggle) {
+                    premiumClustering = false;
+                    premiumToggle.checked = false;
+                    localStorage.setItem('barkPremiumClustering', false);
+                }
+                
+                clusteringEnabled = standardClustering || premiumClustering;
+                window.syncState(); 
+            });
+        }
+
+        if (premiumToggle) {
+            premiumToggle.checked = premiumClustering;
+            premiumToggle.addEventListener('change', (e) => {
+                premiumClustering = e.target.checked;
+                localStorage.setItem('barkPremiumClustering', premiumClustering);
+                
+                // If turning on premium, turn off standard
+                if (premiumClustering && standardToggle) {
+                    standardClustering = false;
+                    standardToggle.checked = false;
+                    localStorage.setItem('barkStandardClustering', false);
+                }
+                
+                clusteringEnabled = standardClustering || premiumClustering;
+                window.syncState();
             });
         }
 
@@ -407,6 +462,7 @@ document.addEventListener('DOMContentLoaded', () => {
             lowGfxToggle.addEventListener('change', (e) => {
                 lowGfxEnabled = e.target.checked;
                 localStorage.setItem('barkLowGfxEnabled', lowGfxEnabled ? 'true' : 'false');
+
                 if (lowGfxEnabled) {
                     document.body.classList.add('low-graphics');
                 } else {
@@ -2088,14 +2144,21 @@ function updateMarkers() {
     markerLayer.clearLayers();
     markerClusterGroup.clearLayers();
 
+    const currentZoom = map.getZoom();
+
+    // 🔥 THE BYPASS LOGIC:
+    // If Premium is ON and we are at Zoom 7 or higher, 
+    // we force clustering OFF for this render pass.
+    let forceNoClustering = (premiumClustering && currentZoom >= 7);
+
     let visibleBounds = L.latLngBounds(); // 🎯 Track the boundaries
 
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
-
+        
         const queryNorm = normalizeText(activeSearchQuery);
         const nameNorm = item._cachedNormalizedName;
-
+        
         let matchesSearch = false;
         if (!queryNorm) {
             matchesSearch = true;
@@ -2114,22 +2177,23 @@ function updateMarkers() {
         }
 
         const matchesType = activeTypeFilter === 'all' || item.category === activeTypeFilter;
-
+        
         let matchesVisited = true;
         const isVisited = userVisitedPlaces.has(item.id);
 
         if (visitedFilterState === 'visited' && !isVisited) matchesVisited = false;
         if (visitedFilterState === 'unvisited' && isVisited) matchesVisited = false;
 
-        // --- DYNAMIC VISIBILITY GATE ---
         const isInTrip = Array.from(tripDays).some(day => day.stops.some(s => s.id === item.id));
 
         if ((matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip) {
-            // THE STRICT FORK: Where does the pin go?
-            if (clusteringEnabled) {
-                markerClusterGroup.addLayer(item.marker);
-            } else {
+            
+            // 🎯 THE STRICT FORK
+            // If forced off (Premium Zoom 7+) OR clustering is manually disabled:
+            if (forceNoClustering || !clusteringEnabled) {
                 markerLayer.addLayer(item.marker);
+            } else {
+                markerClusterGroup.addLayer(item.marker);
             }
 
             visibleBounds.extend(item.marker.getLatLng()); // 🎯 Expand the invisible frame
@@ -2144,8 +2208,8 @@ function updateMarkers() {
         }
     });
 
-    // Handle Map Layer Assignment
-    if (clusteringEnabled) {
+    // Handle Map Layer Assignment based on the same bypass logic
+    if (clusteringEnabled && !forceNoClustering) {
         if (!map.hasLayer(markerClusterGroup)) map.addLayer(markerClusterGroup);
         if (map.hasLayer(markerLayer)) map.removeLayer(markerLayer);
     } else {
@@ -2164,8 +2228,8 @@ function updateMarkers() {
             map.flyToBounds(visibleBounds, {
                 padding: [50, 50],
                 maxZoom: 12,
-                duration: instantNav ? 0 : 0.8,
-                animate: !instantNav
+                duration: lowGfxEnabled ? 0 : 0.8,
+                animate: !lowGfxEnabled
             });
         }
     }
@@ -2236,8 +2300,8 @@ searchInput.addEventListener('input', (e) => {
 
                     if (match.item.marker && match.item.marker._parkData) {
                         map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, {
-                            animate: !instantNav,
-                            duration: instantNav ? 0 : 0.4
+                            animate: !lowGfxEnabled,
+                            duration: lowGfxEnabled ? 0 : 1.5
                         });
                         match.item.marker.fire('click');
                     }
@@ -3502,8 +3566,8 @@ window.flyToActiveTrail = function () {
             map.flyToBounds(virtualTrailLayerGroup.getBounds(), {
                 padding: [50, 50],
                 maxZoom: 14,
-                animate: !instantNav,
-                duration: instantNav ? 0 : 1.5
+                animate: !lowGfxEnabled,
+                duration: lowGfxEnabled ? 0 : 1.5
             });
         }, 350);
     } else {
@@ -4931,8 +4995,8 @@ async function executeGeocode(query, targetType) {
 
                             // Pan map to the new custom location
                             if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, {
-                                animate: !instantNav,
-                                duration: instantNav ? 0 : 0.4
+                                animate: !lowGfxEnabled,
+                                duration: lowGfxEnabled ? 0 : 1.5
                             });
 
                             disambiguationContainer.style.display = 'none';
