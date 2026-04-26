@@ -1419,12 +1419,20 @@ body.remove-shadows .cat-state:not(.visited-pin) {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
 }
 
-/* 3. STOP RESIZING: Snaps pins to final size instantly during zoom */
+/* 3. STOP RESIZING: Lock pin size during zoom — no GPU scaling, no transitions */
 body.stop-resizing .leaflet-marker-icon,
 body.stop-resizing .enamel-pin-wrapper,
 body.stop-resizing .custom-bark-marker * {
     transition: none !important;
     animation: none !important;
+}
+/* Kill Leaflet's zoom-animated pane scaling (the actual source of visual shrinking) */
+body.stop-resizing .leaflet-marker-pane {
+    transition: none !important;
+}
+body.stop-resizing .leaflet-zoom-anim .leaflet-marker-pane {
+    transition: none !important;
+    will-change: auto !important;
 }
 
 /* 4. VIEWPORT CULLING: Subtle fade for pins entering the bounding box */

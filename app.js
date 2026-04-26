@@ -2310,10 +2310,10 @@ function loadData() {
 
 function updateMarkers() {
     const currentZoom = map.getZoom();
-    // 🛑 STOP SPINNING BYPASS: MarkerClusterGroup internally rebuilds DOM nodes.
-    // When Stop Spinning is ON, force ALL markers into the simple markerLayer
-    // so DOM nodes are never destroyed/recreated (no flash, no re-spin).
-    let forceNoClustering = (window.premiumClusteringEnabled && currentZoom >= 7) || window.stopSpinning;
+    // 🛑 PERFORMANCE BYPASS: MarkerClusterGroup internally destroys/rebuilds DOM nodes.
+    // When Stop Spinning OR Stop Resizing is ON, force markers into simple markerLayer
+    // so DOM nodes stay alive permanently (no flash, no re-spin, no resize stutter).
+    let forceNoClustering = (window.premiumClusteringEnabled && currentZoom >= 7) || window.stopSpinning || window.stopResizing;
 
     let visibleBounds = L.latLngBounds();
     const screenBounds = map.getBounds().pad(0.2); // 📦 20% buffer for culling
