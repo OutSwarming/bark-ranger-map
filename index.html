@@ -18,7 +18,7 @@
 
     <!-- QRCode JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css?v=16">
+    <link rel="stylesheet" href="styles.css?v=20">
     <link rel="stylesheet" href="mapStyles.css?v=2">
     <link rel="stylesheet" href="trophyCase.css">
 
@@ -465,10 +465,12 @@
             <!-- Premium Settings Modal Overlay (Fixed standard) -->
             <div id="settings-overlay" class="modal-overlay">
                 <div id="settings-modal" class="modal-card">
-                    <button id="close-settings-btn" class="modal-close-btn">&times;</button>
-                    <h2 style="margin: 0 0 20px 0; font-size: 24px; font-weight: 900; color: #1e293b;">Settings</h2>
+                    <div class="modal-header">
+                        <button id="close-settings-btn" class="modal-close-btn">&times;</button>
+                        <h2 style="margin: 0; font-size: 24px; font-weight: 900; color: #1e293b;">Settings</h2>
+                    </div>
                     
-                    <div style="display: flex; flex-direction: column; gap: 20px;">
+                    <div class="modal-body">
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
                                 <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Allow Unchecking Visited</div>
@@ -532,6 +534,81 @@
                                 <input type="checkbox" id="instant-nav-toggle">
                                 <span class="slider round"></span>
                             </label>
+                        </div>
+
+                        <hr style="border: none; border-top: 1px solid rgba(0,0,0,0.1); margin: 5px 0;">
+                        <h4 style="margin: 0; color: #ef4444; font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px;">🛠️ Developer Tests</h4>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">[Dev] Fast Search Engine</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Tests the low-memory Levenshtein algorithm.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="dev-search-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">[Dev] Cache Trail Data</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Tests holding trails in memory instead of re-downloading.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="dev-cache-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">[Dev] Battery Saver Sync</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Tests 15s polling intervals instead of 3s.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="dev-battery-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">[Dev] Debounce Map Saves</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Delays localStorage writes until you stop dragging.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="dev-debounce-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">[Dev] Cached Regex Search</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Pre-computes formatting to speed up searching.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="dev-regex-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="margin-top: 10px;">
+                            <div style="font-size: 14px; font-weight: 800; color: #ef4444; margin-bottom: 8px;">[Dev] Trail Warp (Jump to Expedition)</div>
+                            <div id="dev-trail-warp-grid" class="dev-warp-grid">
+                                <!-- Populated via JS -->
+                            </div>
                         </div>
                         
                         <p style="font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border-top: 1px solid #f1f5f9; padding-top: 15px; margin: 0;">
@@ -1061,7 +1138,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script src="gamificationLogic.js?v=3"></script>
     <script src="MapMarkerConfig.js?v=3"></script>
-    <script src="app.js?v=16"></script>
+    <script src="app.js?v=20"></script>
     <!-- SCORING PROTOCOL MODAL -->
     <div id="scoring-modal" class="scoring-modal-overlay">
         <div class="scoring-modal-card">

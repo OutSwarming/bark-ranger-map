@@ -1,4 +1,4 @@
-const APP_VERSION = 16;
+const APP_VERSION = 20;
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
@@ -155,12 +155,24 @@ if (savedView && savedView.lat && savedView.lng && savedView.zoom) {
 
 // Save the view every time the user stops dragging or zooming
 map.on('moveend', () => {
-    const center = map.getCenter();
-    localStorage.setItem('barkMapView', JSON.stringify({
-        lat: center.lat,
-        lng: center.lng,
-        zoom: map.getZoom()
-    }));
+    const saveState = () => {
+        const center = map.getCenter();
+        localStorage.setItem('barkMapView', JSON.stringify({
+            lat: center.lat,
+            lng: center.lng,
+            zoom: map.getZoom()
+        }));
+    };
+
+    if (devDebounceEnabled) {
+        clearTimeout(mapSaveTimeout);
+        mapSaveTimeout = setTimeout(() => {
+            saveState();
+            console.log("🛠️ Dev Test: Map state saved (Debounced)");
+        }, 500);
+    } else {
+        saveState();
+    }
 });
 
 // Helper to manually dismiss the cold-start loader exactly when we want to (e.g. after sync)
@@ -271,6 +283,13 @@ let clusteringEnabled = localStorage.getItem('barkClusteringEnabled') === 'true'
 let lowGfxEnabled = localStorage.getItem('barkLowGfxEnabled') === 'true';
 let simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
 let instantNav = localStorage.getItem('barkInstantNav') === 'true';
+let devSearchEnabled = localStorage.getItem('barkDevSearchEnabled') === 'true';
+let devCacheEnabled = localStorage.getItem('barkDevCacheEnabled') === 'true';
+let devBatteryEnabled = localStorage.getItem('barkDevBatteryEnabled') === 'true';
+let devDebounceEnabled = localStorage.getItem('barkDevDebounceEnabled') === 'true';
+let devRegexEnabled = localStorage.getItem('barkDevRegexEnabled') === 'true';
+
+let mapSaveTimeout; 
 
 // Apply initial Low Graphics class
 if (lowGfxEnabled) document.body.classList.add('low-graphics');
@@ -285,6 +304,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const lowGfxToggle = document.getElementById('low-gfx-toggle');
     const simplifyTrailToggle = document.getElementById('simplify-trail-toggle');
     const instantNavToggle = document.getElementById('instant-nav-toggle');
+    const devSearchToggle = document.getElementById('dev-search-toggle');
+    const devCacheToggle = document.getElementById('dev-cache-toggle');
+    const devBatteryToggle = document.getElementById('dev-battery-toggle');
+    const devDebounceToggle = document.getElementById('dev-debounce-toggle');
+    const devRegexToggle = document.getElementById('dev-regex-toggle');
 
     if (settingsGearBtn && settingsOverlay) {
         if (allowUncheckToggle) allowUncheckToggle.checked = allowUncheck;
@@ -292,6 +316,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (lowGfxToggle) lowGfxToggle.checked = lowGfxEnabled;
         if (simplifyTrailToggle) simplifyTrailToggle.checked = simplifyTrails;
         if (instantNavToggle) instantNavToggle.checked = instantNav;
+        if (devSearchToggle) devSearchToggle.checked = devSearchEnabled;
+        if (devCacheToggle) devCacheToggle.checked = devCacheEnabled;
+        if (devBatteryToggle) devBatteryToggle.checked = devBatteryEnabled;
+        if (devDebounceToggle) devDebounceToggle.checked = devDebounceEnabled;
+        if (devRegexToggle) devRegexToggle.checked = devRegexEnabled;
+
+        // Populate Trail Warp Grid once on load (it's static)
+        populateTrailWarpGrid();
 
         // Set version dinamically
         const versionLabel = document.getElementById('settings-app-version');
@@ -367,8 +399,76 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.setItem('barkInstantNav', instantNav ? 'true' : 'false');
             });
         }
+
+        if (devSearchToggle) {
+            devSearchToggle.addEventListener('change', (e) => {
+                devSearchEnabled = e.target.checked;
+                localStorage.setItem('barkDevSearchEnabled', devSearchEnabled ? 'true' : 'false');
+            });
+        }
+
+        if (devCacheToggle) {
+            devCacheToggle.addEventListener('change', (e) => {
+                devCacheEnabled = e.target.checked;
+                localStorage.setItem('barkDevCacheEnabled', devCacheEnabled ? 'true' : 'false');
+                if (!devCacheEnabled) cachedTrailsData = null; // Clear cache on disable
+            });
+        }
+
+        if (devBatteryToggle) {
+            devBatteryToggle.addEventListener('change', (e) => {
+                devBatteryEnabled = e.target.checked;
+                localStorage.setItem('barkDevBatteryEnabled', devBatteryEnabled ? 'true' : 'false');
+            });
+        }
+
+        if (devDebounceToggle) {
+            devDebounceToggle.addEventListener('change', (e) => {
+                devDebounceEnabled = e.target.checked;
+                localStorage.setItem('barkDevDebounceEnabled', devDebounceEnabled ? 'true' : 'false');
+            });
+        }
+
+        if (devRegexToggle) {
+            devRegexToggle.addEventListener('change', (e) => {
+                devRegexEnabled = e.target.checked;
+                localStorage.setItem('barkDevRegexEnabled', devRegexEnabled ? 'true' : 'false');
+            });
+        }
     }
 });
+
+function populateTrailWarpGrid() {
+    const warpGrid = document.getElementById('dev-trail-warp-grid');
+    if (!warpGrid) return;
+
+    warpGrid.innerHTML = '';
+    TOP_10_TRAILS.forEach(trail => {
+        const btn = document.createElement('button');
+        btn.className = 'dev-warp-btn';
+        btn.textContent = trail.name;
+        btn.onclick = async () => {
+            const user = firebase.auth().currentUser;
+            if (!user) {
+                alert("Please sign in first!");
+                return;
+            }
+            
+            console.log(`🛠️ Dev Test: Warping to ${trail.name}...`);
+            
+            // 1. Assign trail to user
+            await assignTrailToUser(user.uid, trail);
+            
+            // 2. Fly to active trail
+            if (typeof flyToActiveTrail === 'function') flyToActiveTrail();
+            
+            // 3. Close settings modal
+            const settingsOverlay = document.getElementById('settings-overlay');
+            if (settingsOverlay) settingsOverlay.classList.remove('active');
+        };
+        warpGrid.appendChild(btn);
+    });
+}
 
 let allPoints = [];
 let activePinMarker = null;
@@ -919,6 +1019,31 @@ const normalizationDict = {
     'hist': 'historic'
 };
 
+let cachedTrailsData = null;
+
+async function getTrailsData() {
+    // NEW WAY: Return from memory if toggle is ON and data exists
+    if (devCacheEnabled && cachedTrailsData) {
+        console.log("🛠️ Dev Test: Loading trails instantly from Memory Cache!");
+        return cachedTrailsData;
+    }
+    
+    // OLD WAY: Fetch from network
+    console.log("🛠️ Dev Test: Downloading trails.json from network...");
+    try {
+        const response = await fetch('trails.json');
+        const data = await response.json();
+        
+        // Save to memory for next time if toggle is ON
+        if (devCacheEnabled) cachedTrailsData = data; 
+        
+        return data;
+    } catch (err) {
+        console.error("🛠️ Dev Test Error: Failed to fetch trails:", err);
+        throw err;
+    }
+}
+
 function normalizeText(text) {
     if (!text) return '';
     let cleaned = String(text).toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").replace(/\s{2,}/g, " ").trim();
@@ -931,7 +1056,7 @@ function normalizeText(text) {
     return words.join(' ');
 }
 
-function levenshtein(a, b) {
+function oldLevenshtein(a, b) {
     if (a.length === 0) return b.length;
     if (b.length === 0) return a.length;
     const matrix = [];
@@ -947,6 +1072,28 @@ function levenshtein(a, b) {
         }
     }
     return matrix[b.length][a.length];
+}
+
+function fastLevenshtein(a, b) {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    
+    // Short-circuit: Check for substring inclusion (Case-insensitive check already handled by normalization)
+    if (a.includes(b) || b.includes(a)) return 0;
+
+    let v0 = new Array(b.length + 1);
+    let v1 = new Array(b.length + 1);
+    for (let i = 0; i <= b.length; i++) v0[i] = i;
+
+    for (let i = 0; i < a.length; i++) {
+        v1[0] = i + 1;
+        for (let j = 0; j < b.length; j++) {
+            const cost = (a[i] === b[j]) ? 0 : 1;
+            v1[j + 1] = Math.min(v1[j] + 1, v0[j + 1] + 1, v0[j] + cost);
+        }
+        for (let j = 0; j <= b.length; j++) v0[j] = v1[j];
+    }
+    return v1[b.length];
 }
 
 function formatSwagLinks(text) {
@@ -988,8 +1135,7 @@ async function renderCompletedTrailsOverlay(completedExpeditions) {
     if (!completedExpeditions || completedExpeditions.length === 0) return;
 
     try {
-        const response = await fetch('trails.json');
-        const trailsData = await response.json();
+        const trailsData = await getTrailsData();
 
         completedExpeditions.forEach(exp => {
             const trailId = exp.id || exp.trail_id;
@@ -1030,8 +1176,7 @@ async function renderCompletedTrailsOverlay(completedExpeditions) {
 async function renderVirtualTrailOverlay(trailId, milesCompleted) {
     virtualTrailLayerGroup.clearLayers();
     try {
-        const response = await fetch('trails.json');
-        const trailsData = await response.json();
+        const trailsData = await getTrailsData();
         const trailGeoJson = trailsData[trailId];
 
         if (!trailGeoJson) return;
@@ -1379,7 +1524,7 @@ function processParsedResults(results) {
         const parkCategory = getParkCategory(category);
 
         const id = generatePinId(lat, lng);
-        const parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng, parkCategory };
+        const parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng, parkCategory, _nameNorm: normalizeText(name) };
         const isVisited = userVisitedPlaces.has(id);
         const marker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
 
@@ -1885,8 +2030,9 @@ async function safeDataPoll() {
         console.error("Data poll failed, backing off...");
     }
     // 2. Adaptive Back-off: If it fails 5 times, slow down to 1 minute
-    const interval = dataPollErrorCount > 5 ? 60000 : 3000;
-    setTimeout(safeDataPoll, interval);
+    const pollInterval = devBatteryEnabled ? 15000 : (dataPollErrorCount > 5 ? 60000 : 3000);
+    if (devBatteryEnabled) console.log(`🛠️ Dev Test: Polling set to 15 seconds`);
+    setTimeout(safeDataPoll, pollInterval);
 }
 safeDataPoll();
 
@@ -1928,7 +2074,7 @@ function updateMarkers() {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
 
         const queryNorm = normalizeText(activeSearchQuery);
-        const nameNorm = normalizeText(item.name);
+        const nameNorm = devRegexEnabled ? (item._nameNorm || normalizeText(item.name)) : normalizeText(item.name);
 
         let matchesSearch = false;
         if (!queryNorm) {
@@ -1936,11 +2082,12 @@ function updateMarkers() {
         } else if (nameNorm.includes(queryNorm)) {
             matchesSearch = true;
         } else {
-            let minDist = levenshtein(queryNorm, nameNorm);
+            let minDist = devSearchEnabled ? fastLevenshtein(queryNorm, nameNorm) : oldLevenshtein(queryNorm, nameNorm);
             const tokens = nameNorm.split(' ');
             for (const word of tokens) {
                 if (queryNorm.length > 2) {
-                    minDist = Math.min(minDist, levenshtein(queryNorm, word));
+                    const dist = devSearchEnabled ? fastLevenshtein(queryNorm, word) : oldLevenshtein(queryNorm, word);
+                    minDist = Math.min(minDist, dist);
                 }
             }
             if (minDist <= 2) matchesSearch = true;
@@ -2028,17 +2175,18 @@ searchInput.addEventListener('input', (e) => {
         let matches = [];
 
         allPoints.forEach(item => {
-            const nameNorm = normalizeText(item.name);
+            const nameNorm = devRegexEnabled ? (item._nameNorm || normalizeText(item.name)) : normalizeText(item.name);
             let score = 999;
 
             if (nameNorm.includes(queryNorm)) {
                 score = 0;
             } else {
-                let minDist = levenshtein(queryNorm, nameNorm);
+                let minDist = devSearchEnabled ? fastLevenshtein(queryNorm, nameNorm) : oldLevenshtein(queryNorm, nameNorm);
                 const tokens = nameNorm.split(' ');
                 for (const word of tokens) {
                     if (queryNorm.length > 2) {
-                        minDist = Math.min(minDist, levenshtein(queryNorm, word));
+                        const dist = devSearchEnabled ? fastLevenshtein(queryNorm, word) : oldLevenshtein(queryNorm, word);
+                        minDist = Math.min(minDist, dist);
                     }
                 }
                 if (minDist <= 2) score = minDist;
