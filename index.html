@@ -473,12 +473,13 @@
                     </div>
 
                     <div class="modal-body">
+                        <!-- 🧭 CORE PREFERENCES -->
+                        <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 5px; margin-bottom: 15px;">Core Preferences</div>
+
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Allow Unchecking Visited
-                                </div>
-                                <div
-                                    style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Allow Unchecking Visited</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
                                     Enables removal of manual map check-ins. Verified visits remain permanent.
                                 </div>
                             </div>
@@ -490,10 +491,8 @@
 
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Remember Map Position
-                                </div>
-                                <div
-                                    style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Remember Map Position</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
                                     Start exactly where you left off instead of your current location.
                                 </div>
                             </div>
@@ -505,10 +504,21 @@
 
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Premium Bubble Mode
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Instant Camera</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Disables map panning animations for instant loading.
                                 </div>
-                                <div
-                                    style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="instant-nav-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Premium Bubble Mode</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
                                     Semantic Zooming: Explodes clusters as you zoom in. Keeps high-level map clean.
                                 </div>
                             </div>
@@ -520,10 +530,8 @@
 
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Standard Bubble Mode
-                                </div>
-                                <div
-                                    style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Standard Bubble Mode</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
                                     Groups aggressively to keep the screen clean. Recommended for older devices.
                                 </div>
                             </div>
@@ -535,23 +543,8 @@
 
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Low Graphics Mode</div>
-                                <div
-                                    style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Disables blurs and particle effects for speed.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="low-gfx-toggle">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
                                 <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Simplify Trails</div>
-                                <div
-                                    style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
                                     Reduces trail detail to prevent map stuttering.
                                 </div>
                             </div>
@@ -561,49 +554,10 @@
                             </label>
                         </div>
 
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Instant Camera</div>
-                                <div
-                                    style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Disables map panning animations for instant loading.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="instant-nav-toggle">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
+                        <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 5px 0;"></div>
 
-                        <!-- 🚀 B.A.R.K. PERFORMANCE MODIFIERS (V24) -->
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Remove Shadows</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Strips heavy GPU shadow filters from all pins.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-remove-shadows">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Resizing</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Pin size stays locked during zoom. No micro-calculations.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-stop-resizing">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <!-- 🎯 GESTURE CONTROLS (V25) -->
-                        <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 5px;">Gesture Controls</div>
+                        <!-- 🎯 GESTURE CONTROLS -->
+                        <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; margin-bottom: 15px;">Gesture Controls</div>
                         
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
@@ -659,7 +613,8 @@
 
                         <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 5px 0;"></div>
 
-                        <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 5px;">Performance Mode</div>
+                        <!-- 🔬 ADVANCED OPTIMIZATION -->
+                        <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; margin-bottom: 15px;">Advanced Optimization</div>
 
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
@@ -674,15 +629,54 @@
                             </label>
                         </div>
 
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Low Graphics Mode</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Disables blurs and particle effects for speed.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="low-gfx-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Remove Shadows</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Strips heavy GPU shadow filters from all pins.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-remove-shadows">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Resizing</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Pin size stays locked during zoom. No micro-calculations.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-stop-resizing">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
                         <!-- 🔨 ULTRA-LOW SLEDGEHAMMER -->
-                        <div
-                            style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; background: rgba(239, 68, 68, 0.05); padding: 10px; border-radius: 8px; border: 1px dashed rgba(239, 68, 68, 0.2);">
+                        <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 5px 0;"></div>
+                        <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; margin-bottom: 15px;">Aggressive Recovery</div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; background: rgba(239, 68, 68, 0.05); padding: 10px; border-radius: 8px; border: 1px dashed rgba(239, 68, 68, 0.2);">
                             <div style="flex: 1;">
                                 <div style="font-size: 15px; font-weight: 800; color: #ef4444;">Ultra Low Mode</div>
-                                <div
-                                    style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    <strong>Iphone 3 and lower only!!!</strong> Disables all visual effects for maximum
-                                    memory recovery. May disable some visual features.
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    <strong>Iphone 3 and lower only!!!</strong> Disables all visual effects for maximum memory recovery. May disable some visual features.
                                 </div>
                             </div>
                             <label class="switch">
