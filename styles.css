@@ -1339,21 +1339,17 @@ input#ultra-low-toggle:checked + .slider {
    🛑 REDUCED PIN SCALING / MOTION TOGGLE
    ========================================= */
 
-/* 1. Kills Leaflet's heavy pinch-to-zoom scaling matrix */
-body.reduce-pin-motion .leaflet-marker-pane,
-body.reduce-pin-motion .leaflet-zoom-animated {
-    transition: none !important;
-    transform-origin: center !important;
+/* 1. Only target OUR custom wrappers. 
+      Let Leaflet handle the structural zoom scaling so pins stay anchored! */
+body.reduce-pin-motion .enamel-pin-wrapper,
+body.reduce-pin-motion .cluster-enamel-wrapper {
+    /* Snappy, ultra-fast transitions instead of heavy 0.4s animations */
+    transition: transform 0.1s linear, box-shadow 0.1s linear !important;
 }
 
-/* 2. Makes the hover "pop" much smaller ("resizes less") */
+/* 2. Minimize the hover "pop" effect to save GPU rendering cycles */
 body.reduce-pin-motion .enamel-pin-wrapper:hover,
 body.reduce-pin-motion .custom-bark-marker.active-pin .enamel-pin-wrapper {
     transform: scale(1.03) translateY(0) !important; /* Barely resizes */
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3) !important;
-}
-
-/* 3. Shortens the transition to save rendering time */
-body.reduce-pin-motion .enamel-pin-wrapper {
-    transition: transform 0.1s linear, box-shadow 0.1s linear !important;
 }

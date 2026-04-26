@@ -220,11 +220,7 @@ const mapOptions = window.ultraLowEnabled ? {
     zoomSnap: 0.5,
     zoomDelta: 1,
     wheelDebounceTime: 40,
-    wheelPxPerZoomLevel: 120,
-
-    // 🛑 THE FIX: Tell the Leaflet Engine to stop doing the heavy zoom math
-    markerZoomAnimation: !window.reducePinMotion,
-    zoomAnimation: !window.reducePinMotion
+    wheelPxPerZoomLevel: 120
 };
 
 const map = L.map('map', mapOptions);
@@ -519,20 +515,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (motionToggle) {
+            motionToggle.checked = window.reducePinMotion;
             motionToggle.addEventListener('change', (e) => {
                 window.reducePinMotion = e.target.checked;
                 localStorage.setItem('barkReducePinMotion', window.reducePinMotion ? 'true' : 'false');
 
                 if (window.reducePinMotion) {
                     document.body.classList.add('reduce-pin-motion');
-                    // Dynamically turn off engine animations
-                    map.options.markerZoomAnimation = false;
-                    map.options.zoomAnimation = false;
                 } else {
                     document.body.classList.remove('reduce-pin-motion');
-                    // Dynamically restore premium engine animations
-                    map.options.markerZoomAnimation = true;
-                    map.options.zoomAnimation = true;
                 }
             });
         }
