@@ -1336,20 +1336,37 @@ input#ultra-low-toggle:checked + .slider {
 }
 
 /* =========================================
-   🛑 REDUCED PIN SCALING / MOTION TOGGLE
+   REDUCED PIN SCALING / MOTION TOGGLE
+   Nuclear kill: strip ALL animation math from pins.
+   Keeps visual quality (shadows, rims) but eliminates
+   rendering overhead at country-level zoom with 500+ pins.
    ========================================= */
 
-/* 1. Only target OUR custom wrappers. 
-      Let Leaflet handle the structural zoom scaling so pins stay anchored! */
+/* 1. Kill ALL transitions and GPU reservations on our custom wrappers */
 body.reduce-pin-motion .enamel-pin-wrapper,
 body.reduce-pin-motion .cluster-enamel-wrapper {
-    /* Snappy, ultra-fast transitions instead of heavy 0.4s animations */
-    transition: transform 0.1s linear, box-shadow 0.1s linear !important;
+    transition: none !important;
+    animation: none !important;
+    will-change: auto !important;
 }
 
-/* 2. Minimize the hover "pop" effect to save GPU rendering cycles */
+/* 2. Kill hover/active scaling entirely — zero GPU pop calculations */
 body.reduce-pin-motion .enamel-pin-wrapper:hover,
 body.reduce-pin-motion .custom-bark-marker.active-pin .enamel-pin-wrapper {
-    transform: scale(1.03) translateY(0) !important; /* Barely resizes */
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3) !important;
+    transform: none !important;
+}
+
+/* 3. Kill Leaflet marker icon transitions (fade-in, position lerp) */
+body.reduce-pin-motion .leaflet-marker-icon,
+body.reduce-pin-motion .leaflet-marker-shadow {
+    transition: none !important;
+    animation: none !important;
+}
+
+/* 4. Kill the entire marker pane's animation surface */
+body.reduce-pin-motion .leaflet-marker-pane,
+body.reduce-pin-motion .leaflet-marker-pane * {
+    transition: none !important;
+    animation: none !important;
+    will-change: auto !important;
 }
