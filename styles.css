@@ -1426,13 +1426,15 @@ body.stop-resizing .custom-bark-marker * {
     transition: none !important;
     animation: none !important;
 }
-/* Kill Leaflet's zoom-animated pane scaling (the actual source of visual shrinking) */
+/* 🛑 NUCLEAR: Hide marker pane entirely during zoom gesture.
+   Leaflet applies INLINE transform: scale(X) via JS — CSS cannot override inline styles.
+   The ONLY way to prevent visual resizing is to hide the pane during the zoom.
+   After zoom ends, Leaflet removes leaflet-zoom-anim, pane reappears at correct size. */
+body.stop-resizing .leaflet-zoom-anim .leaflet-marker-pane {
+    visibility: hidden !important;
+}
 body.stop-resizing .leaflet-marker-pane {
     transition: none !important;
-}
-body.stop-resizing .leaflet-zoom-anim .leaflet-marker-pane {
-    transition: none !important;
-    will-change: auto !important;
 }
 
 /* 4. VIEWPORT CULLING: Subtle fade for pins entering the bounding box */
