@@ -300,10 +300,26 @@ const markerClusterGroup = L.markerClusterGroup({
     removeOutsideVisibleBounds: true, // Deletes off-screen pins to save RAM
     disableClusteringAtZoom: 16, // Ungroups when zoomed in close
     animate: false, // Turned off specifically to save CPU on older phones
+
+    // 🎛️ THE FIX: Dynamic Cluster Sizing
+    maxClusterRadius: function (zoom) {
+        // LOW ZOOM (Zoomed out to country level): 
+        // Use a small radius so regions stay separated (e.g., FL doesn't merge with GA)
+        if (zoom <= 7) return 60;
+
+        // MID ZOOM (State level): 
+        // Start grouping slightly more to keep the screen clean
+        if (zoom <= 8) return 20;
+
+        // HIGH ZOOM (City/Park level): 
+        // Use the Leaflet default (80) to aggressively group pins that are physically overlapping
+        return 0;
+    },
+
     // ✨ THE PREMIUM B.A.R.K. LOGO CLUSTER ✨
-    iconCreateFunction: function(cluster) {
+    iconCreateFunction: function (cluster) {
         const childCount = cluster.getChildCount();
-        
+
         const markerHtml = `
             <div class="cluster-enamel-wrapper">
                 <img src="bark-logo.jpeg" alt="B.A.R.K. Cluster" loading="lazy" />
