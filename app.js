@@ -6053,9 +6053,6 @@ if ('ontouchstart' in window) {
     let pendingDoubleTap = false;
     let zoomRAF = null; // requestAnimationFrame throttle
 
-    // Disable Leaflet's built-in double-tap zoom to prevent conflicts
-    map.doubleClickZoom.disable();
-
     // Centralized cleanup — bulletproof against state corruption
     // Centralized cleanup — bulletproof against state corruption
     function resetZoomState() {
