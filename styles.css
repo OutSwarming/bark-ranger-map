@@ -1369,28 +1369,19 @@ body.reduce-pin-motion .leaflet-marker-shadow {
    PERFORMANCE & MODIFIER TOGGLES
    ========================================================= */
 
-/* 1. STOP PIN RESIZING (The Debounce Hider) */
-/* When the JS detects a zoom, this instantly removes pins from the render tree */
-body.is-actively-zooming .leaflet-marker-pane,
-body.is-actively-zooming .leaflet-shadow-pane {
-    opacity: 0 !important;
-    visibility: hidden !important;
-    transition: none !important;
-}
-
-/* Kills CSS transitions when they reappear */
-body.stop-pin-resizing .leaflet-marker-icon,
-body.stop-pin-resizing .custom-bark-marker * {
+/* 1. STOP PIN RESIZING (The Scale Inverter) */
+/* This prevents the "throb" by killing transitions during the zoom event */
+body.stop-pin-resizing .leaflet-zoom-anim .leaflet-marker-icon {
     transition: none !important;
 }
 
 
-/* 2. STOP PIN SPINNING (Violent Animation Killer) */
-/* Targets the wrappers AND the images inside them so they cannot physically spin */
+/* 2. STOP PIN SPINNING (Static Pins) */
+/* We target the wrapper AND the image to ensure no restart on move */
 body.stop-pin-spinning .enamel-pin-wrapper,
-body.stop-pin-spinning .enamel-pin-wrapper *,
+body.stop-pin-spinning .enamel-pin-wrapper img,
 body.stop-pin-spinning .cluster-enamel-wrapper,
-body.stop-pin-spinning .cluster-enamel-wrapper * {
+body.stop-pin-spinning .cluster-enamel-wrapper img {
     animation: none !important;
     transition: none !important;
     transform: none !important;

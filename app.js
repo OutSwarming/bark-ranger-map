@@ -264,30 +264,6 @@ function setInitialMapView(defaultLat, defaultLng) {
 // Initial view set to US center as a placeholder during load
 setInitialMapView(39.8283, -98.5795);
 
-// ==========================================
-// 🛑 ZOOM DEBOUNCE ENGINE
-// Hides pins instantly on zoom, waits 400ms after zoom ends to show them
-// ==========================================
-let zoomDebounceTimer = null;
-
-map.on('zoomstart', () => {
-    if (window.stopPinResizing) {
-        // Instantly hide the pins to prevent lag and resizing
-        document.body.classList.add('is-actively-zooming');
-        clearTimeout(zoomDebounceTimer);
-    }
-});
-
-map.on('zoomend', () => {
-    if (window.stopPinResizing) {
-        clearTimeout(zoomDebounceTimer);
-        // Wait 400ms in case the user does another zoom gesture right away
-        zoomDebounceTimer = setTimeout(() => {
-            document.body.classList.remove('is-actively-zooming');
-        }, 400);
-    }
-});
-
 // 🚀 MAP POSITION SAVER
 map.on('moveend', () => {
     clearTimeout(mapSaveTimeout);
@@ -591,55 +567,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // 🚀 PERFORMANCE & MODIFIER TOGGLES (Bounty Fix)
-
-        // 1. STOP PIN RESIZING LOGIC
-        const stopResizingToggle = document.getElementById('toggle-stop-resizing');
-        if (stopResizingToggle) {
-            stopResizingToggle.checked = window.stopPinResizing;
-            stopResizingToggle.addEventListener('change', (e) => {
-                window.stopPinResizing = e.target.checked;
-                localStorage.setItem('barkStopResizing', window.stopPinResizing ? 'true' : 'false');
-                if (window.stopPinResizing) {
-                    document.body.classList.add('stop-pin-resizing');
-                    map.options.markerZoomAnimation = false;
-                } else {
-                    document.body.classList.remove('stop-pin-resizing');
-                    map.options.markerZoomAnimation = true;
+        const setupPerformanceToggle = (id, windowVar, storageKey, className) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.checked = window[windowVar];
+            el.addEventListener('change', (e) => {
+                window[windowVar] = e.target.checked;
+                localStorage.setItem(storageKey, window[windowVar] ? 'true' : 'false');
+                document.body.classList.toggle(className, window[windowVar]);
+                
+                if (id === 'toggle-stop-resizing') {
+                    map.options.markerZoomAnimation = !window[windowVar];
+                }
+                if (id === 'toggle-remove-shadows') {
+                    window.syncState();
                 }
             });
-        }
+        };
 
-        // 2. STOP PIN SPINNING LOGIC
-        const stopSpinningToggle = document.getElementById('toggle-stop-spinning');
-        if (stopSpinningToggle) {
-            stopSpinningToggle.checked = window.stopPinSpinning;
-            stopSpinningToggle.addEventListener('change', (e) => {
-                window.stopPinSpinning = e.target.checked;
-                localStorage.setItem('barkStopSpinning', window.stopPinSpinning ? 'true' : 'false');
-                if (window.stopPinSpinning) {
-                    document.body.classList.add('stop-pin-spinning');
-                } else {
-                    document.body.classList.remove('stop-pin-spinning');
-                }
-            });
-        }
-
-        // 3. REMOVE SHADOWS LOGIC
-        const removeShadowsToggle = document.getElementById('toggle-remove-shadows');
-        if (removeShadowsToggle) {
-            removeShadowsToggle.checked = window.removeShadows;
-            removeShadowsToggle.addEventListener('change', (e) => {
-                window.removeShadows = e.target.checked;
-                localStorage.setItem('barkRemoveShadows', window.removeShadows ? 'true' : 'false');
-                if (window.removeShadows) {
-                    document.body.classList.add('remove-shadows');
-                } else {
-                    document.body.classList.remove('remove-shadows');
-                }
-                // Refresh markers to apply/remove Culling instantly
-                window.syncState();
-            });
-        }
+        setupPerformanceToggle('toggle-stop-resizing', 'stopPinResizing', 'barkStopResizing', 'stop-pin-resizing');
+        setupPerformanceToggle('toggle-stop-spinning', 'stopPinSpinning', 'barkStopSpinning', 'stop-pin-spinning');
+        setupPerformanceToggle('toggle-remove-shadows', 'removeShadows', 'barkRemoveShadows', 'remove-shadows');
 
         // Ultra Low Toggle — uses the one already declared at line 413
         if (ultraLowToggle) {
@@ -2378,70 +2326,60 @@ function updateMarkers() {
     let visibleBounds = L.latLngBounds(); // 🎯 Track the boundaries
     const screenBounds = map.getBounds().pad(0.2); // 🎯 PAD SCREEN BY 20% FOR CULLING
 
+    const activeMarkerIds = new Set();
+
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
-
         const queryNorm = normalizeText(activeSearchQuery);
         const nameNorm = item._cachedNormalizedName;
-
-        let matchesSearch = false;
-        if (!queryNorm) {
-            matchesSearch = true;
-        } else if (nameNorm.includes(queryNorm)) {
-            matchesSearch = true;
-        } else {
+        let matchesSearch = !queryNorm || nameNorm.includes(queryNorm);
+        
+        if (!matchesSearch && queryNorm.length > 2) {
             let minDist = levenshtein(queryNorm, nameNorm);
-            const tokens = nameNorm.split(' ');
-            for (const word of tokens) {
-                if (queryNorm.length > 2) {
-                    const dist = levenshtein(queryNorm, word);
-                    minDist = Math.min(minDist, dist);
-                }
+            for (const word of nameNorm.split(' ')) {
+                minDist = Math.min(minDist, levenshtein(queryNorm, word));
             }
             if (minDist <= 2) matchesSearch = true;
         }
 
         const matchesType = activeTypeFilter === 'all' || item.category === activeTypeFilter;
-
         let matchesVisited = true;
         const isVisited = userVisitedPlaces.has(item.id);
-
         if (visitedFilterState === 'visited' && !isVisited) matchesVisited = false;
         if (visitedFilterState === 'unvisited' && isVisited) matchesVisited = false;
-
         const isInTrip = Array.from(tripDays).some(day => day.stops.some(s => s.id === item.id));
 
         if ((matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip) {
-            // Lazy-create the marker if it doesn't exist
-            if (!item.marker) {
-                item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
-            }
+            activeMarkerIds.add(item.id);
+            if (!item.marker) item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
 
-            // 🎯 THE STRICT FORK WITH CULLING INJECTION
-            if (forceNoClustering || !window.clusteringEnabled) {
-                if (window.removeShadows || window.lowGfxEnabled) {
-                    // CULLING ACTIVE: Only inject the pin into the DOM if it is inside the padded screen bounds
-                    if (screenBounds.contains([item.lat, item.lng])) {
+            // 🛑 THE RE-SPIN FIX: If marker is already on map, don't recreate it.
+            if (!map.hasLayer(item.marker)) {
+                if (forceNoClustering || !window.clusteringEnabled) {
+                    if (window.removeShadows || window.lowGfxEnabled) {
+                        if (screenBounds.contains([item.lat, item.lng])) markerLayer.addLayer(item.marker);
+                    } else {
                         markerLayer.addLayer(item.marker);
                     }
                 } else {
-                    // CULLING OFF: Standard behavior (dump everything into DOM)
-                    markerLayer.addLayer(item.marker);
+                    markerClusterGroup.addLayer(item.marker);
                 }
-            } else {
-                markerClusterGroup.addLayer(item.marker);
             }
 
-            visibleBounds.extend(item.marker.getLatLng()); // 🎯 Expand the invisible frame
-
+            visibleBounds.extend(item.marker.getLatLng());
             if (item.marker._icon) {
-                if (isVisited) {
-                    item.marker._icon.classList.add('visited-pin');
-                } else {
-                    item.marker._icon.classList.remove('visited-pin');
-                }
+                if (isVisited) item.marker._icon.classList.add('visited-pin');
+                else item.marker._icon.classList.remove('visited-pin');
             }
         }
+    });
+
+    // 🧹 CLEANUP: Remove markers that no longer match filters
+    markerLayer.eachLayer(l => {
+        if (!l._parkData || !activeMarkerIds.has(l._parkData.id)) markerLayer.removeLayer(l);
+    });
+    markerClusterGroup.eachLayer(l => {
+        if (!l._parkData || !activeMarkerIds.has(l._parkData.id)) markerClusterGroup.removeLayer(l);
     });
 
     // Handle Map Layer Assignment based on the same bypass logic
