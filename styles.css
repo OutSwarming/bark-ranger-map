@@ -1427,6 +1427,17 @@ body.stop-resizing .custom-bark-marker * {
     animation: none !important;
 }
 
+/* 🧊 TRACKPAD ZOOM DEBOUNCER
+   On desktop, Leaflet scroll-wheel zoom doesn't use standard GPU pane animation.
+   Instead, it continuously recalculates all math bounds hundreds of times per second.
+   If "Stop Resizing" is active, we completely hide the markers while scrolling,
+   so they don't stutter-resize, perfectly satisfying "slow resize untill zoom complete". */
+body.stop-resizing.map-is-zooming .leaflet-marker-pane {
+    visibility: hidden !important;
+    opacity: 0 !important;
+    transition: none !important;
+}
+
 /* 4. VIEWPORT CULLING: Subtle fade for pins entering the bounding box */
 body.viewport-culling .leaflet-marker-icon {
     animation: barkFadeIn 0.15s ease-out;

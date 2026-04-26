@@ -287,6 +287,23 @@ map.on('zoomend', () => {
     }
 });
 
+// 🧊 TRACKPAD ZOOM DEBOUNCER: Native Leaflet on Mac trackpads fires 100s of continuous
+// zoom events per second instead of using a single GPU animation. This prevents the jitter.
+let trackpadZoomTimeout = null;
+map.on('zoomstart', () => {
+    if (window.stopResizing) {
+        document.body.classList.add('map-is-zooming');
+    }
+});
+map.on('zoomend', () => {
+    if (window.stopResizing) {
+        clearTimeout(trackpadZoomTimeout);
+        trackpadZoomTimeout = setTimeout(() => {
+            document.body.classList.remove('map-is-zooming');
+        }, 150); // Wait 150ms after the last scroll tick
+    }
+});
+
 // Helper to manually dismiss the cold-start loader exactly when we want to (e.g. after sync)
 window.dismissBarkLoader = function () {
     const loader = document.getElementById('bark-loader');
