@@ -35,9 +35,6 @@ if (window.reducePinMotion) {
     document.body.classList.remove('reduce-pin-motion');
 }
 
-// 🔨 ULTRA-LOW SLEDGEHAMMER STATE
-window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
-
 // 🚀 MAP SMOOTHNESS STATE
 window.mapSmoothnessEnabled = localStorage.getItem('barkMapSmoothness') === 'true';
 
@@ -46,6 +43,18 @@ if (window.mapSmoothnessEnabled) {
 } else {
     document.body.classList.remove('map-smoothness');
 }
+
+// 🛑 KILL PIN SMOOTHNESS STATE
+window.killPinSmoothness = localStorage.getItem('barkKillPinSmoothness') === 'true';
+
+if (window.killPinSmoothness) {
+    document.body.classList.add('kill-pin-smoothness');
+} else {
+    document.body.classList.remove('kill-pin-smoothness');
+}
+
+// 🔨 ULTRA-LOW SLEDGEHAMMER STATE
+window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
 
 // Master state for the engine
 window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
@@ -269,8 +278,6 @@ map.on('moveend', () => {
     }, 500);
 
     // 🚀 MAP SMOOTHNESS DYNAMIC RENDER
-    // If we are relying on culling (clustering is off OR bypassed by zoom level),
-    // we MUST re-render the pins when the user stops panning to fill the new screen space.
     if (window.mapSmoothnessEnabled) {
         if (!window.clusteringEnabled || (window.premiumClusteringEnabled && map.getZoom() >= 7)) {
             window.syncState();
@@ -444,6 +451,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rememberMapToggle = document.getElementById('remember-map-toggle');
     const motionToggle = document.getElementById('reduce-motion-toggle');
     const ultraLowToggle = document.getElementById('ultra-low-toggle');
+    const mapSmoothnessToggle = document.getElementById('map-smoothness-toggle');
 
     // 2. SYNC TOGGLE VISUALS TO SAVED STATE
     if (settingsGearBtn && settingsOverlay) {
@@ -557,7 +565,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        const mapSmoothnessToggle = document.getElementById('map-smoothness-toggle');
+        // 🚀 MAP SMOOTHNESS TOGGLE LOGIC
         if (mapSmoothnessToggle) {
             mapSmoothnessToggle.checked = window.mapSmoothnessEnabled;
             mapSmoothnessToggle.addEventListener('change', (e) => {
@@ -570,8 +578,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.body.classList.remove('map-smoothness');
                 }
 
-                // Force an immediate re-render to apply culling and CSS
-                window.syncState();
+                window.syncState(); // Force an immediate re-render to apply culling and CSS
+            });
+        }
+
+        const killSmoothnessToggle = document.getElementById('kill-smoothness-toggle');
+        if (killSmoothnessToggle) {
+            killSmoothnessToggle.checked = window.killPinSmoothness;
+            killSmoothnessToggle.addEventListener('change', (e) => {
+                window.killPinSmoothness = e.target.checked;
+                localStorage.setItem('barkKillPinSmoothness', window.killPinSmoothness ? 'true' : 'false');
+
+                if (window.killPinSmoothness) {
+                    document.body.classList.add('kill-pin-smoothness');
+                } else {
+                    document.body.classList.remove('kill-pin-smoothness');
+                }
             });
         }
 
@@ -2310,9 +2332,7 @@ function updateMarkers() {
     let forceNoClustering = (window.premiumClusteringEnabled && currentZoom >= 7);
 
     let visibleBounds = L.latLngBounds(); // 🎯 Track the boundaries
-
-    // 🎯 VIEWPORT CULLING: Get the current screen bounds and pad them by 20%
-    const screenBounds = map.getBounds().pad(0.2);
+    const screenBounds = map.getBounds().pad(0.2); // 🎯 PAD SCREEN BY 20% FOR CULLING
 
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
@@ -2349,17 +2369,15 @@ function updateMarkers() {
 
         if ((matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip) {
 
-            // 🎯 THE STRICT FORK WITH CULLING
-            // If forced off (Premium Zoom 7+) OR clustering is manually disabled:
+            // 🎯 THE STRICT FORK WITH CULLING INJECTION
             if (forceNoClustering || !window.clusteringEnabled) {
-                
-                // If Map Smoothness is ON, drop any pin that is currently off-screen
                 if (window.mapSmoothnessEnabled) {
+                    // CULLING ACTIVE: Only inject the pin into the DOM if it is inside the padded screen bounds
                     if (screenBounds.contains([item.lat, item.lng])) {
                         markerLayer.addLayer(item.marker);
                     }
                 } else {
-                    // Standard: Dump all 500+ pins into the DOM regardless of location
+                    // CULLING OFF: Standard behavior (dump everything into DOM)
                     markerLayer.addLayer(item.marker);
                 }
             } else {
