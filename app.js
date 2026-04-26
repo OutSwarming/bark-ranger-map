@@ -239,6 +239,13 @@ const mapOptions = window.ultraLowEnabled ? {
 
 const map = L.map('map', mapOptions);
 
+// 🛑 STOP RESIZING: Remove the zoom-animated class from the marker pane on load
+// so Leaflet's zoom engine can't apply inline transform: scale(X) to pin container
+if (window.stopResizing) {
+    const markerPane = map.getPane('markerPane');
+    if (markerPane) markerPane.classList.remove('leaflet-zoom-animated');
+}
+
 // 🎯 MAP MEMORY INJECTION
 function setInitialMapView(defaultLat, defaultLng) {
     const savedLat = localStorage.getItem('mapLat');
@@ -575,6 +582,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.body.classList.toggle(className, window[windowVar]);
                 if (id === 'toggle-stop-resizing') {
                     map.options.markerZoomAnimation = !window[windowVar];
+                    // 🛑 THE REAL FIX: Remove the class that Leaflet checks before
+                    // applying inline transform: scale(X) to the marker pane.
+                    const markerPane = map.getPane('markerPane');
+                    if (markerPane) {
+                        if (window[windowVar]) {
+                            markerPane.classList.remove('leaflet-zoom-animated');
+                        } else {
+                            markerPane.classList.add('leaflet-zoom-animated');
+                        }
+                    }
                 }
                 window.syncState(); // Force re-render for ALL toggles
             });
