@@ -1,5 +1,5 @@
-const APP_VERSION = 25;
-console.log("B.A.R.K. Engine v25: Performance Optimized");
+let APP_VERSION = parseInt(localStorage.getItem('bark_seen_version') || '26');
+console.log(`B.A.R.K. Engine v${APP_VERSION}: Performance Optimized`);
 
 // ====== SETTINGS UI LOGIC ======
 let allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
@@ -335,6 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Set version dynamically
         const versionLabel = document.getElementById('settings-app-version');
+        // Update labels dynamically from localStorage or default
         if (versionLabel) versionLabel.textContent = APP_VERSION;
 
         settingsGearBtn.addEventListener('click', () => {
@@ -2851,9 +2852,20 @@ async function checkForUpdates() {
     if (!res.ok) throw new Error('version.json not found');
 
     const data = await res.json();
-    if (data.version && data.version > APP_VERSION) {
+    const remoteVersion = parseInt(data.version);
+    const seenVersion = parseInt(localStorage.getItem('bark_seen_version') || '0');
+
+    // Update the UI version labels everywhere
+    const versionLabel = document.getElementById('settings-app-version');
+    if (versionLabel) versionLabel.textContent = remoteVersion;
+
+    if (data.version && remoteVersion !== seenVersion) {
         const toast = document.getElementById('update-toast');
         if (toast) toast.classList.add('show');
+        
+        // Mark this version as "notified/seen" so it won't trigger on every poll/refresh
+        localStorage.setItem('bark_seen_version', remoteVersion);
+        APP_VERSION = remoteVersion; // Sync the local session variable
     }
 }
 
