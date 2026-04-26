@@ -276,7 +276,7 @@ setInitialMapView(39.8283, -98.5795);
 // Replaces Leaflet's native handler to guarantee execution without conflict
 map.on('dblclick', (e) => {
     if (window.disableDoubleTap) return; // Respect the settings toggle
-    
+
     // Zoom in smoothly around the cursor/tap point
     map.setZoomAround(e.containerPoint, map.getZoom() + 1);
 });
@@ -423,7 +423,7 @@ map.on('locationerror', function (e) {
 setTimeout(() => {
     // ✨ NEW: Only let the GPS grab the camera if BOTH settings are OFF
     const usedSaved = window.rememberMapPosition && localStorage.getItem('mapLat');
-    
+
     if (!usedSaved && !window.startNationalView) {
         // Standard behavior: zoom to user
         map.locate({ setView: true, maxZoom: 10 });
@@ -431,7 +431,7 @@ setTimeout(() => {
         // Just drop the blue dot, DO NOT move the camera
         map.locate({ setView: false, watch: false });
     }
-}, 500); 
+}, 500);
 
 // Create a marker layer group for easy clearing
 const markerLayer = L.layerGroup().addTo(map);
@@ -630,7 +630,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setupPerfToggle('toggle-remove-shadows', 'removeShadows', 'barkRemoveShadows', 'remove-shadows');
         setupPerfToggle('toggle-stop-resizing', 'stopResizing', 'barkStopResizing', 'stop-resizing');
         setupPerfToggle('toggle-viewport-culling', 'viewportCulling', 'barkViewportCulling', 'viewport-culling');
-        
+
         const disableDoubleTapEl = document.getElementById('toggle-disable-double-tap');
         if (disableDoubleTapEl) {
             disableDoubleTapEl.checked = window.disableDoubleTap;
@@ -759,7 +759,7 @@ document.addEventListener('DOMContentLoaded', () => {
             rememberMapToggle.addEventListener('change', (e) => {
                 window.rememberMapPosition = e.target.checked;
                 localStorage.setItem('remember-map-toggle', window.rememberMapPosition ? 'true' : 'false');
-                
+
                 // 🔌 Mutual Exclusivity: Turn off National View if this is on
                 if (window.rememberMapPosition && nationalViewToggle) {
                     nationalViewToggle.checked = false;
@@ -774,7 +774,7 @@ document.addEventListener('DOMContentLoaded', () => {
             nationalViewToggle.addEventListener('change', (e) => {
                 window.startNationalView = e.target.checked;
                 localStorage.setItem('barkNationalView', window.startNationalView ? 'true' : 'false');
-                
+
                 // 🔌 Mutual Exclusivity: Turn off Remember Position if this is on
                 if (window.startNationalView && rememberMapToggle) {
                     rememberMapToggle.checked = false;
@@ -851,15 +851,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Bundle all settings into ONE payload
                 const settingsPayload = {
                     allowUncheck: window.allowUncheck || false,
-                    standardClustering: window.standardClusteringEnabled !== false, // Defaults to true
-                    premiumClustering: window.premiumClusteringEnabled || false,
-                    lowGfxEnabled: window.lowGfxEnabled || false,
-                    simplifyTrails: window.simplifyTrails || false,
-                    instantNav: window.instantNav || false,
                     rememberMapPosition: window.rememberMapPosition || false,
                     startNationalView: window.startNationalView || false,
+                    instantNav: window.instantNav || false,
+                    premiumClustering: window.premiumClusteringEnabled || false,
+                    standardClustering: window.standardClusteringEnabled !== false,
+                    simplifyTrails: window.simplifyTrails || false,
                     stopAutoMovements: window.stopAutoMovements || false,
-                    reducePinMotion: window.reducePinMotion || false,
+                    lowGfxEnabled: window.lowGfxEnabled || false,
+                    removeShadows: window.removeShadows || false,
+                    stopResizing: window.stopResizing || false,
+                    viewportCulling: window.viewportCulling || false,
+                    ultraLowEnabled: window.ultraLowEnabled || false,
+                    lockMapPanning: window.lockMapPanning || false,
+                    disablePinchZoom: window.disablePinchZoom || false,
+                    disable1fingerZoom: window.disable1fingerZoom || false,
+                    disableDoubleTap: window.disableDoubleTap || false,
                     mapStyle: localStorage.getItem('barkMapStyle') || 'default',
                     visitedFilter: localStorage.getItem('barkVisitedFilter') || 'all'
                 };
@@ -869,7 +876,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     await firebase.firestore().collection('users')
                         .doc(firebase.auth().currentUser.uid)
                         .set({ settings: settingsPayload }, { merge: true });
-                    
+
                     saveSettingsBtn.innerHTML = '✅ SAVED TO CLOUD';
                     setTimeout(() => {
                         saveSettingsBtn.innerHTML = originalText;
@@ -2277,7 +2284,7 @@ function processParsedResults(results) {
                         // Deletion execution logic
                         if (userVisitedPlaces.has(d.id)) {
                             const cachedObj = userVisitedPlaces.get(d.id);
-                            
+
                             // Always block unchecking of GPS verified visits
                             if (cachedObj.verified) return;
 
@@ -2613,7 +2620,7 @@ function updateMarkers() {
     const currentFilterState = activeSearchQuery + '|' + Array.from(activeSwagFilters).join(',');
     if (window._lastFilterState !== currentFilterState) {
         window._lastFilterState = currentFilterState;
-        
+
         // Add the stopAutoMovements block here
         if (!window.stopAutoMovements && (activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
             map.flyToBounds(visibleBounds, {
@@ -3063,59 +3070,105 @@ if (typeof firebase !== 'undefined') {
                     if (doc.exists) {
                         const data = doc.data();
 
-                        // ☁️ LOAD SETTINGS FROM FIREBASE (Guarded against feedback loops)
+                        // ☁️ LOAD SETTINGS FROM FIREBASE (Guarded & Force-Hydrated)
                         if (data.settings && !window._cloudSettingsLoaded) {
-                            window._cloudSettingsLoaded = true; // 🛑 The Guard: Only run once per session
-                            const cloudSettings = data.settings;
-                            
-                            // 1. Overwrite localStorage with cloud truth
-                            localStorage.setItem('barkAllowUncheck', cloudSettings.allowUncheck ? 'true' : 'false');
-                            localStorage.setItem('barkStandardClustering', cloudSettings.standardClustering ? 'true' : 'false');
-                            localStorage.setItem('barkPremiumClustering', cloudSettings.premiumClustering ? 'true' : 'false');
-                            localStorage.setItem('barkLowGfxEnabled', cloudSettings.lowGfxEnabled ? 'true' : 'false');
-                            localStorage.setItem('barkSimplifyTrails', cloudSettings.simplifyTrails ? 'true' : 'false');
-                            localStorage.setItem('barkInstantNav', cloudSettings.instantNav ? 'true' : 'false');
-                            localStorage.setItem('remember-map-toggle', cloudSettings.rememberMapPosition ? 'true' : 'false');
-                            localStorage.setItem('barkNationalView', cloudSettings.startNationalView ? 'true' : 'false');
-                            localStorage.setItem('barkStopAutoMove', cloudSettings.stopAutoMovements ? 'true' : 'false');
-                            localStorage.setItem('barkReducePinMotion', cloudSettings.reducePinMotion ? 'true' : 'false');
-                            if (cloudSettings.mapStyle) localStorage.setItem('barkMapStyle', cloudSettings.mapStyle);
-                            if (cloudSettings.visitedFilter) localStorage.setItem('barkVisitedFilter', cloudSettings.visitedFilter);
+                            if (!doc.metadata.fromCache) {
+                                window._cloudSettingsLoaded = true; 
+                            }
+                            const s = data.settings;
 
-                            // 2. Update live window variables immediately
-                            window.allowUncheck = cloudSettings.allowUncheck || false;
-                            window.standardClusteringEnabled = cloudSettings.standardClustering !== false;
-                            window.premiumClusteringEnabled = cloudSettings.premiumClustering || false;
+                            // 1. Strict State Injection Tool (Updates memory AND forces physical CSS classes)
+                            const applySetting = (key, val, bodyClass = null) => {
+                                localStorage.setItem(key, val ? 'true' : 'false');
+                                if (bodyClass) {
+                                    if (val) document.body.classList.add(bodyClass);
+                                    else document.body.classList.remove(bodyClass);
+                                }
+                                return val;
+                            };
+
+                            // 2. Hydrate Variables & Apply Core CSS Overrides
+                            window.allowUncheck = applySetting('barkAllowUncheck', s.allowUncheck || false);
+                            window.rememberMapPosition = applySetting('remember-map-toggle', s.rememberMapPosition || false);
+                            window.startNationalView = applySetting('barkNationalView', s.startNationalView || false);
+                            window.instantNav = applySetting('barkInstantNav', s.instantNav || false);
+                            window.premiumClusteringEnabled = applySetting('barkPremiumClustering', s.premiumClustering || false);
+                            window.standardClusteringEnabled = applySetting('barkStandardClustering', s.standardClustering !== false);
+                            window.simplifyTrails = applySetting('barkSimplifyTrails', s.simplifyTrails || false);
+                            window.stopAutoMovements = applySetting('barkStopAutoMove', s.stopAutoMovements || false);
+
+                            // Hardware / Performance Modifiers
+                            window.lowGfxEnabled = applySetting('barkLowGfxEnabled', s.lowGfxEnabled || false, 'low-graphics');
+                            window.removeShadows = applySetting('barkRemoveShadows', s.removeShadows || false, 'remove-shadows');
+                            window.stopResizing = applySetting('barkStopResizing', s.stopResizing || false, 'stop-resizing');
+                            window.viewportCulling = applySetting('barkViewportCulling', s.viewportCulling || false, 'viewport-culling');
+                            window.ultraLowEnabled = applySetting('barkUltraLowEnabled', s.ultraLowEnabled || false, 'ultra-low');
+
+                            // Leaflet Core Settings (Map Interaction Locks)
+                            window.lockMapPanning = applySetting('barkLockMapPanning', s.lockMapPanning || false);
+                            if (typeof map !== 'undefined') {
+                                if (window.lockMapPanning) map.dragging.disable(); else map.dragging.enable();
+                            }
+
+                            window.disablePinchZoom = applySetting('barkDisablePinchZoom', s.disablePinchZoom || false);
+                            if (typeof map !== 'undefined') {
+                                if (window.disablePinchZoom) map.touchZoom.disable(); else map.touchZoom.enable();
+                            }
+
+                            window.disable1fingerZoom = applySetting('barkDisable1Finger', s.disable1fingerZoom || false);
+                            window.disableDoubleTap = applySetting('barkDisableDoubleTap', s.disableDoubleTap || false);
+
+                            // 3. Update all checkboxes visually in the UI Menu
+                            const ids = {
+                                'allow-uncheck-setting': window.allowUncheck,
+                                'remember-map-toggle': window.rememberMapPosition,
+                                'national-view-toggle': window.startNationalView,
+                                'instant-nav-toggle': window.instantNav,
+                                'premium-cluster-toggle': window.premiumClusteringEnabled,
+                                'standard-cluster-toggle': window.standardClusteringEnabled,
+                                'simplify-trail-toggle': window.simplifyTrails,
+                                'toggle-stop-auto-move': window.stopAutoMovements,
+                                'low-gfx-toggle': window.lowGfxEnabled,
+                                'toggle-remove-shadows': window.removeShadows,
+                                'toggle-stop-resizing': window.stopResizing,
+                                'toggle-viewport-culling': window.viewportCulling,
+                                'ultra-low-toggle': window.ultraLowEnabled,
+                                'toggle-lock-map-panning': window.lockMapPanning,
+                                'toggle-disable-pinch': window.disablePinchZoom,
+                                'toggle-disable-1finger': window.disable1fingerZoom,
+                                'toggle-disable-double-tap': window.disableDoubleTap
+                            };
+                            Object.keys(ids).forEach(id => {
+                                const el = document.getElementById(id);
+                                if (el) el.checked = ids[id];
+                            });
+
+                            // 4. Force Background & Dropdown Layers
+                            if (s.mapStyle) {
+                                localStorage.setItem('barkMapStyle', s.mapStyle);
+                                const styleEl = document.getElementById('map-style-select');
+                                if (styleEl) styleEl.value = s.mapStyle;
+                                if (typeof loadLayer === 'function') loadLayer(s.mapStyle);
+                            }
+                            if (s.visitedFilter) {
+                                localStorage.setItem('barkVisitedFilter', s.visitedFilter);
+                                const filterEl = document.getElementById('visited-filter');
+                                if (filterEl) filterEl.value = s.visitedFilter;
+                                visitedFilterState = s.visitedFilter;
+                            }
+
+                            // 5. Final Re-Renders
                             window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
-                            window.lowGfxEnabled = cloudSettings.lowGfxEnabled || false;
-                            window.simplifyTrails = cloudSettings.simplifyTrails || false;
-                            window.instantNav = cloudSettings.instantNav || false;
-                            window.rememberMapPosition = cloudSettings.rememberMapPosition || false;
-                            window.startNationalView = cloudSettings.startNationalView || false;
-                            window.stopAutoMovements = cloudSettings.stopAutoMovements || false;
-                            window.reducePinMotion = cloudSettings.reducePinMotion || false;
 
-                            // 3. Visually update all Settings UI Toggles to match
-                            const syncToggle = (id, state) => { const el = document.getElementById(id); if (el) el.checked = state; };
-                            syncToggle('allow-uncheck-setting', window.allowUncheck);
-                            syncToggle('toggle-standard-clustering', window.standardClusteringEnabled);
-                            syncToggle('toggle-premium-clustering', window.premiumClusteringEnabled);
-                            syncToggle('toggle-low-gfx', window.lowGfxEnabled);
-                            syncToggle('toggle-simplify-trails', window.simplifyTrails);
-                            syncToggle('toggle-instant-nav', window.instantNav);
-                            syncToggle('remember-map-toggle', window.rememberMapPosition);
-                            syncToggle('national-view-toggle', window.startNationalView);
-                            syncToggle('toggle-stop-auto-move', window.stopAutoMovements);
-                            syncToggle('toggle-stop-resizing', window.stopResizing);
-                            
-                            // Update Dropdowns
-                            const styleDropdown = document.getElementById('map-style-select');
-                            if (styleDropdown && cloudSettings.mapStyle) styleDropdown.value = cloudSettings.mapStyle;
-                            
-                            const filterDropdown = document.getElementById('visited-filter');
-                            if (filterDropdown && cloudSettings.visitedFilter) filterDropdown.value = cloudSettings.visitedFilter;
+                            if (typeof window.syncState === 'function' && window.parkLookup && window.parkLookup.size > 0) {
+                                window.syncState(); // Actually redraws the pins
+                            }
 
-                            console.log("☁️ Cloud settings synced successfully!");
+                            if (window.startNationalView && typeof map !== 'undefined') {
+                                map.setView([39.8283, -98.5795], 4, { animate: false });
+                            }
+
+                            console.log("☁️ Cloud settings loaded and injected perfectly!");
                         }
 
                         const placeList = data.visitedPlaces || [];
@@ -6326,7 +6379,7 @@ if ('ontouchstart' in window) {
 
     mapContainer.addEventListener('touchmove', (e) => {
         if (window.disable1fingerZoom) return; // Safety check
-        
+
         // If we're in the hold-wait period, finger movement confirms zoom intent
         if (pendingDoubleTap && !isOneFingerZooming && e.touches.length === 1) {
             clearTimeout(holdTimer);
