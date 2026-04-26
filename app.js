@@ -54,6 +54,7 @@ window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClu
 window.lockMapPanning = localStorage.getItem('barkLockMapPanning') === 'true';
 window.disable1fingerZoom = localStorage.getItem('barkDisable1Finger') === 'true';
 window.disableDoubleTap = localStorage.getItem('barkDisableDoubleTap') === 'true';
+window.disablePinchZoom = localStorage.getItem('barkDisablePinchZoom') === 'true';
 
 // Apply Master Override if Ultra Low is ON
 if (window.ultraLowEnabled) {
@@ -236,6 +237,8 @@ const mapOptions = window.ultraLowEnabled ? {
     wheelDebounceTime: 40,
     wheelPxPerZoomLevel: 120,
     doubleClickZoom: !window.disableDoubleTap,
+    touchZoom: !window.disablePinchZoom,
+    dragging: !window.lockMapPanning,
 
     // Let Leaflet's native GPU scaling handle the tile stretch
     markerZoomAnimation: true
@@ -616,6 +619,20 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        const disablePinchEl = document.getElementById('toggle-disable-pinch');
+        if (disablePinchEl) {
+            disablePinchEl.checked = window.disablePinchZoom;
+            disablePinchEl.addEventListener('change', (e) => {
+                window.disablePinchZoom = e.target.checked;
+                localStorage.setItem('barkDisablePinchZoom', window.disablePinchZoom ? 'true' : 'false');
+                if (window.disablePinchZoom) {
+                    map.touchZoom.disable();
+                } else {
+                    map.touchZoom.enable();
+                }
+            });
+        }
+
         const disable1FingerEl = document.getElementById('toggle-disable-1finger');
         if (disable1FingerEl) {
             disable1FingerEl.checked = window.disable1fingerZoom;
@@ -631,6 +648,11 @@ document.addEventListener('DOMContentLoaded', () => {
             lockMapPanningEl.addEventListener('change', (e) => {
                 window.lockMapPanning = e.target.checked;
                 localStorage.setItem('barkLockMapPanning', window.lockMapPanning ? 'true' : 'false');
+                if (window.lockMapPanning) {
+                    map.dragging.disable();
+                } else {
+                    map.dragging.enable();
+                }
             });
         }
 
@@ -6056,9 +6078,8 @@ if ('ontouchstart' in window) {
     }
 
     // 🛑 NEW: 2-Finger Pan Initializer
-    if (window.lockMapPanning) {
-        map.dragging.disable(); // Prevent 1-finger drag permanently
-    }
+    // (Live toggling is now handled by the onchange event above)
+    // if (window.lockMapPanning) { map.dragging.disable(); }
 
     mapContainer.addEventListener('touchstart', (e) => {
         // 🛑 Require 2-Finger Pan Engine
