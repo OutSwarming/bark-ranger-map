@@ -577,42 +577,42 @@
 
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Map Smoothness</div>
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Pin Resizing</div>
                                 <div
                                     style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Strips heavy shadows & dynamically hides off-screen pins for fluid panning.
+                                    Fixes zoom lag by snapping pins instantly to their coordinates.
                                 </div>
                             </div>
                             <label class="switch">
-                                <input type="checkbox" id="map-smoothness-toggle">
+                                <input type="checkbox" id="toggle-stop-resizing">
                                 <span class="slider round"></span>
                             </label>
                         </div>
 
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Kill Pin Smoothness</div>
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Boring Pins</div>
                                 <div
                                     style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Hides pins entirely during zoom gestures for maximum speed.
+                                    Stop all pin spinning and hover-pop animations for max speed.
                                 </div>
                             </div>
                             <label class="switch">
-                                <input type="checkbox" id="kill-smoothness-toggle">
+                                <input type="checkbox" id="toggle-stop-spinning">
                                 <span class="slider round"></span>
                             </label>
                         </div>
 
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Pin Slow Resizing</div>
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Remove Shadows</div>
                                 <div
                                     style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Keeps pins fixed size & batches updates every 250ms to kill zoom-lag.
+                                    Max smoothness by stripping heavy GPU shadow filters.
                                 </div>
                             </div>
                             <label class="switch">
-                                <input type="checkbox" id="pin-slow-resizing-toggle">
+                                <input type="checkbox" id="toggle-remove-shadows">
                                 <span class="slider round"></span>
                             </label>
                         </div>

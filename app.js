@@ -35,32 +35,19 @@ if (window.reducePinMotion) {
     document.body.classList.remove('reduce-pin-motion');
 }
 
-// 🚀 MAP SMOOTHNESS STATE
-window.mapSmoothnessEnabled = localStorage.getItem('barkMapSmoothness') === 'true';
+// 🚀 PERFORMANCE & MODIFIER TOGGLES (Bounty Fix)
 
-if (window.mapSmoothnessEnabled) {
-    document.body.classList.add('map-smoothness');
-} else {
-    document.body.classList.remove('map-smoothness');
-}
+// 1. STOP PIN RESIZING STATE
+window.stopPinResizing = localStorage.getItem('barkStopResizing') === 'true';
+if (window.stopPinResizing) document.body.classList.add('stop-pin-resizing');
 
-// 🛑 KILL PIN SMOOTHNESS STATE
-window.killPinSmoothness = localStorage.getItem('barkKillPinSmoothness') === 'true';
+// 2. STOP PIN SPINNING STATE
+window.stopPinSpinning = localStorage.getItem('barkStopSpinning') === 'true';
+if (window.stopPinSpinning) document.body.classList.add('stop-pin-spinning');
 
-if (window.killPinSmoothness) {
-    document.body.classList.add('kill-pin-smoothness');
-} else {
-    document.body.classList.remove('kill-pin-smoothness');
-}
-
-// 🐢 PIN SLOW RESIZING STATE (Chunked Updates)
-window.pinSlowResizing = localStorage.getItem('barkPinSlowResizing') === 'true';
-
-if (window.pinSlowResizing) {
-    document.body.classList.add('pin-slow-resizing');
-} else {
-    document.body.classList.remove('pin-slow-resizing');
-}
+// 3. REMOVE SHADOWS STATE
+window.removeShadows = localStorage.getItem('barkRemoveShadows') === 'true';
+if (window.removeShadows) document.body.classList.add('remove-shadows');
 
 // 🔨 ULTRA-LOW SLEDGEHAMMER STATE
 window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
@@ -251,10 +238,8 @@ const mapOptions = window.ultraLowEnabled ? {
 
     wheelPxPerZoomLevel: 120,
 
-    // 🛠️ Hardware Acceleration Locked ON by default, 
-    // but disabled if "Pin Slow Resizing" (Chunking) is active.
-    // "Kill Pin Smoothness" keeps it true so pins are hidden during GPU zoom.
-    markerZoomAnimation: window.killPinSmoothness || !window.pinSlowResizing
+    // Stop the GPU from stretching the pins; forces chunked bounding block updates
+    markerZoomAnimation: !window.stopPinResizing
 };
 
 const map = L.map('map', mapOptions);
@@ -290,7 +275,7 @@ map.on('moveend', () => {
     }, 500);
 
     // 🚀 MAP SMOOTHNESS DYNAMIC RENDER
-    if (window.mapSmoothnessEnabled) {
+    if (window.removeShadows) {
         if (!window.clusteringEnabled || (window.premiumClusteringEnabled && map.getZoom() >= 7)) {
             window.syncState();
         }
@@ -408,7 +393,7 @@ const markerLayer = L.layerGroup().addTo(map);
 // Creates the clustering engine, but does NOT add it to the map yet.
 const markerClusterGroup = L.markerClusterGroup({
     // 🎯 Use Leaflet's internal bounding-block logic when toggled on
-    chunkedLoading: window.pinSlowResizing,
+    chunkedLoading: window.stopPinResizing,
     chunkInterval: 200, // Process in blocks of 200ms
     chunkDelay: 50,     // Yield to the CPU so the map doesn't freeze
 
@@ -581,52 +566,54 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // 🚀 MAP SMOOTHNESS TOGGLE LOGIC
-        if (mapSmoothnessToggle) {
-            mapSmoothnessToggle.checked = window.mapSmoothnessEnabled;
-            mapSmoothnessToggle.addEventListener('change', (e) => {
-                window.mapSmoothnessEnabled = e.target.checked;
-                localStorage.setItem('barkMapSmoothness', window.mapSmoothnessEnabled ? 'true' : 'false');
+        // 🚀 PERFORMANCE & MODIFIER TOGGLES (Bounty Fix)
 
-                if (window.mapSmoothnessEnabled) {
-                    document.body.classList.add('map-smoothness');
+        // 1. STOP PIN RESIZING LOGIC
+        const stopResizingToggle = document.getElementById('toggle-stop-resizing');
+        if (stopResizingToggle) {
+            stopResizingToggle.checked = window.stopPinResizing;
+            stopResizingToggle.addEventListener('change', (e) => {
+                window.stopPinResizing = e.target.checked;
+                localStorage.setItem('barkStopResizing', window.stopPinResizing ? 'true' : 'false');
+                if (window.stopPinResizing) {
+                    document.body.classList.add('stop-pin-resizing');
+                    map.options.markerZoomAnimation = false;
                 } else {
-                    document.body.classList.remove('map-smoothness');
-                }
-
-                window.syncState(); // Force an immediate re-render to apply culling and CSS
-            });
-        }
-
-        const slowResizingToggle = document.getElementById('pin-slow-resizing-toggle');
-        if (slowResizingToggle) {
-            slowResizingToggle.checked = window.pinSlowResizing;
-            slowResizingToggle.addEventListener('change', (e) => {
-                window.pinSlowResizing = e.target.checked;
-                localStorage.setItem('barkPinSlowResizing', window.pinSlowResizing ? 'true' : 'false');
-
-                if (window.pinSlowResizing) {
-                    document.body.classList.add('pin-slow-resizing');
-                    map.options.markerZoomAnimation = false; // Apply instantly
-                } else {
-                    document.body.classList.remove('pin-slow-resizing');
-                    map.options.markerZoomAnimation = true; // Apply instantly
+                    document.body.classList.remove('stop-pin-resizing');
+                    map.options.markerZoomAnimation = true;
                 }
             });
         }
 
-        const killSmoothnessToggle = document.getElementById('kill-smoothness-toggle');
-        if (killSmoothnessToggle) {
-            killSmoothnessToggle.checked = window.killPinSmoothness;
-            killSmoothnessToggle.addEventListener('change', (e) => {
-                window.killPinSmoothness = e.target.checked;
-                localStorage.setItem('barkKillPinSmoothness', window.killPinSmoothness ? 'true' : 'false');
-
-                if (window.killPinSmoothness) {
-                    document.body.classList.add('kill-pin-smoothness');
+        // 2. STOP PIN SPINNING LOGIC
+        const stopSpinningToggle = document.getElementById('toggle-stop-spinning');
+        if (stopSpinningToggle) {
+            stopSpinningToggle.checked = window.stopPinSpinning;
+            stopSpinningToggle.addEventListener('change', (e) => {
+                window.stopPinSpinning = e.target.checked;
+                localStorage.setItem('barkStopSpinning', window.stopPinSpinning ? 'true' : 'false');
+                if (window.stopPinSpinning) {
+                    document.body.classList.add('stop-pin-spinning');
                 } else {
-                    document.body.classList.remove('kill-pin-smoothness');
+                    document.body.classList.remove('stop-pin-spinning');
                 }
+            });
+        }
+
+        // 3. REMOVE SHADOWS LOGIC
+        const removeShadowsToggle = document.getElementById('toggle-remove-shadows');
+        if (removeShadowsToggle) {
+            removeShadowsToggle.checked = window.removeShadows;
+            removeShadowsToggle.addEventListener('change', (e) => {
+                window.removeShadows = e.target.checked;
+                localStorage.setItem('barkRemoveShadows', window.removeShadows ? 'true' : 'false');
+                if (window.removeShadows) {
+                    document.body.classList.add('remove-shadows');
+                } else {
+                    document.body.classList.remove('remove-shadows');
+                }
+                // Refresh markers to apply/remove Culling instantly
+                window.syncState();
             });
         }
 
@@ -2401,10 +2388,14 @@ function updateMarkers() {
         const isInTrip = Array.from(tripDays).some(day => day.stops.some(s => s.id === item.id));
 
         if ((matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip) {
+            // Lazy-create the marker if it doesn't exist
+            if (!item.marker) {
+                item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
+            }
 
             // 🎯 THE STRICT FORK WITH CULLING INJECTION
             if (forceNoClustering || !window.clusteringEnabled) {
-                if (window.mapSmoothnessEnabled) {
+                if (window.removeShadows || window.lowGfxEnabled) {
                     // CULLING ACTIVE: Only inject the pin into the DOM if it is inside the padded screen bounds
                     if (screenBounds.contains([item.lat, item.lng])) {
                         markerLayer.addLayer(item.marker);
@@ -6107,7 +6098,7 @@ if ('ontouchstart' in window) {
 
         // 🛡️ CHUNKED THROTTLE: Updates in bounding blocks to prevent CPU melt
         if (!zoomRAF) {
-            if (window.pinSlowResizing) {
+            if (window.stopPinResizing) {
                 // THROW INTO CHUNKS: Wait and update everything at once in 250ms blocks
                 // This creates the "resize at once in groups" effect and kills lag
                 zoomRAF = setTimeout(() => {
