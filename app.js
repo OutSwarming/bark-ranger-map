@@ -35,19 +35,16 @@ if (window.reducePinMotion) {
     document.body.classList.remove('reduce-pin-motion');
 }
 
-// 🚀 PERFORMANCE & MODIFIER TOGGLES (Bounty Fix)
-
-// 1. STOP PIN RESIZING STATE
-window.stopPinResizing = localStorage.getItem('barkStopResizing') === 'true';
-if (window.stopPinResizing) document.body.classList.add('stop-pin-resizing');
-
-// 2. STOP PIN SPINNING STATE
-window.stopPinSpinning = localStorage.getItem('barkStopSpinning') === 'true';
-if (window.stopPinSpinning) document.body.classList.add('stop-pin-spinning');
-
-// 3. REMOVE SHADOWS STATE
+// 🚀 B.A.R.K. PERFORMANCE MODIFIERS (V24 — 4 Toggles)
+window.stopSpinning = localStorage.getItem('barkStopSpinning') === 'true';
 window.removeShadows = localStorage.getItem('barkRemoveShadows') === 'true';
+window.stopResizing = localStorage.getItem('barkStopResizing') === 'true';
+window.viewportCulling = localStorage.getItem('barkViewportCulling') === 'true';
+
+if (window.stopSpinning) document.body.classList.add('stop-spinning');
 if (window.removeShadows) document.body.classList.add('remove-shadows');
+if (window.stopResizing) document.body.classList.add('stop-resizing');
+if (window.viewportCulling) document.body.classList.add('viewport-culling');
 
 // 🔨 ULTRA-LOW SLEDGEHAMMER STATE
 window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
@@ -236,10 +233,8 @@ const mapOptions = window.ultraLowEnabled ? {
     wheelDebounceTime: 40,
     wheelPxPerZoomLevel: 120,
 
-    wheelPxPerZoomLevel: 120,
-
     // Stop the GPU from stretching the pins; forces chunked bounding block updates
-    markerZoomAnimation: !window.stopPinResizing
+    markerZoomAnimation: !window.stopResizing
 };
 
 const map = L.map('map', mapOptions);
@@ -566,8 +561,8 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // 🚀 PERFORMANCE & MODIFIER TOGGLES (Bounty Fix)
-        const setupPerformanceToggle = (id, windowVar, storageKey, className) => {
+        // 🚀 B.A.R.K. PERFORMANCE MODIFIERS (V24 — 4 Toggles)
+        const setupPerfToggle = (id, windowVar, storageKey, className) => {
             const el = document.getElementById(id);
             if (!el) return;
             el.checked = window[windowVar];
@@ -575,19 +570,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 window[windowVar] = e.target.checked;
                 localStorage.setItem(storageKey, window[windowVar] ? 'true' : 'false');
                 document.body.classList.toggle(className, window[windowVar]);
-                
                 if (id === 'toggle-stop-resizing') {
                     map.options.markerZoomAnimation = !window[windowVar];
                 }
-                if (id === 'toggle-remove-shadows') {
-                    window.syncState();
-                }
+                window.syncState(); // Force re-render for ALL toggles
             });
         };
 
-        setupPerformanceToggle('toggle-stop-resizing', 'stopPinResizing', 'barkStopResizing', 'stop-pin-resizing');
-        setupPerformanceToggle('toggle-stop-spinning', 'stopPinSpinning', 'barkStopSpinning', 'stop-pin-spinning');
-        setupPerformanceToggle('toggle-remove-shadows', 'removeShadows', 'barkRemoveShadows', 'remove-shadows');
+        setupPerfToggle('toggle-stop-spinning', 'stopSpinning', 'barkStopSpinning', 'stop-spinning');
+        setupPerfToggle('toggle-remove-shadows', 'removeShadows', 'barkRemoveShadows', 'remove-shadows');
+        setupPerfToggle('toggle-stop-resizing', 'stopResizing', 'barkStopResizing', 'stop-resizing');
+        setupPerfToggle('toggle-viewport-culling', 'viewportCulling', 'barkViewportCulling', 'viewport-culling');
 
         // Ultra Low Toggle — uses the one already declared at line 413
         if (ultraLowToggle) {
@@ -2317,23 +2310,17 @@ function updateMarkers() {
     markerClusterGroup.clearLayers();
 
     const currentZoom = map.getZoom();
-
-    // 🔥 THE BYPASS LOGIC:
-    // If Premium is ON and we are at Zoom 7 or higher, 
-    // we force clustering OFF for this render pass.
     let forceNoClustering = (window.premiumClusteringEnabled && currentZoom >= 7);
 
-    let visibleBounds = L.latLngBounds(); // 🎯 Track the boundaries
-    const screenBounds = map.getBounds().pad(0.2); // 🎯 PAD SCREEN BY 20% FOR CULLING
-
-    const activeMarkerIds = new Set();
+    let visibleBounds = L.latLngBounds();
+    const screenBounds = map.getBounds().pad(0.2); // 📦 20% buffer for culling
 
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
         const queryNorm = normalizeText(activeSearchQuery);
         const nameNorm = item._cachedNormalizedName;
         let matchesSearch = !queryNorm || nameNorm.includes(queryNorm);
-        
+
         if (!matchesSearch && queryNorm.length > 2) {
             let minDist = levenshtein(queryNorm, nameNorm);
             for (const word of nameNorm.split(' ')) {
@@ -2349,40 +2336,30 @@ function updateMarkers() {
         if (visitedFilterState === 'unvisited' && isVisited) matchesVisited = false;
         const isInTrip = Array.from(tripDays).some(day => day.stops.some(s => s.id === item.id));
 
-        if ((matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip) {
-            activeMarkerIds.add(item.id);
+        const isVisible = (matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip;
+
+        if (isVisible) {
+            // 🎯 VIEWPORT CULLING: Skip off-screen pins entirely
+            if (window.viewportCulling && !screenBounds.contains([item.lat, item.lng])) {
+                return;
+            }
+
             if (!item.marker) item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
 
-            // 🛑 THE RE-SPIN FIX: If marker is already on map, don't recreate it.
-            if (!map.hasLayer(item.marker)) {
-                if (forceNoClustering || !window.clusteringEnabled) {
-                    if (window.removeShadows || window.lowGfxEnabled) {
-                        if (screenBounds.contains([item.lat, item.lng])) markerLayer.addLayer(item.marker);
-                    } else {
-                        markerLayer.addLayer(item.marker);
-                    }
-                } else {
-                    markerClusterGroup.addLayer(item.marker);
-                }
+            if (forceNoClustering || !window.clusteringEnabled) {
+                markerLayer.addLayer(item.marker);
+            } else {
+                markerClusterGroup.addLayer(item.marker);
             }
 
             visibleBounds.extend(item.marker.getLatLng());
             if (item.marker._icon) {
-                if (isVisited) item.marker._icon.classList.add('visited-pin');
-                else item.marker._icon.classList.remove('visited-pin');
+                item.marker._icon.classList.toggle('visited-pin', isVisited);
             }
         }
     });
 
-    // 🧹 CLEANUP: Remove markers that no longer match filters
-    markerLayer.eachLayer(l => {
-        if (!l._parkData || !activeMarkerIds.has(l._parkData.id)) markerLayer.removeLayer(l);
-    });
-    markerClusterGroup.eachLayer(l => {
-        if (!l._parkData || !activeMarkerIds.has(l._parkData.id)) markerClusterGroup.removeLayer(l);
-    });
-
-    // Handle Map Layer Assignment based on the same bypass logic
+    // Handle Map Layer Assignment
     if (window.clusteringEnabled && !forceNoClustering) {
         if (!map.hasLayer(markerClusterGroup)) map.addLayer(markerClusterGroup);
         if (map.hasLayer(markerLayer)) map.removeLayer(markerLayer);
@@ -2392,12 +2369,9 @@ function updateMarkers() {
     }
 
     // 🎯 SMART AUTO-FRAMING (Interrupt Protection)
-    // Only swoop the camera if the user actually changed the search/filter criteria
     const currentFilterState = activeSearchQuery + '|' + Array.from(activeSwagFilters).join(',');
-
     if (window._lastFilterState !== currentFilterState) {
         window._lastFilterState = currentFilterState;
-
         if ((activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
             map.flyToBounds(visibleBounds, {
                 padding: [50, 50],

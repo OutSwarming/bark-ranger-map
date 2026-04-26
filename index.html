@@ -575,26 +575,12 @@
                             </label>
                         </div>
 
+                        <!-- 🚀 B.A.R.K. PERFORMANCE MODIFIERS (V24) -->
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Pin Resizing</div>
-                                <div
-                                    style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Fixes zoom lag by snapping pins instantly to their coordinates.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-stop-resizing">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Boring Pins</div>
-                                <div
-                                    style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Stop all pin spinning and hover-pop animations for max speed.
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Spinning</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Kills all pin animations and hover effects permanently.
                                 </div>
                             </div>
                             <label class="switch">
@@ -606,9 +592,8 @@
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
                                 <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Remove Shadows</div>
-                                <div
-                                    style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Max smoothness by stripping heavy GPU shadow filters.
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Strips heavy GPU shadow filters from all pins.
                                 </div>
                             </div>
                             <label class="switch">
@@ -619,15 +604,26 @@
 
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Reduce Pin Resizing
-                                </div>
-                                <div
-                                    style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Stops pins from scaling during zooms to save battery.
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Resizing</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Pin size stays locked during zoom. No micro-calculations.
                                 </div>
                             </div>
                             <label class="switch">
-                                <input type="checkbox" id="reduce-motion-toggle">
+                                <input type="checkbox" id="toggle-stop-resizing">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Viewport Culling</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Only renders on-screen pins. Max CPU savings for country views.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-viewport-culling">
                                 <span class="slider round"></span>
                             </label>
                         </div>

@@ -1366,36 +1366,41 @@ body.reduce-pin-motion .leaflet-marker-shadow {
 }
 
 /* =========================================================
-   PERFORMANCE & MODIFIER TOGGLES
+   B.A.R.K. PERFORMANCE MODIFIERS (V24 — 4 Toggles)
    ========================================================= */
 
-/* 1. STOP PIN RESIZING (The Scale Inverter) */
-/* This prevents the "throb" by killing transitions during the zoom event */
-body.stop-pin-resizing .leaflet-zoom-anim .leaflet-marker-icon {
-    transition: none !important;
-}
-
-
-/* 2. STOP PIN SPINNING (Static Pins) */
-/* We target the wrapper AND the image to ensure no restart on move */
-body.stop-pin-spinning .enamel-pin-wrapper,
-body.stop-pin-spinning .enamel-pin-wrapper img,
-body.stop-pin-spinning .cluster-enamel-wrapper,
-body.stop-pin-spinning .cluster-enamel-wrapper img {
+/* 1. STOP SPINNING: Kills all animations on pin wrappers + children */
+body.stop-spinning .enamel-pin-wrapper,
+body.stop-spinning .enamel-pin-wrapper *,
+body.stop-spinning .cluster-enamel-wrapper,
+body.stop-spinning .cluster-enamel-wrapper * {
     animation: none !important;
     transition: none !important;
     transform: none !important;
+    will-change: auto !important;
 }
 
-
-/* 3. REMOVE SHADOWS (Strips heavy GPU filters) */
+/* 2. REMOVE SHADOWS: Strips heavy alpha-mask drop-shadow filters */
 body.remove-shadows .visited-pin {
     filter: none !important;
     box-shadow: 0 0 8px #4CAF50 !important;
 }
-
 body.remove-shadows .cat-national:not(.visited-pin),
 body.remove-shadows .cat-state:not(.visited-pin) {
     filter: none !important;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
 }
+
+/* 3. STOP RESIZING: Snaps pins to final size instantly during zoom */
+body.stop-resizing .leaflet-marker-icon,
+body.stop-resizing .enamel-pin-wrapper,
+body.stop-resizing .custom-bark-marker * {
+    transition: none !important;
+    animation: none !important;
+}
+
+/* 4. VIEWPORT CULLING: Subtle fade for pins entering the bounding box */
+body.viewport-culling .leaflet-marker-icon {
+    animation: barkFadeIn 0.15s ease-out;
+}
+@keyframes barkFadeIn { from { opacity: 0; } to { opacity: 1; } }
