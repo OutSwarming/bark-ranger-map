@@ -45,7 +45,27 @@ body.low-graphics .cluster-enamel-wrapper {
 }
 
 /* Ensure they appear instantly without the Leaflet "fade-in" */
-body.low-graphics .leaflet-marker-icon {
+body.low-graphics .leaflet-marker-icon,
+body.low-graphics .leaflet-marker-shadow {
+    transition: none !important;
+    animation: none !important;
+}
+
+/* Kill Leaflet's own internal animation surfaces */
+body.low-graphics .leaflet-zoom-animated {
+    transition: none !important;
+}
+
+body.low-graphics .leaflet-marker-pane,
+body.low-graphics .leaflet-marker-pane * {
+    transition: none !important;
+    animation: none !important;
+    will-change: auto !important;
+}
+
+/* Kill the custom-bark-marker fade-in */
+body.low-graphics .custom-bark-marker,
+body.low-graphics .custom-bark-marker * {
     transition: none !important;
     animation: none !important;
 }
