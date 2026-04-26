@@ -7,12 +7,10 @@ let clusteringEnabled = localStorage.getItem('barkClusteringEnabled') === 'true'
 let lowGfxEnabled = localStorage.getItem('barkLowGfxEnabled') === 'true';
 let simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
 let instantNav = localStorage.getItem('barkInstantNav') === 'true';
-let devSearchEnabled = localStorage.getItem('barkDevSearchEnabled') === 'true';
-let devCacheEnabled = localStorage.getItem('barkDevCacheEnabled') === 'true';
-let devBatteryEnabled = localStorage.getItem('barkDevBatteryEnabled') === 'true';
-let devDebounceEnabled = localStorage.getItem('barkDevDebounceEnabled') === 'true';
-let devRegexEnabled = localStorage.getItem('barkDevRegexEnabled') === 'true';
 let rememberMapPosition = localStorage.getItem('remember-map-toggle') === 'true';
+
+// Global Lookup Engine (v25 Performance)
+window.parkLookup = new Map();
 
 let mapSaveTimeout; 
 
@@ -186,29 +184,13 @@ setInitialMapView(39.8283, -98.5795);
 
 // Save the view every time the user stops dragging or zooming
 map.on('moveend', () => {
-    const saveState = () => {
+    clearTimeout(mapSaveTimeout);
+    mapSaveTimeout = setTimeout(() => {
         const center = map.getCenter();
-        const zoom = map.getZoom();
-        localStorage.setItem('barkMapView', JSON.stringify({
-            lat: center.lat,
-            lng: center.lng,
-            zoom: zoom
-        }));
-        // Individual keys for setInitialMapView logic (compatibility)
-        localStorage.setItem('mapLat', center.lat);
-        localStorage.setItem('mapLng', center.lng);
-        localStorage.setItem('mapZoom', zoom);
-    };
-
-    if (devDebounceEnabled) {
-        clearTimeout(mapSaveTimeout);
-        mapSaveTimeout = setTimeout(() => {
-            saveState();
-            console.log("🛠️ Dev Test: Map state saved (Debounced)");
-        }, 500);
-    } else {
-        saveState();
-    }
+        localStorage.setItem('mapLat', center.lat.toFixed(6));
+        localStorage.setItem('mapLng', center.lng.toFixed(6));
+        localStorage.setItem('mapZoom', map.getZoom());
+    }, 500);
 });
 
 // Helper to manually dismiss the cold-start loader exactly when we want to (e.g. after sync)
@@ -290,7 +272,7 @@ map.on('locationfound', function (e) {
     userLocationMarker.bindPopup('You are here!', { autoPan: false }).openPopup();
 
     // 🎯 RE-CALCULATE AND RE-SORT ACHIEVEMENTS NOW THAT WE HAVE ACTUAL LOCATION
-    evaluateAchievements(userVisitedPlaces);
+    window.syncState();
 });
 
 map.on('locationerror', function (e) {
@@ -323,6 +305,15 @@ const markerClusterGroup = L.markerClusterGroup({
 // (Settings state moved to top of file)
 
 document.addEventListener('DOMContentLoaded', () => {
+    // 🛡️ HARDWARE GUARD (v25)
+    const deviceRAM = navigator.deviceMemory || 4; 
+    if (deviceRAM < 4) {
+        document.body.classList.add('low-graphics');
+        const gfxToggle = document.getElementById('low-gfx-toggle');
+        if (gfxToggle) gfxToggle.checked = true;
+        console.log("🛡️ Hardware Guard: Low GFX enabled automatically.");
+    }
+
     const settingsGearBtn = document.getElementById('settings-gear-btn');
     const settingsOverlay = document.getElementById('settings-overlay');
     const settingsModal = document.getElementById('settings-modal');
@@ -332,11 +323,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const lowGfxToggle = document.getElementById('low-gfx-toggle');
     const simplifyTrailToggle = document.getElementById('simplify-trail-toggle');
     const instantNavToggle = document.getElementById('instant-nav-toggle');
-    const devSearchToggle = document.getElementById('dev-search-toggle');
-    const devCacheToggle = document.getElementById('dev-cache-toggle');
-    const devBatteryToggle = document.getElementById('dev-battery-toggle');
-    const devDebounceToggle = document.getElementById('dev-debounce-toggle');
-    const devRegexToggle = document.getElementById('dev-regex-toggle');
     const rememberMapToggle = document.getElementById('remember-map-toggle');
 
     if (settingsGearBtn && settingsOverlay) {
@@ -345,21 +331,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (lowGfxToggle) lowGfxToggle.checked = lowGfxEnabled;
         if (simplifyTrailToggle) simplifyTrailToggle.checked = simplifyTrails;
         if (instantNavToggle) instantNavToggle.checked = instantNav;
-        if (devSearchToggle) devSearchToggle.checked = devSearchEnabled;
-        if (devCacheToggle) devCacheToggle.checked = devCacheEnabled;
-        if (devBatteryToggle) devBatteryToggle.checked = devBatteryEnabled;
-        if (devDebounceToggle) devDebounceToggle.checked = devDebounceEnabled;
-        if (devRegexToggle) devRegexToggle.checked = devRegexEnabled;
         if (rememberMapToggle) rememberMapToggle.checked = rememberMapPosition;
 
-        // Populate Trail Warp Grid once on load (it's static)
-        populateTrailWarpGrid();
-
-        // Set version dinamically
+        // Set version dynamically
         const versionLabel = document.getElementById('settings-app-version');
         if (versionLabel) versionLabel.textContent = APP_VERSION;
 
         settingsGearBtn.addEventListener('click', () => {
+            populateTrailWarpGrid(); // Lazy-load: TOP_10_TRAILS is defined later in the file
             settingsOverlay.classList.add('active');
         });
 
@@ -385,7 +364,7 @@ document.addEventListener('DOMContentLoaded', () => {
             clusterToggle.addEventListener('change', (e) => {
                 clusteringEnabled = e.target.checked;
                 localStorage.setItem('barkClusteringEnabled', clusteringEnabled ? 'true' : 'false');
-                updateMarkers(); // Instant re-render
+                window.syncState(); // Instant re-render
             });
         }
 
@@ -427,42 +406,6 @@ document.addEventListener('DOMContentLoaded', () => {
             instantNavToggle.addEventListener('change', (e) => {
                 instantNav = e.target.checked;
                 localStorage.setItem('barkInstantNav', instantNav ? 'true' : 'false');
-            });
-        }
-
-        if (devSearchToggle) {
-            devSearchToggle.addEventListener('change', (e) => {
-                devSearchEnabled = e.target.checked;
-                localStorage.setItem('barkDevSearchEnabled', devSearchEnabled ? 'true' : 'false');
-            });
-        }
-
-        if (devCacheToggle) {
-            devCacheToggle.addEventListener('change', (e) => {
-                devCacheEnabled = e.target.checked;
-                localStorage.setItem('barkDevCacheEnabled', devCacheEnabled ? 'true' : 'false');
-                if (!devCacheEnabled) cachedTrailsData = null; // Clear cache on disable
-            });
-        }
-
-        if (devBatteryToggle) {
-            devBatteryToggle.addEventListener('change', (e) => {
-                devBatteryEnabled = e.target.checked;
-                localStorage.setItem('barkDevBatteryEnabled', devBatteryEnabled ? 'true' : 'false');
-            });
-        }
-
-        if (devDebounceToggle) {
-            devDebounceToggle.addEventListener('change', (e) => {
-                devDebounceEnabled = e.target.checked;
-                localStorage.setItem('barkDevDebounceEnabled', devDebounceEnabled ? 'true' : 'false');
-            });
-        }
-
-        if (devRegexToggle) {
-            devRegexToggle.addEventListener('change', (e) => {
-                devRegexEnabled = e.target.checked;
-                localStorage.setItem('barkDevRegexEnabled', devRegexEnabled ? 'true' : 'false');
             });
         }
 
@@ -620,7 +563,7 @@ async function syncUserProgress() {
     }, { merge: true });
 
     // Recalculate and Sync achievements
-    await evaluateAchievements(userVisitedPlaces);
+    window.syncState();
 }
 
 async function updateVisitDate(parkId, newTs) {
@@ -636,12 +579,12 @@ async function removeVisitedPlace(place) {
     if (window.confirm(`Remove ${place.name}?`)) {
         userVisitedPlaces.delete(place.id);
         await syncUserProgress();
-        updateMarkers();
+        window.syncState();
         renderManagePortal();
     }
 }
 
-const gamificationEngine = new GamificationEngine();
+window.gamificationEngine = new GamificationEngine();
 
 /**
  * 🛡️ FLOAT PRECISION GUARD 🛡️
@@ -722,7 +665,7 @@ async function evaluateAchievements(visitedPlacesMap) {
     // 🔥 THE FIX: Hydrate saved visits with missing State data from the master map 🔥
     visitedArray.forEach(visit => {
         if (!visit.state) {
-            const mapPoint = allPoints.find(p => p.id === visit.id);
+            const mapPoint = window.parkLookup.get(visit.id);
             if (mapPoint) {
                 visit.state = mapPoint.state;
             }
@@ -735,9 +678,9 @@ async function evaluateAchievements(visitedPlacesMap) {
     }
 
     // Use our new bulletproof mapping logic to set the required totals per state
-    gamificationEngine.updateCanonicalCountsFromPoints(allPoints);
+    window.gamificationEngine.updateCanonicalCountsFromPoints(allPoints);
 
-    const achievements = await gamificationEngine.evaluateAndStoreAchievements(userId, visitedArray, null, window.currentWalkPoints || 0);
+    const achievements = await window.gamificationEngine.evaluateAndStoreAchievements(userId, visitedArray, null, window.currentWalkPoints || 0);
 
     // Update Banner
     const titleEl = document.getElementById('current-title-label');
@@ -887,8 +830,8 @@ async function evaluateAchievements(visitedPlacesMap) {
     const gridStates = document.getElementById('states-grid');
     const gridDossier = document.getElementById('mystery-feats-dossier');
 
-    if (gridRare) gridRare.innerHTML = achievements.rareFeats.map(renderCoin).join('');
-    if (gridPaws) gridPaws.innerHTML = achievements.paws.map(renderCoin).join('');
+    safeUpdateHTML('rare-feats-grid', achievements.rareFeats.map(renderCoin).join(''));
+    safeUpdateHTML('paws-grid', achievements.paws.map(renderCoin).join(''));
 
     // --- STATES SORT: DISTANCE & COMPLETION ---
     const stateDistances = {};
@@ -959,8 +902,8 @@ async function evaluateAchievements(visitedPlacesMap) {
             </div>
         </div>`;
 
-    if (gridStates) gridStates.innerHTML = nationalCardHtml + achievements.stateBadges.map(renderStateBadge).join('');
-    if (gridDossier) gridDossier.innerHTML = achievements.mysteryFeats.map(renderDossier).join('');
+    safeUpdateHTML('states-grid', nationalCardHtml + achievements.stateBadges.map(renderStateBadge).join(''));
+    safeUpdateHTML('mystery-feats-dossier', achievements.mysteryFeats.map(renderDossier).join(''));
 
     // Re-bind tab listeners (idempotent)
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1037,8 +980,7 @@ function updateStatsUI() {
         }
     }
 
-    // Consistently update achievements when stats change
-    evaluateAchievements(userVisitedPlaces);
+    // Achievement evaluation is handled by syncState heartbeat
     renderManagePortal();
 }
 
@@ -1059,14 +1001,14 @@ const normalizationDict = {
 let cachedTrailsData = null;
 
 async function getTrailsData() {
-    if (cachedTrailsData) return cachedTrailsData;
+    if (window._cachedTrailsData) return window._cachedTrailsData;
     
     try {
         const response = await fetch('trails.json');
-        cachedTrailsData = await response.json();
-        return cachedTrailsData;
+        window._cachedTrailsData = await response.json();
+        return window._cachedTrailsData;
     } catch (err) {
-        console.error("Failed to fetch trails:", err);
+        console.error("Failed to fetch trails (Singleton Error):", err);
         throw err;
     }
 }
@@ -1084,21 +1026,20 @@ function normalizeText(text) {
 }
 
 function levenshtein(a, b) {
-    if (a.length === 0) return b.length;
-    if (b.length === 0) return a.length;
-    let v0 = new Array(b.length + 1);
-    let v1 = new Array(b.length + 1);
-    for (let i = 0; i <= b.length; i++) v0[i] = i;
-
-    for (let i = 0; i < a.length; i++) {
-        v1[0] = i + 1;
-        for (let j = 0; j < b.length; j++) {
-            const cost = (a[i] === b[j]) ? 0 : 1;
-            v1[j + 1] = Math.min(v1[j] + 1, v0[j + 1] + 1, v0[j] + cost);
+    if (a === b) return 0;
+    if (a.length > b.length) [a, b] = [b, a];
+    let row = new Array(a.length + 1);
+    for (let i = 0; i <= a.length; i++) row[i] = i;
+    for (let i = 1; i <= b.length; i++) {
+        let prev = i;
+        for (let j = 1; j <= a.length; j++) {
+            let val = (b[i - 1] === a[j - 1]) ? row[j - 1] : Math.min(row[j - 1], row[j], prev) + 1;
+            row[j - 1] = prev;
+            prev = val;
         }
-        for (let j = 0; j <= b.length; j++) v0[j] = v1[j];
+        row[a.length] = prev;
     }
-    return v1[b.length];
+    return row[a.length];
 }
 
 function formatSwagLinks(text) {
@@ -1112,6 +1053,40 @@ function formatSwagLinks(text) {
         resultHTML += `<a href="${url}" target="_blank" class="swag-link-btn">📷 Swag Pic ${index + 1}</a> `;
     });
     return resultHTML.trim();
+}
+
+/**
+ * 💓 THE HEARTBEAT (v25)
+ * Batches DOM updates into a single frame buffer.
+ */
+let isSyncing = false;
+window.syncState = function() {
+    if (isSyncing || (!window.parkLookup || window.parkLookup.size === 0)) return;
+    isSyncing = true;
+    window.requestAnimationFrame(() => {
+        try {
+            updateMarkers();
+            if (window.gamificationEngine) {
+                evaluateAchievements(userVisitedPlaces);
+            }
+            updateStatsUI();
+        } catch (e) {
+            console.error("B.A.R.K. Sync Error:", e);
+        } finally {
+            isSyncing = false;
+        }
+    });
+};
+
+/**
+ * 🧊 DOM PROTECTION
+ * Prevents "Layout Thrashing" by verifying content changes before painting.
+ */
+function safeUpdateHTML(elementId, newHTML) {
+    const el = document.getElementById(elementId);
+    if (el && el.innerHTML !== newHTML) {
+        el.innerHTML = newHTML;
+    }
 }
 
 // DOM Elements
@@ -1530,8 +1505,18 @@ function processParsedResults(results) {
 
         const id = generatePinId(lat, lng);
         const parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng, parkCategory };
+
+        // v25: Hydrate O(1) Lookup & Pre-Normalized Name
+        parkData._cachedNormalizedName = normalizeText(name);
+
         const isVisited = userVisitedPlaces.has(id);
         const marker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
+
+        // Attach marker AFTER creation, then index
+        parkData.marker = marker;
+        parkData.category = parkCategory; // Compatibility with updateMarkers
+        window.parkLookup.set(id, parkData);
+        allPoints.push(parkData);
 
         // 🎯 THE DOM RECYCLING FIX
         // Scrub the HTML element clean before Leaflet throws it in the recycle bin
@@ -1788,7 +1773,7 @@ function processParsedResults(results) {
                                 markVisitedBtn.style.cursor = 'default';
                                 markVisitedBtn.style.opacity = '0.7';
 
-                                updateMarkers();
+                                window.syncState();
                                 updateStatsUI();
                                 window.attemptDailyStreakIncrement();
                             } else {
@@ -1821,9 +1806,7 @@ function processParsedResults(results) {
                                 const updatedArray = Array.from(userVisitedPlaces.values());
                                 await firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid).update({ visitedPlaces: updatedArray });
 
-                                updateMarkers();
-                                updateStatsUI();
-                                evaluateAchievements();
+                                window.syncState();
                             }
                             return; 
                         }
@@ -1835,7 +1818,7 @@ function processParsedResults(results) {
                         markVisitedBtn.disabled = true;
 
                         await syncUserProgress();
-                        updateMarkers();
+                        window.syncState();
                         window.attemptDailyStreakIncrement();
                     };
                 } else {
@@ -1865,26 +1848,13 @@ function processParsedResults(results) {
             slidePanel.classList.add('open');
         });
 
-        allPoints.push({
-            id: id,
-            name: name || '',
-            state: state || '',
-            swagType: swagType,
-            category: parkCategory,
-            lat: lat,
-            lng: lng,
-            marker: marker
-        });
+        // (allPoints.push moved to top of loop for v1 O(1) indexing)
     });
-    updateMarkers();
-    updateStatsUI();
+    window.syncState();
 
     // Restore the previously active pin if it still exists in the new data
     if (activeLat !== null && activeLng !== null) {
-        const match = allPoints.find(p => {
-            const d = p.marker._parkData;
-            return d && parseFloat(d.lat) === parseFloat(activeLat) && parseFloat(d.lng) === parseFloat(activeLng);
-        });
+        const match = window.parkLookup.get(generatePinId(activeLat, activeLng));
         if (match) {
             activePinMarker = match.marker;
             if (activePinMarker._icon) {
@@ -2077,7 +2047,7 @@ function updateMarkers() {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
 
         const queryNorm = normalizeText(activeSearchQuery);
-        const nameNorm = item._cachedNormalizedName || (item._cachedNormalizedName = normalizeText(item.name));
+        const nameNorm = item._cachedNormalizedName;
 
         let matchesSearch = false;
         if (!queryNorm) {
@@ -2169,7 +2139,7 @@ searchInput.addEventListener('input', (e) => {
 
     if (activeSearchQuery.trim() === '') {
         if (searchSuggestions) searchSuggestions.style.display = 'none';
-        updateMarkers();
+        window.syncState();
         return;
     }
 
@@ -2178,7 +2148,7 @@ searchInput.addEventListener('input', (e) => {
         let matches = [];
 
         allPoints.forEach(item => {
-            const nameNorm = item._cachedNormalizedName || (item._cachedNormalizedName = normalizeText(item.name));
+            const nameNorm = item._cachedNormalizedName;
             let score = 999;
 
             if (nameNorm.includes(queryNorm)) {
@@ -2215,7 +2185,7 @@ searchInput.addEventListener('input', (e) => {
                     searchInput.value = match.item.name;
                     activeSearchQuery = match.item.name;
                     searchSuggestions.style.display = 'none';
-                    updateMarkers();
+                    window.syncState();
 
                     if (match.item.marker && match.item.marker._parkData) {
                         map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, { 
@@ -2275,7 +2245,7 @@ searchInput.addEventListener('input', (e) => {
             searchSuggestions.style.display = 'none';
         }
 
-        updateMarkers();
+        window.syncState();
     }, 300);
 });
 
@@ -2301,14 +2271,14 @@ if (clearSearchBtn) {
         activeSearchQuery = '';
         clearSearchBtn.style.display = 'none';
         if (searchSuggestions) searchSuggestions.style.display = 'none';
-        updateMarkers();
+        window.syncState();
         searchInput.focus();
     });
 }
 
 typeSelect.addEventListener('change', (e) => {
     activeTypeFilter = e.target.value;
-    updateMarkers();
+    window.syncState();
 });
 
 filterBtns.forEach(btn => {
@@ -2332,7 +2302,7 @@ filterBtns.forEach(btn => {
             filterBtns.forEach(b => b.classList.remove('active'));
         }
 
-        updateMarkers();
+        window.syncState();
     });
 });
 
@@ -2641,7 +2611,7 @@ if (typeof firebase !== 'undefined') {
 
                             // Trigger the map overlay
                             renderVirtualTrailOverlay(data.virtual_expedition.active_trail, miles);
-                            hydrateEducationModal(data.virtual_expedition.active_trail);
+                            if (typeof window.hydrateEducationModal === 'function') window.hydrateEducationModal(data.virtual_expedition.active_trail);
 
                             // Only complete if we have a valid total and miles >= total
                             const isComplete = total > 0 && miles >= total;
@@ -2689,7 +2659,7 @@ if (typeof firebase !== 'undefined') {
                     } else {
                         userVisitedPlaces = new Map();
                     }
-                    updateMarkers();
+                    window.syncState();
                     updateStatsUI();
 
                     // Only run leaderboard fetch AFTER the initial visitedPlaces map is hydrated
@@ -2739,7 +2709,7 @@ if (typeof firebase !== 'undefined') {
                 visitedSnapshotUnsubscribe();
                 visitedSnapshotUnsubscribe = null;
             }
-            updateMarkers();
+            window.syncState();
             updateStatsUI();
 
             // 🛑 HIDE LOADER HERE FOR GUESTS
@@ -2815,7 +2785,7 @@ const visitedFilterEl = document.getElementById('visited-filter');
 if (visitedFilterEl) {
     visitedFilterEl.addEventListener('change', (e) => {
         visitedFilterState = e.target.value;
-        updateMarkers();
+        window.syncState();
     });
 }
 
@@ -3106,7 +3076,7 @@ function renderLeaderboard(topUsers) {
     }
 
     if (data.length === 0) {
-        listEl.innerHTML = '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">No leaderboard data yet.</li>';
+        safeUpdateHTML('leaderboard-list', '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">No leaderboard data yet.</li>');
     }
 
     // Handle "Show More" button logic pointing to the server-side fetcher
@@ -4105,7 +4075,7 @@ function updateTripMapVisuals() {
 
         day.stops.forEach((stop, stopIdx) => {
             latlngs.push([stop.lat, stop.lng]);
-            const point = allPoints.find(p => p.id === stop.id && p.id !== undefined);
+            const point = window.parkLookup.get(stop.id);
 
             let badgeContainer;
             if (point && point.marker && point.marker._icon) {
@@ -4859,7 +4829,7 @@ async function executeGeocode(query, targetType) {
                 if (clearBtn) clearBtn.style.display = 'none';
 
                 // Restore the normal map pins
-                if (typeof updateMarkers === 'function') updateMarkers();
+                window.syncState();
 
                 // Pan map to the new custom location
                 if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { 
@@ -4899,7 +4869,7 @@ async function executeGeocode(query, targetType) {
                             if (clearBtn) clearBtn.style.display = 'none';
 
                             // Restore the normal map pins
-                            if (typeof updateMarkers === 'function') updateMarkers();
+                            window.syncState();
 
                             // Pan map to the new custom location
                             if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { 
