@@ -35,21 +35,23 @@
    🛡️ LOW GRAPHICS OVERRIDE
    ========================================= */
 
-/* When Low Graphics is toggled ON, we strip the 'spin/flash' lag */
-body.low-graphics .enamel-pin-wrapper {
-    /* 🚀 NO COMPROMISE SPEED: Kill all transitions */
+/* 🚫 KILL SPINNING PINS IN REGULAR LOW-GFX */
+body.low-graphics .enamel-pin-wrapper,
+body.low-graphics .cluster-enamel-wrapper {
     transition: none !important;
     animation: none !important;
     transform: none !important;
+    will-change: auto !important;
 }
 
-body.low-graphics .custom-bark-marker {
-    /* Prevents default Leaflet fade-in animations on old hardware */
+/* Ensure they appear instantly without the Leaflet "fade-in" */
+body.low-graphics .leaflet-marker-icon {
+    transition: none !important;
     animation: none !important;
 }
 
+/* Keep the pins flat and fast */
 body.low-graphics .enamel-pin-wrapper:hover {
-    /* Disable hover-pop math for maximum stability */
     transform: none !important;
 }
 

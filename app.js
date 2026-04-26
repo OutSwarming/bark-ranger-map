@@ -399,6 +399,7 @@ const markerClusterGroup = L.markerClusterGroup({
 // (Settings state moved to top of file)
 
 document.addEventListener('DOMContentLoaded', () => {
+    // 1. SELECT ALL ELEMENTS FIRST (Prevents ReferenceErrors)
     const settingsGearBtn = document.getElementById('settings-gear-btn');
     const settingsOverlay = document.getElementById('settings-overlay');
     const settingsModal = document.getElementById('settings-modal');
@@ -412,6 +413,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rememberMapToggle = document.getElementById('remember-map-toggle');
     const ultraLowToggle = document.getElementById('ultra-low-toggle');
 
+    // 2. SYNC TOGGLE VISUALS TO SAVED STATE
     if (settingsGearBtn && settingsOverlay) {
         if (allowUncheckToggle) allowUncheckToggle.checked = window.allowUncheck;
         if (lowGfxToggle) lowGfxToggle.checked = window.lowGfxEnabled;
@@ -424,7 +426,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Set version dynamically
         const versionLabel = document.getElementById('settings-app-version');
-        // Update labels dynamically from localStorage or default
         if (versionLabel) versionLabel.textContent = APP_VERSION;
 
         settingsGearBtn.addEventListener('click', () => {
