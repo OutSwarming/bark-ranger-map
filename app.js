@@ -264,7 +264,31 @@ function setInitialMapView(defaultLat, defaultLng) {
 // Initial view set to US center as a placeholder during load
 setInitialMapView(39.8283, -98.5795);
 
-// Save the view every time the user stops dragging or zooming
+// ==========================================
+// 🛑 ZOOM DEBOUNCE ENGINE
+// Hides pins instantly on zoom, waits 400ms after zoom ends to show them
+// ==========================================
+let zoomDebounceTimer = null;
+
+map.on('zoomstart', () => {
+    if (window.stopPinResizing) {
+        // Instantly hide the pins to prevent lag and resizing
+        document.body.classList.add('is-actively-zooming');
+        clearTimeout(zoomDebounceTimer);
+    }
+});
+
+map.on('zoomend', () => {
+    if (window.stopPinResizing) {
+        clearTimeout(zoomDebounceTimer);
+        // Wait 400ms in case the user does another zoom gesture right away
+        zoomDebounceTimer = setTimeout(() => {
+            document.body.classList.remove('is-actively-zooming');
+        }, 400);
+    }
+});
+
+// 🚀 MAP POSITION SAVER
 map.on('moveend', () => {
     clearTimeout(mapSaveTimeout);
     mapSaveTimeout = setTimeout(() => {

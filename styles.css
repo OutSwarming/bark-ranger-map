@@ -1369,26 +1369,35 @@ body.reduce-pin-motion .leaflet-marker-shadow {
    PERFORMANCE & MODIFIER TOGGLES
    ========================================================= */
 
-/* 1. STOP PIN RESIZING (Kills the 1-second throbbing during zoom) */
+/* 1. STOP PIN RESIZING (The Debounce Hider) */
+/* When the JS detects a zoom, this instantly removes pins from the render tree */
+body.is-actively-zooming .leaflet-marker-pane,
+body.is-actively-zooming .leaflet-shadow-pane {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    transition: none !important;
+}
+
+/* Kills CSS transitions when they reappear */
 body.stop-pin-resizing .leaflet-marker-icon,
-body.stop-pin-resizing .leaflet-marker-shadow,
-body.stop-pin-resizing .enamel-pin-wrapper,
 body.stop-pin-resizing .custom-bark-marker * {
     transition: none !important;
-    animation: none !important;
 }
 
-/* 2. STOP PIN SPINNING (Boring, static pins. No hover pops, no rotating) */
+
+/* 2. STOP PIN SPINNING (Violent Animation Killer) */
+/* Targets the wrappers AND the images inside them so they cannot physically spin */
 body.stop-pin-spinning .enamel-pin-wrapper,
-body.stop-pin-spinning .enamel-pin-wrapper:hover,
+body.stop-pin-spinning .enamel-pin-wrapper *,
 body.stop-pin-spinning .cluster-enamel-wrapper,
-body.stop-pin-spinning .cluster-enamel-wrapper:hover {
-    transform: none !important;
+body.stop-pin-spinning .cluster-enamel-wrapper * {
     animation: none !important;
     transition: none !important;
+    transform: none !important;
 }
 
-/* 3. REMOVE SHADOWS (Max smoothness, strips heavy GPU drop-shadow filters) */
+
+/* 3. REMOVE SHADOWS (Strips heavy GPU filters) */
 body.remove-shadows .visited-pin {
     filter: none !important;
     box-shadow: 0 0 8px #4CAF50 !important;
