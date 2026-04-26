@@ -334,26 +334,33 @@ L.control.zoom({
     position: 'bottomleft'
 }).addTo(map);
 
-// Add OpenStreetMap tiles
-let currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
-    maxZoom: 18
-}).addTo(map);
-
+// 🌍 MAP STYLE PERSISTENCE
 const mapStyleSelect = document.getElementById('map-style-select');
+const savedMapStyle = localStorage.getItem('barkMapStyle') || 'default'; // Check memory
+
+let currentTileLayer;
+const loadLayer = (style) => {
+    if (currentTileLayer) map.removeLayer(currentTileLayer);
+    if (style === 'terrain') {
+        currentTileLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)', maxZoom: 17 }).addTo(map);
+    } else if (style === 'satellite') {
+        currentTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community', maxZoom: 18 }).addTo(map);
+    } else if (style === 'streets') {
+        currentTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012', maxZoom: 18 }).addTo(map);
+    } else {
+        currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 18 }).addTo(map);
+    }
+};
+
+// Load saved layer on boot
+loadLayer(savedMapStyle);
+
 if (mapStyleSelect) {
+    mapStyleSelect.value = savedMapStyle; // Update dropdown UI
     mapStyleSelect.addEventListener('change', (e) => {
-        if (currentTileLayer) map.removeLayer(currentTileLayer);
         const style = e.target.value;
-        if (style === 'terrain') {
-            currentTileLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)', maxZoom: 17 }).addTo(map);
-        } else if (style === 'satellite') {
-            currentTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community', maxZoom: 18 }).addTo(map);
-        } else if (style === 'streets') {
-            currentTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012', maxZoom: 18 }).addTo(map);
-        } else {
-            currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 18 }).addTo(map);
-        }
+        localStorage.setItem('barkMapStyle', style); // Save choice to memory
+        loadLayer(style);
     });
 }
 
@@ -810,7 +817,7 @@ let tripDays = [{ color: DAY_COLORS[0], stops: [], notes: "" }];
 let activeDayIdx = 0;
 window.tripStartNode = null;
 window.tripEndNode = null;
-let visitedFilterState = 'all';
+let visitedFilterState = localStorage.getItem('barkVisitedFilter') || 'all';
 
 const generatePinId = (lat, lng) => `${parseFloat(lat).toFixed(2)}_${parseFloat(lng).toFixed(2)}`;
 
@@ -3160,8 +3167,10 @@ if (typeof firebase !== 'undefined') {
 
 const visitedFilterEl = document.getElementById('visited-filter');
 if (visitedFilterEl) {
+    visitedFilterEl.value = visitedFilterState; // Set the UI dropdown to match memory
     visitedFilterEl.addEventListener('change', (e) => {
         visitedFilterState = e.target.value;
+        localStorage.setItem('barkVisitedFilter', visitedFilterState); // Save choice to memory
         window.syncState();
     });
 }
