@@ -18,7 +18,7 @@
 
     <!-- QRCode JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css?v=14">
+    <link rel="stylesheet" href="styles.css?v=16">
     <link rel="stylesheet" href="mapStyles.css?v=2">
     <link rel="stylesheet" href="trophyCase.css">
 
@@ -491,6 +491,45 @@
                             </div>
                             <label class="switch">
                                 <input type="checkbox" id="cluster-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Low Graphics Mode</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Disables blurs and particle effects for speed.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="low-gfx-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Simplify Trails</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Reduces trail detail to prevent map stuttering.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="simplify-trail-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Instant Camera</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Disables map panning animations for instant loading.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="instant-nav-toggle">
                                 <span class="slider round"></span>
                             </label>
                         </div>
@@ -1022,7 +1061,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script src="gamificationLogic.js?v=3"></script>
     <script src="MapMarkerConfig.js?v=3"></script>
-    <script src="app.js?v=14"></script>
+    <script src="app.js?v=16"></script>
     <!-- SCORING PROTOCOL MODAL -->
     <div id="scoring-modal" class="scoring-modal-overlay">
         <div class="scoring-modal-card">

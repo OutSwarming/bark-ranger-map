@@ -1,4 +1,4 @@
-const APP_VERSION = 14;
+const APP_VERSION = 16;
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
@@ -268,6 +268,12 @@ const markerClusterGroup = L.markerClusterGroup({
 // ====== SETTINGS UI LOGIC ======
 let allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
 let clusteringEnabled = localStorage.getItem('barkClusteringEnabled') === 'true';
+let lowGfxEnabled = localStorage.getItem('barkLowGfxEnabled') === 'true';
+let simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
+let instantNav = localStorage.getItem('barkInstantNav') === 'true';
+
+// Apply initial Low Graphics class
+if (lowGfxEnabled) document.body.classList.add('low-graphics');
 
 document.addEventListener('DOMContentLoaded', () => {
     const settingsGearBtn = document.getElementById('settings-gear-btn');
@@ -276,10 +282,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeSettingsBtn = document.getElementById('close-settings-btn');
     const allowUncheckToggle = document.getElementById('allow-uncheck-setting');
     const clusterToggle = document.getElementById('cluster-toggle');
+    const lowGfxToggle = document.getElementById('low-gfx-toggle');
+    const simplifyTrailToggle = document.getElementById('simplify-trail-toggle');
+    const instantNavToggle = document.getElementById('instant-nav-toggle');
 
     if (settingsGearBtn && settingsOverlay) {
         if (allowUncheckToggle) allowUncheckToggle.checked = allowUncheck;
         if (clusterToggle) clusterToggle.checked = clusteringEnabled;
+        if (lowGfxToggle) lowGfxToggle.checked = lowGfxEnabled;
+        if (simplifyTrailToggle) simplifyTrailToggle.checked = simplifyTrails;
+        if (instantNavToggle) instantNavToggle.checked = instantNav;
 
         // Set version dinamically
         const versionLabel = document.getElementById('settings-app-version');
@@ -312,6 +324,47 @@ document.addEventListener('DOMContentLoaded', () => {
                 clusteringEnabled = e.target.checked;
                 localStorage.setItem('barkClusteringEnabled', clusteringEnabled ? 'true' : 'false');
                 updateMarkers(); // Instant re-render
+            });
+        }
+
+        if (lowGfxToggle) {
+            lowGfxToggle.addEventListener('change', (e) => {
+                lowGfxEnabled = e.target.checked;
+                localStorage.setItem('barkLowGfxEnabled', lowGfxEnabled ? 'true' : 'false');
+                if (lowGfxEnabled) {
+                    document.body.classList.add('low-graphics');
+                } else {
+                    document.body.classList.remove('low-graphics');
+                }
+            });
+        }
+
+        if (simplifyTrailToggle) {
+            simplifyTrailToggle.addEventListener('change', (e) => {
+                simplifyTrails = e.target.checked;
+                localStorage.setItem('barkSimplifyTrails', simplifyTrails ? 'true' : 'false');
+                // Trigger re-render of trails if active
+                if (window.lastActiveTrailId) {
+                    renderVirtualTrailOverlay(window.lastActiveTrailId, window.lastMilesCompleted || 0);
+                }
+                if (typeof renderCompletedTrailsOverlay === 'function') {
+                    // Logic to refresh completed trails
+                    const user = firebase.auth().currentUser;
+                    if (user) {
+                        firebase.firestore().collection('users').doc(user.uid).get().then(doc => {
+                            if (doc.exists && doc.data().completedExpeditions) {
+                                renderCompletedTrailsOverlay(doc.data().completedExpeditions);
+                            }
+                        });
+                    }
+                }
+            });
+        }
+
+        if (instantNavToggle) {
+            instantNavToggle.addEventListener('change', (e) => {
+                instantNav = e.target.checked;
+                localStorage.setItem('barkInstantNav', instantNav ? 'true' : 'false');
             });
         }
     }
@@ -944,7 +997,8 @@ async function renderCompletedTrailsOverlay(completedExpeditions) {
             if (trailGeoJson) {
                 // Drop the physical path
                 L.geoJSON(trailGeoJson, {
-                    style: { color: '#22c55e', weight: 4, opacity: 0.8, lineCap: 'round', dashArray: '1, 6' }
+                    style: { color: '#22c55e', weight: 4, opacity: 0.8, lineCap: 'round', dashArray: '1, 6' },
+                    smoothFactor: simplifyTrails ? 5.0 : 1.0
                 }).addTo(completedTrailsLayerGroup);
 
                 // Calculate a center point on the line geometry and drop a massive Trophy pin
@@ -992,14 +1046,16 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
         if (geoSafeMiles > 0) {
             const completedLine = turf.lineSliceAlong(trailGeoJson, 0, geoSafeMiles, { units: 'miles' });
             L.geoJSON(completedLine, {
-                style: { color: '#22c55e', weight: 6, opacity: 0.9, lineCap: 'round' }
+                style: { color: '#22c55e', weight: 6, opacity: 0.9, lineCap: 'round' },
+                smoothFactor: simplifyTrails ? 5.0 : 1.0
             }).addTo(virtualTrailLayerGroup);
         }
 
         if (geoSafeMiles < actualGeoLength) {
             const remainingLine = turf.lineSliceAlong(trailGeoJson, geoSafeMiles, actualGeoLength, { units: 'miles' });
             L.geoJSON(remainingLine, {
-                style: { color: '#ef4444', weight: 4, opacity: 0.6, dashArray: '5, 10', lineCap: 'round' }
+                style: { color: '#ef4444', weight: 4, opacity: 0.6, dashArray: '5, 10', lineCap: 'round' },
+                smoothFactor: simplifyTrails ? 5.0 : 1.0
             }).addTo(virtualTrailLayerGroup);
         }
 
@@ -1014,6 +1070,9 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
 
         L.marker([currentAvatarPoint.geometry.coordinates[1], currentAvatarPoint.geometry.coordinates[0]], { icon: dogIcon })
             .addTo(virtualTrailLayerGroup);
+
+        window.lastActiveTrailId = trailId;
+        window.lastMilesCompleted = milesCompleted;
 
         const toggleBtn = document.getElementById('toggle-virtual-trail');
         if (toggleBtn && toggleBtn.classList.contains('active')) {
@@ -1032,7 +1091,11 @@ if (toggleVirtualBtn) {
         if (this.classList.contains('active')) {
             virtualTrailLayerGroup.addTo(map);
             if (virtualTrailLayerGroup.getLayers().length > 0) {
-                map.fitBounds(virtualTrailLayerGroup.getBounds(), { padding: [50, 50] });
+                map.fitBounds(virtualTrailLayerGroup.getBounds(), { 
+                    padding: [50, 50],
+                    animate: !instantNav,
+                    duration: instantNav ? 0 : 0.5
+                });
             }
         } else {
             virtualTrailLayerGroup.removeFrom(map);
@@ -1047,7 +1110,11 @@ if (toggleCompletedBtn) {
         if (this.classList.contains('active')) {
             completedTrailsLayerGroup.addTo(map);
             if (completedTrailsLayerGroup.getLayers().length > 0) {
-                map.fitBounds(completedTrailsLayerGroup.getBounds(), { padding: [50, 50] });
+                map.fitBounds(completedTrailsLayerGroup.getBounds(), { 
+                    padding: [50, 50],
+                    animate: !instantNav,
+                    duration: instantNav ? 0 : 0.5
+                });
             }
         } else {
             completedTrailsLayerGroup.removeFrom(map);
@@ -1640,7 +1707,10 @@ function processParsedResults(results) {
             const targetLatLng = map.unproject(targetPoint, currentZoom);
 
             // Use panTo instead of setView to guarantee it only moves the camera X/Y
-            map.panTo(targetLatLng, { animate: true, duration: 0.5 });
+            map.panTo(targetLatLng, { 
+                animate: !instantNav, 
+                duration: instantNav ? 0 : 0.5 
+            });
 
             slidePanel.classList.add('open');
         });
@@ -1924,7 +1994,12 @@ function updateMarkers() {
         window._lastFilterState = currentFilterState;
 
         if ((activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
-            map.flyToBounds(visibleBounds, { padding: [50, 50], maxZoom: 12, duration: 0.8 });
+            map.flyToBounds(visibleBounds, { 
+                padding: [50, 50], 
+                maxZoom: 12, 
+                duration: instantNav ? 0 : 0.8,
+                animate: !instantNav
+            });
         }
     }
 }
@@ -1992,7 +2067,10 @@ searchInput.addEventListener('input', (e) => {
                     updateMarkers();
 
                     if (match.item.marker && match.item.marker._parkData) {
-                        map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, { animate: true });
+                        map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, { 
+                            animate: !instantNav,
+                            duration: instantNav ? 0 : 0.4
+                        });
                         match.item.marker.fire('click');
                     }
                 });
@@ -3222,8 +3300,8 @@ window.flyToActiveTrail = function () {
             map.flyToBounds(virtualTrailLayerGroup.getBounds(), {
                 padding: [50, 50],
                 maxZoom: 14,
-                animate: true,
-                duration: 1.5
+                animate: !instantNav,
+                duration: instantNav ? 0 : 1.5
             });
         }, 350);
     } else {
@@ -4610,7 +4688,10 @@ async function executeGeocode(query, targetType) {
                 if (typeof updateMarkers === 'function') updateMarkers();
 
                 // Pan map to the new custom location
-                if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { animate: true });
+                if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { 
+                    animate: !instantNav,
+                    duration: instantNav ? 0 : 0.4
+                });
 
                 updateTripUI();
             } else {
@@ -4647,7 +4728,10 @@ async function executeGeocode(query, targetType) {
                             if (typeof updateMarkers === 'function') updateMarkers();
 
                             // Pan map to the new custom location
-                            if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { animate: true });
+                            if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { 
+                                animate: !instantNav,
+                                duration: instantNav ? 0 : 0.4
+                            });
 
                             disambiguationContainer.style.display = 'none';
                             updateTripUI();
@@ -4860,7 +4944,11 @@ async function generateAndRenderTripRoute() {
 
     if (allBounds.length > 0) {
         const combined = allBounds.reduce((acc, b) => acc.extend(b), allBounds[0]);
-        map.fitBounds(combined, { padding: [50, 50] });
+        map.fitBounds(combined, { 
+            padding: [50, 50],
+            animate: !instantNav,
+            duration: instantNav ? 0 : 0.5
+        });
     }
 
     const telemetryEl = document.getElementById('route-telemetry');
@@ -5395,8 +5483,9 @@ function showRankUpCelebration(oldTitle, newTitle) {
 
     // Spawn confetti particles
     const confettiColors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#ec4899'];
-    for (let i = 0; i < 40; i++) {
-        const particle = document.createElement('div');
+    if (!lowGfxEnabled) {
+        for (let i = 0; i < 40; i++) {
+            const particle = document.createElement('div');
         const color = confettiColors[Math.floor(Math.random() * confettiColors.length)];
         const left = Math.random() * 100;
         const delay = Math.random() * 2;
@@ -5409,6 +5498,7 @@ function showRankUpCelebration(oldTitle, newTitle) {
             animation: confettiFall ${duration}s ease-in ${delay}s forwards;
         `;
         overlay.appendChild(particle);
+    }
     }
 
     // Auto-dismiss after 8 seconds
