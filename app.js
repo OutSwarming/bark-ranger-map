@@ -25,6 +25,7 @@ if (lowGfxSaved !== null) {
 window.simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
 window.instantNav = localStorage.getItem('barkInstantNav') === 'true';
 window.rememberMapPosition = localStorage.getItem('remember-map-toggle') === 'true';
+window.stopAutoMovements = localStorage.getItem('barkStopAutoMove') === 'true';
 
 // 🛑 REDUCE PIN SCALING / MOTION STATE
 window.reducePinMotion = localStorage.getItem('barkReducePinMotion') === 'true';
@@ -504,10 +505,12 @@ document.addEventListener('DOMContentLoaded', () => {
         settingsGearBtn.addEventListener('click', () => {
             populateTrailWarpGrid(); // Lazy-load: TOP_10_TRAILS is defined later in the file
             settingsOverlay.classList.add('active');
+            document.body.style.overflow = 'hidden'; // 🔒 Lock background scroll
         });
 
         const closeSettings = () => {
             settingsOverlay.classList.remove('active');
+            document.body.style.overflow = ''; // 🔓 Restore background scroll
         };
 
         closeSettingsBtn.addEventListener('click', closeSettings);
@@ -741,6 +744,15 @@ document.addEventListener('DOMContentLoaded', () => {
             rememberMapToggle.addEventListener('change', (e) => {
                 window.rememberMapPosition = e.target.checked;
                 localStorage.setItem('remember-map-toggle', window.rememberMapPosition ? 'true' : 'false');
+            });
+        }
+
+        const stopAutoMoveEl = document.getElementById('toggle-stop-auto-move');
+        if (stopAutoMoveEl) {
+            stopAutoMoveEl.checked = window.stopAutoMovements;
+            stopAutoMoveEl.addEventListener('change', (e) => {
+                window.stopAutoMovements = e.target.checked;
+                localStorage.setItem('barkStopAutoMove', window.stopAutoMovements ? 'true' : 'false');
             });
         }
     }
@@ -2034,20 +2046,23 @@ function processParsedResults(results) {
                         markVisitedBtn.classList.add('visited');
                         markVisitedText.textContent = '✓ Visited';
 
-                        // Delete logic styling if setting is flipped
-                        if (window.allowUncheck && !cachedObj.verified) {
-                            markVisitedBtn.disabled = false;
-                            markVisitedBtn.style.cursor = 'pointer';
-                            markVisitedBtn.style.opacity = '1';
-                            markVisitedBtn.style.background = '#4CAF50';
-
-                            // Visual cue on hover to delete
-                            markVisitedBtn.onmouseenter = () => markVisitedText.textContent = '✖ Remove Check-in';
-                            markVisitedBtn.onmouseleave = () => markVisitedText.textContent = '✓ Visited';
-                        } else {
+                        // 🚨 FIX: Keep button enabled if unchecking is possible OR if we need to show the safety lock
+                        if (cachedObj.verified) {
                             markVisitedBtn.disabled = true;
                             markVisitedBtn.style.cursor = 'default';
                             markVisitedBtn.style.opacity = '0.7';
+                        } else {
+                            markVisitedBtn.disabled = false;
+                            markVisitedBtn.style.cursor = 'pointer';
+                            markVisitedBtn.style.opacity = '1';
+                        }
+
+                        // Style as removable only if uncheck is allowed
+                        if (window.allowUncheck && !cachedObj.verified) {
+                            markVisitedBtn.style.background = '#4CAF50';
+                            markVisitedBtn.onmouseenter = () => markVisitedText.textContent = '✖ Remove Check-in';
+                            markVisitedBtn.onmouseleave = () => markVisitedText.textContent = '✓ Visited';
+                        } else {
                             markVisitedBtn.onmouseenter = null;
                             markVisitedBtn.onmouseleave = null;
                         }
@@ -2134,20 +2149,28 @@ function processParsedResults(results) {
                         // Deletion execution logic
                         if (userVisitedPlaces.has(d.id)) {
                             const cachedObj = userVisitedPlaces.get(d.id);
-                            if (window.allowUncheck && !cachedObj.verified) {
-                                // Undo manual visit
-                                userVisitedPlaces.delete(d.id);
-                                markVisitedBtn.classList.remove('visited');
-                                markVisitedText.textContent = 'Mark as Visited';
-                                markVisitedBtn.onmouseenter = null;
-                                markVisitedBtn.onmouseleave = null;
+                            
+                            // Always block unchecking of GPS verified visits
+                            if (cachedObj.verified) return;
 
-                                // Direct sync
-                                const updatedArray = Array.from(userVisitedPlaces.values());
-                                await firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid).update({ visitedPlaces: updatedArray });
-
-                                window.syncState();
+                            // 🛡️ DATA SAFETY LOCK POPUP (New Code)
+                            if (!window.allowUncheck) {
+                                alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
+                                return; // 🛑 Stop execution here so it doesn't uncheck
                             }
+
+                            // Undo manual visit
+                            userVisitedPlaces.delete(d.id);
+                            markVisitedBtn.classList.remove('visited');
+                            markVisitedText.textContent = 'Mark as Visited';
+                            markVisitedBtn.onmouseenter = null;
+                            markVisitedBtn.onmouseleave = null;
+
+                            // Direct sync
+                            const updatedArray = Array.from(userVisitedPlaces.values());
+                            await firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid).update({ visitedPlaces: updatedArray });
+
+                            window.syncState();
                             return;
                         }
 
@@ -2155,7 +2178,12 @@ function processParsedResults(results) {
                         userVisitedPlaces.set(d.id, newObj);
 
                         markVisitedBtn.classList.add('visited');
-                        markVisitedBtn.disabled = true;
+                        markVisitedText.textContent = '✓ Visited';
+
+                        // 🚨 FIX: Don't disable here either, so they can trigger the uncheck popup immediately
+                        markVisitedBtn.disabled = false;
+                        markVisitedBtn.style.cursor = 'pointer';
+                        markVisitedBtn.style.opacity = '1';
 
                         await syncUserProgress();
                         window.syncState();
@@ -2167,23 +2195,18 @@ function processParsedResults(results) {
             }
 
             // 🎯 SMART AUTO-PAN (No Zoom, Correct Desktop Offset)
-            // Locks the current zoom level so it never zooms in or out
-            const currentZoom = map.getZoom();
+            if (!window.stopAutoMovements) {
+                const currentZoom = map.getZoom();
+                const xOffset = window.innerWidth >= 768 ? -250 : 0;
+                const yOffset = window.innerWidth < 768 ? 180 : 0;
+                const targetPoint = map.project([d.lat, d.lng], currentZoom).add([xOffset, yOffset]);
+                const targetLatLng = map.unproject(targetPoint, currentZoom);
 
-            // Negative X: Shifts camera left, pushing the pin RIGHT (out from under your left panel)
-            // Positive Y: Shifts camera down, pushing the pin UP (out from under mobile bottom panel)
-            const xOffset = window.innerWidth >= 768 ? -250 : 0;
-            const yOffset = window.innerWidth < 768 ? 180 : 0;
-
-            // Project coordinates to flat pixels, apply the offset, and unproject back to GPS
-            const targetPoint = map.project([d.lat, d.lng], currentZoom).add([xOffset, yOffset]);
-            const targetLatLng = map.unproject(targetPoint, currentZoom);
-
-            // Use panTo instead of setView to guarantee it only moves the camera X/Y
-            map.panTo(targetLatLng, {
-                animate: !window.instantNav,
-                duration: window.instantNav ? 0 : 0.5
-            });
+                map.panTo(targetLatLng, {
+                    animate: !window.instantNav,
+                    duration: window.instantNav ? 0 : 0.5
+                });
+            }
 
             slidePanel.classList.add('open');
         });
@@ -2462,7 +2485,9 @@ function updateMarkers() {
     const currentFilterState = activeSearchQuery + '|' + Array.from(activeSwagFilters).join(',');
     if (window._lastFilterState !== currentFilterState) {
         window._lastFilterState = currentFilterState;
-        if ((activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
+        
+        // Add the stopAutoMovements block here
+        if (!window.stopAutoMovements && (activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
             map.flyToBounds(visibleBounds, {
                 padding: [50, 50],
                 maxZoom: 12,
@@ -2537,10 +2562,13 @@ searchInput.addEventListener('input', (e) => {
                     window.syncState();
 
                     if (match.item.marker && match.item.marker._parkData) {
-                        map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, {
-                            animate: !window.lowGfxEnabled,
-                            duration: window.lowGfxEnabled ? 0 : 1.5
-                        });
+                        // Wrap the view change
+                        if (!window.stopAutoMovements) {
+                            map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, {
+                                animate: !window.lowGfxEnabled,
+                                duration: window.lowGfxEnabled ? 0 : 1.5
+                            });
+                        }
                         match.item.marker.fire('click');
                     }
                 });
@@ -5192,10 +5220,12 @@ async function executeGeocode(query, targetType) {
                 window.syncState();
 
                 // Pan map to the new custom location
-                if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, {
-                    animate: !window.instantNav,
-                    duration: window.instantNav ? 0 : 0.4
-                });
+                if (typeof map !== 'undefined' && !window.stopAutoMovements) {
+                    map.setView([node.lat, node.lng], 10, {
+                        animate: !window.instantNav,
+                        duration: window.instantNav ? 0 : 0.4
+                    });
+                }
 
                 updateTripUI();
             } else {
@@ -5232,10 +5262,12 @@ async function executeGeocode(query, targetType) {
                             window.syncState();
 
                             // Pan map to the new custom location
-                            if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, {
-                                animate: !window.lowGfxEnabled,
-                                duration: window.lowGfxEnabled ? 0 : 1.5
-                            });
+                            if (typeof map !== 'undefined' && !window.stopAutoMovements) {
+                                map.setView([node.lat, node.lng], 10, {
+                                    animate: !window.lowGfxEnabled,
+                                    duration: window.lowGfxEnabled ? 0 : 1.5
+                                });
+                            }
 
                             disambiguationContainer.style.display = 'none';
                             updateTripUI();
