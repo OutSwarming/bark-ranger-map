@@ -36,12 +36,10 @@ if (window.reducePinMotion) {
 }
 
 // 🚀 B.A.R.K. PERFORMANCE MODIFIERS (V24 — 4 Toggles)
-window.stopSpinning = localStorage.getItem('barkStopSpinning') === 'true';
 window.removeShadows = localStorage.getItem('barkRemoveShadows') === 'true';
 window.stopResizing = localStorage.getItem('barkStopResizing') === 'true';
 window.viewportCulling = localStorage.getItem('barkViewportCulling') === 'true';
 
-if (window.stopSpinning) document.body.classList.add('stop-spinning');
 if (window.removeShadows) document.body.classList.add('remove-shadows');
 if (window.stopResizing) document.body.classList.add('stop-resizing');
 if (window.viewportCulling) document.body.classList.add('viewport-culling');
@@ -601,7 +599,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         };
 
-        setupPerfToggle('toggle-stop-spinning', 'stopSpinning', 'barkStopSpinning', 'stop-spinning');
         setupPerfToggle('toggle-remove-shadows', 'removeShadows', 'barkRemoveShadows', 'remove-shadows');
         setupPerfToggle('toggle-stop-resizing', 'stopResizing', 'barkStopResizing', 'stop-resizing');
         setupPerfToggle('toggle-viewport-culling', 'viewportCulling', 'barkViewportCulling', 'viewport-culling');
@@ -2348,9 +2345,9 @@ function loadData() {
 function updateMarkers() {
     const currentZoom = map.getZoom();
     // 🛑 PERFORMANCE BYPASS: MarkerClusterGroup internally destroys/rebuilds DOM nodes.
-    // When Stop Spinning OR Stop Resizing is ON, force markers into simple markerLayer
+    // When Stop Resizing is ON, force markers into simple markerLayer
     // so DOM nodes stay alive permanently (no flash, no re-spin, no resize stutter).
-    let forceNoClustering = (window.premiumClusteringEnabled && currentZoom >= 7) || window.stopSpinning || window.stopResizing;
+    let forceNoClustering = (window.premiumClusteringEnabled && currentZoom >= 7) || window.stopResizing;
 
     let visibleBounds = L.latLngBounds();
     const screenBounds = map.getBounds().pad(0.2); // 📦 20% buffer for culling
