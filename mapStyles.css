@@ -7,16 +7,50 @@
     border: none;
 }
 
+/* Optimized Enamel Pin Wrapper */
 .enamel-pin-wrapper {
     width: 32px;
     height: 32px;
     border-radius: 50%;
     overflow: hidden;
     position: relative;
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     display: flex;
     justify-content: center;
     align-items: center;
+    
+    /* 💎 Keep the premium "All" transition for high-end devices */
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    
+    will-change: transform;
+    transform: translateZ(0); 
+}
+
+/* Hover effects stay active for premium mode */
+.enamel-pin-wrapper:hover {
+    transform: scale(1.15) translateY(-2px);
+}
+
+
+/* =========================================
+   🛡️ LOW GRAPHICS OVERRIDE
+   ========================================= */
+
+/* When Low Graphics is toggled ON, we strip the 'spin/flash' lag */
+body.low-graphics .enamel-pin-wrapper {
+    /* 🚀 NO COMPROMISE SPEED: Kill all transitions */
+    transition: none !important;
+    animation: none !important;
+    transform: none !important;
+}
+
+body.low-graphics .custom-bark-marker {
+    /* Prevents default Leaflet fade-in animations on old hardware */
+    animation: none !important;
+}
+
+body.low-graphics .enamel-pin-wrapper:hover {
+    /* Disable hover-pop math for maximum stability */
+    transform: none !important;
 }
 
 .enamel-pin-wrapper img {
@@ -336,4 +370,39 @@ body.low-graphics .cluster-count-badge {
 body.low-graphics .cluster-count-badge {
     background: #1e293b !important;
     /* Flat slate color instead of gradient */
+}
+
+/* =========================================
+    🛡️ ULTRA-LOW PERFORMANCE SLEDGEHAMMER
+   ========================================= */
+
+/* The Ultra-Low Sledgehammer: Kill every single animation and decorative effect */
+body.ultra-low * {
+    transition: none !important;
+    animation: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    border-radius: 0 !important; /* Round corners are surprisingly expensive to render */
+}
+
+/* Stop smooth image scaling during zooms */
+body.ultra-low img {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+}
+
+/* Hide non-essential decorative UI */
+body.ultra-low .streak-badge,
+body.ultra-low .confetti-canvas,
+body.ultra-low .glass-overlay,
+body.ultra-low .cluster-count-badge {
+    display: none !important;
+}
+
+/* Hardware Guard for Clusters (Already handles some, but ultra-low is global) */
+body.ultra-low .cluster-enamel-wrapper {
+    box-shadow: none !important;
+    transform: none !important;
+    transition: none !important;
+    border-width: 1px !important;
 }

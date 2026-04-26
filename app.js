@@ -26,6 +26,22 @@ let simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
 let instantNav = localStorage.getItem('barkInstantNav') === 'true';
 let rememberMapPosition = localStorage.getItem('remember-map-toggle') === 'true';
 
+// 🔨 ULTRA-LOW SLEDGEHAMMER STATE
+let ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
+
+// Master state for the engine
+// Removed redeclaration: let clusteringEnabled = standardClustering || premiumClustering;
+clusteringEnabled = standardClustering || premiumClustering;
+
+// Apply Master Override if Ultra Low is ON
+if (ultraLowEnabled) {
+    lowGfxEnabled = true;
+    standardClustering = true;
+    instantNav = true;
+    clusteringEnabled = true;
+    document.body.classList.add('ultra-low');
+}
+
 // Global Lookup Engine (v25 Performance)
 window.parkLookup = new Map();
 
@@ -172,7 +188,18 @@ window.attemptDailyStreakIncrement = async function () {
 })();
 
 // Initialize map centered on the US
-const map = L.map('map', {
+const mapOptions = ultraLowEnabled ? {
+    preferCanvas: true,          // Use Canvas instead of SVG
+    updateWhenIdle: true,        // DO NOT update tiles while moving
+    updateWhenZooming: false,     // This is your "slow resize" fix
+    markerZoomAnimation: false,  // Stop pins from "growing" during zoom
+    zoomAnimation: false,        // Snap zoom instantly
+    fadeAnimation: false,        // No cross-fading tiles
+    inertia: false,              // Stop the map from "sliding" after a flick
+    zoomControl: false,
+    worldCopyJump: true,
+    renderer: L.canvas({ padding: 0.5 })
+} : {
     zoomControl: false,
     worldCopyJump: true,
     renderer: L.canvas({ padding: 0.5 }),
@@ -181,7 +208,9 @@ const map = L.map('map', {
     zoomDelta: 1,               // Desktop scroll wheel zooms by 1 full level per tick
     wheelDebounceTime: 40,      // Responsive trackpad feel
     wheelPxPerZoomLevel: 120    // Natural scroll-to-zoom ratio
-});
+};
+
+const map = L.map('map', mapOptions);
 
 // 🎯 MAP MEMORY INJECTION
 function setInitialMapView(defaultLat, defaultLng) {
@@ -217,7 +246,7 @@ map.on('moveend', () => {
 // 🧨 EXPLOSION TRIGGER: Re-evaluate pins every time the zoom changes
 map.on('zoomend', () => {
     if (premiumClustering) {
-        window.syncState(); 
+        window.syncState();
     }
 });
 
@@ -332,13 +361,13 @@ const markerClusterGroup = L.markerClusterGroup({
     maxClusterRadius: function (zoom) {
         if (premiumClustering) {
             // Aggressive grouping for country-level only
-            return 80; 
+            return 80;
         }
         if (standardClustering) {
             // Standard behavior
-            if (zoom <= 5) return 40; 
-            if (zoom <= 8) return 60; 
-            return 80; 
+            if (zoom <= 5) return 40;
+            if (zoom <= 8) return 60;
+            return 80;
         }
         return 80;
     },
@@ -427,16 +456,16 @@ document.addEventListener('DOMContentLoaded', () => {
             standardToggle.addEventListener('change', (e) => {
                 standardClustering = e.target.checked;
                 localStorage.setItem('barkStandardClustering', standardClustering);
-                
+
                 // If turning on standard, turn off premium to avoid math conflicts
                 if (standardClustering && premiumToggle) {
                     premiumClustering = false;
                     premiumToggle.checked = false;
                     localStorage.setItem('barkPremiumClustering', false);
                 }
-                
+
                 clusteringEnabled = standardClustering || premiumClustering;
-                window.syncState(); 
+                window.syncState();
             });
         }
 
@@ -445,14 +474,14 @@ document.addEventListener('DOMContentLoaded', () => {
             premiumToggle.addEventListener('change', (e) => {
                 premiumClustering = e.target.checked;
                 localStorage.setItem('barkPremiumClustering', premiumClustering);
-                
+
                 // If turning on premium, turn off standard
                 if (premiumClustering && standardToggle) {
                     standardClustering = false;
                     standardToggle.checked = false;
                     localStorage.setItem('barkStandardClustering', false);
                 }
-                
+
                 clusteringEnabled = standardClustering || premiumClustering;
                 window.syncState();
             });
@@ -467,6 +496,53 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.body.classList.add('low-graphics');
                 } else {
                     document.body.classList.remove('low-graphics');
+                }
+
+                // Re-sync markers to apply/remove the new logic instantly
+                window.syncState();
+            });
+        }
+
+        const ultraLowToggle = document.getElementById('ultra-low-toggle');
+        if (ultraLowToggle) {
+            ultraLowToggle.addEventListener('change', (e) => {
+                ultraLowEnabled = e.target.checked;
+                localStorage.setItem('barkUltraLowEnabled', ultraLowEnabled ? 'true' : 'false');
+
+                if (ultraLowEnabled) {
+                    // MASTER OVERRIDE: Enable all performance-saving features
+                    lowGfxEnabled = true;
+                    standardClustering = true;
+                    premiumClustering = false;
+                    instantNav = true;
+                    simplifyTrails = true;
+
+                    localStorage.setItem('barkLowGfxEnabled', 'true');
+                    localStorage.setItem('barkStandardClustering', 'true');
+                    localStorage.setItem('barkPremiumClustering', 'false');
+                    localStorage.setItem('barkInstantNav', 'true');
+                    localStorage.setItem('barkSimplifyTrails', 'true');
+
+                    // Sync UI
+                    if (lowGfxToggle) lowGfxToggle.checked = true;
+                    if (standardToggle) standardToggle.checked = true;
+                    if (premiumToggle) premiumToggle.checked = false;
+                    if (instantNavToggle) instantNavToggle.checked = true;
+                    if (simplifyTrailToggle) simplifyTrailToggle.checked = true;
+
+                    document.body.classList.add('ultra-low');
+                    document.body.classList.add('low-graphics');
+                } else {
+                    document.body.classList.remove('ultra-low');
+                    document.body.classList.remove('low-graphics');
+                }
+
+                // IMPORTANT: Ultra-Low Mode requires a page reload to re-initialize 
+                // the Leaflet map with the static engine options (updateWhenZooming, etc).
+                if (confirm("Ultra Low Mode requires a page reload to apply map engine optimizations. Reload now?")) {
+                    window.location.reload();
+                } else {
+                    window.syncState();
                 }
             });
         }
@@ -2097,6 +2173,12 @@ function getPollInterval() {
 }
 
 async function safeDataPoll() {
+    // 🔨 DATA BLACKOUT: Background polling is disabled in Ultra Low to save RAM/Battery
+    if (ultraLowEnabled) {
+        console.log("Ultra Low Mode: Background polling disabled.");
+        return; 
+    }
+
     try {
         await pollForUpdates();
         dataPollErrorCount = 0;
@@ -2155,10 +2237,10 @@ function updateMarkers() {
 
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
-        
+
         const queryNorm = normalizeText(activeSearchQuery);
         const nameNorm = item._cachedNormalizedName;
-        
+
         let matchesSearch = false;
         if (!queryNorm) {
             matchesSearch = true;
@@ -2177,7 +2259,7 @@ function updateMarkers() {
         }
 
         const matchesType = activeTypeFilter === 'all' || item.category === activeTypeFilter;
-        
+
         let matchesVisited = true;
         const isVisited = userVisitedPlaces.has(item.id);
 
@@ -2187,7 +2269,7 @@ function updateMarkers() {
         const isInTrip = Array.from(tripDays).some(day => day.stops.some(s => s.id === item.id));
 
         if ((matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip) {
-            
+
             // 🎯 THE STRICT FORK
             // If forced off (Premium Zoom 7+) OR clustering is manually disabled:
             if (forceNoClustering || !clusteringEnabled) {
