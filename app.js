@@ -53,6 +53,15 @@ if (window.killPinSmoothness) {
     document.body.classList.remove('kill-pin-smoothness');
 }
 
+// 🐢 PIN SLOW RESIZING STATE (Chunked Updates)
+window.pinSlowResizing = localStorage.getItem('barkPinSlowResizing') === 'true';
+
+if (window.pinSlowResizing) {
+    document.body.classList.add('pin-slow-resizing');
+} else {
+    document.body.classList.remove('pin-slow-resizing');
+}
+
 // 🔨 ULTRA-LOW SLEDGEHAMMER STATE
 window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
 
@@ -240,9 +249,12 @@ const mapOptions = window.ultraLowEnabled ? {
     wheelDebounceTime: 40,
     wheelPxPerZoomLevel: 120,
 
-    // 🛠️ THE FIX: Force this true to keep the GPU handling the pinch stretch
-    // This stops the CPU layout thrashing that causes the micro-stutter
-    markerZoomAnimation: true
+    wheelPxPerZoomLevel: 120,
+
+    // 🛠️ Hardware Acceleration Locked ON by default, 
+    // but disabled if "Pin Slow Resizing" (Chunking) is active.
+    // "Kill Pin Smoothness" keeps it true so pins are hidden during GPU zoom.
+    markerZoomAnimation: window.killPinSmoothness || !window.pinSlowResizing
 };
 
 const map = L.map('map', mapOptions);
@@ -395,7 +407,11 @@ const markerLayer = L.layerGroup().addTo(map);
 
 // Creates the clustering engine, but does NOT add it to the map yet.
 const markerClusterGroup = L.markerClusterGroup({
-    chunkedLoading: true, // Processes in batches so old phones don't freeze
+    // 🎯 Use Leaflet's internal bounding-block logic when toggled on
+    chunkedLoading: window.pinSlowResizing,
+    chunkInterval: 200, // Process in blocks of 200ms
+    chunkDelay: 50,     // Yield to the CPU so the map doesn't freeze
+
     removeOutsideVisibleBounds: true, // Deletes off-screen pins to save RAM
     disableClusteringAtZoom: 16, // Ungroups when zoomed in close
     animate: false, // Turned off specifically to save CPU on older phones
@@ -579,6 +595,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 window.syncState(); // Force an immediate re-render to apply culling and CSS
+            });
+        }
+
+        const slowResizingToggle = document.getElementById('pin-slow-resizing-toggle');
+        if (slowResizingToggle) {
+            slowResizingToggle.checked = window.pinSlowResizing;
+            slowResizingToggle.addEventListener('change', (e) => {
+                window.pinSlowResizing = e.target.checked;
+                localStorage.setItem('barkPinSlowResizing', window.pinSlowResizing ? 'true' : 'false');
+
+                if (window.pinSlowResizing) {
+                    document.body.classList.add('pin-slow-resizing');
+                    map.options.markerZoomAnimation = false; // Apply instantly
+                } else {
+                    document.body.classList.remove('pin-slow-resizing');
+                    map.options.markerZoomAnimation = true; // Apply instantly
+                }
             });
         }
 
@@ -6072,13 +6105,22 @@ if ('ontouchstart' in window) {
         const deltaY = currentY - zoomStartY;
         const targetZoom = Math.min(19, Math.max(2, initialZoom + deltaY / 150));
 
-        // 🛡️ RAF THROTTLE: Only update zoom once per animation frame (~60fps)
-        // Prevents canvas renderer overload that causes freezes
+        // 🛡️ CHUNKED THROTTLE: Updates in bounding blocks to prevent CPU melt
         if (!zoomRAF) {
-            zoomRAF = requestAnimationFrame(() => {
-                map.setZoom(targetZoom, { animate: false });
-                zoomRAF = null;
-            });
+            if (window.pinSlowResizing) {
+                // THROW INTO CHUNKS: Wait and update everything at once in 250ms blocks
+                // This creates the "resize at once in groups" effect and kills lag
+                zoomRAF = setTimeout(() => {
+                    map.setZoom(targetZoom, { animate: false });
+                    zoomRAF = null;
+                }, 250);
+            } else {
+                // STANDARD: Try to render smoothly at 60fps
+                zoomRAF = requestAnimationFrame(() => {
+                    map.setZoom(targetZoom, { animate: false });
+                    zoomRAF = null;
+                });
+            }
         }
     }, { passive: false });
 
