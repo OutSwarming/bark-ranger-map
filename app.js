@@ -222,8 +222,9 @@ const mapOptions = window.ultraLowEnabled ? {
     wheelDebounceTime: 40,
     wheelPxPerZoomLevel: 120,
 
-    // 🛑 REDUCE PIN RESIZING: Read once at boot. Toggle requires reload.
-    markerZoomAnimation: !window.reducePinMotion
+    // 🛠️ THE FIX: Force this true to keep the GPU handling the pinch stretch
+    // This stops the CPU layout thrashing that causes the micro-stutter
+    markerZoomAnimation: true
 };
 
 const map = L.map('map', mapOptions);
