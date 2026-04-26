@@ -38,6 +38,15 @@ if (window.reducePinMotion) {
 // 🔨 ULTRA-LOW SLEDGEHAMMER STATE
 window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
 
+// 🚀 MAP SMOOTHNESS STATE
+window.mapSmoothnessEnabled = localStorage.getItem('barkMapSmoothness') === 'true';
+
+if (window.mapSmoothnessEnabled) {
+    document.body.classList.add('map-smoothness');
+} else {
+    document.body.classList.remove('map-smoothness');
+}
+
 // Master state for the engine
 window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
 
@@ -258,6 +267,15 @@ map.on('moveend', () => {
         localStorage.setItem('mapLng', center.lng.toFixed(6));
         localStorage.setItem('mapZoom', map.getZoom());
     }, 500);
+
+    // 🚀 MAP SMOOTHNESS DYNAMIC RENDER
+    // If we are relying on culling (clustering is off OR bypassed by zoom level),
+    // we MUST re-render the pins when the user stops panning to fill the new screen space.
+    if (window.mapSmoothnessEnabled) {
+        if (!window.clusteringEnabled || (window.premiumClusteringEnabled && map.getZoom() >= 7)) {
+            window.syncState();
+        }
+    }
 });
 
 // 🧨 EXPLOSION TRIGGER: Re-evaluate pins every time the zoom changes
@@ -536,6 +554,24 @@ document.addEventListener('DOMContentLoaded', () => {
                         e.target.checked = window.reducePinMotion;
                     }
                 }
+            });
+        }
+
+        const mapSmoothnessToggle = document.getElementById('map-smoothness-toggle');
+        if (mapSmoothnessToggle) {
+            mapSmoothnessToggle.checked = window.mapSmoothnessEnabled;
+            mapSmoothnessToggle.addEventListener('change', (e) => {
+                window.mapSmoothnessEnabled = e.target.checked;
+                localStorage.setItem('barkMapSmoothness', window.mapSmoothnessEnabled ? 'true' : 'false');
+
+                if (window.mapSmoothnessEnabled) {
+                    document.body.classList.add('map-smoothness');
+                } else {
+                    document.body.classList.remove('map-smoothness');
+                }
+
+                // Force an immediate re-render to apply culling and CSS
+                window.syncState();
             });
         }
 
@@ -2275,6 +2311,9 @@ function updateMarkers() {
 
     let visibleBounds = L.latLngBounds(); // 🎯 Track the boundaries
 
+    // 🎯 VIEWPORT CULLING: Get the current screen bounds and pad them by 20%
+    const screenBounds = map.getBounds().pad(0.2);
+
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
 
@@ -2310,10 +2349,19 @@ function updateMarkers() {
 
         if ((matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip) {
 
-            // 🎯 THE STRICT FORK
+            // 🎯 THE STRICT FORK WITH CULLING
             // If forced off (Premium Zoom 7+) OR clustering is manually disabled:
             if (forceNoClustering || !window.clusteringEnabled) {
-                markerLayer.addLayer(item.marker);
+                
+                // If Map Smoothness is ON, drop any pin that is currently off-screen
+                if (window.mapSmoothnessEnabled) {
+                    if (screenBounds.contains([item.lat, item.lng])) {
+                        markerLayer.addLayer(item.marker);
+                    }
+                } else {
+                    // Standard: Dump all 500+ pins into the DOM regardless of location
+                    markerLayer.addLayer(item.marker);
+                }
             } else {
                 markerClusterGroup.addLayer(item.marker);
             }

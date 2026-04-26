@@ -1368,3 +1368,26 @@ body.reduce-pin-motion .leaflet-zoom-anim .leaflet-zoom-animated {
     transition-timing-function: linear !important;
     transition-duration: 0.1s !important; 
 }
+
+/* =========================================
+   MAP SMOOTHNESS TOGGLE (PERFORMANCE)
+   ========================================= */
+
+/* Strip the expensive alpha-mask drop-shadows and replace with basic box-shadows */
+body.map-smoothness .visited-pin {
+    filter: none !important;
+    box-shadow: 0 0 10px #4CAF50;
+    border-radius: 50%;
+}
+
+body.map-smoothness .cat-national:not(.visited-pin) {
+    filter: none !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    border-radius: 50%;
+}
+
+body.map-smoothness .cat-state:not(.visited-pin) {
+    filter: none !important;
+    box-shadow: 0 2px 6px rgba(33, 150, 243, 0.4);
+    border-radius: 50%;
+}
