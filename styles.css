@@ -1222,8 +1222,8 @@ input:checked+.slider:before {
 
 .modal-close-btn {
     position: absolute;
-    top: 15px;
-    right: 15px;
+    top: -75px;
+    right: 0;
     width: 60px;
     height: 60px;
     border-radius: 50%;

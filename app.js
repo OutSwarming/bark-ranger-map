@@ -220,7 +220,10 @@ const mapOptions = window.ultraLowEnabled ? {
     zoomSnap: 0.5,
     zoomDelta: 1,
     wheelDebounceTime: 40,
-    wheelPxPerZoomLevel: 120
+    wheelPxPerZoomLevel: 120,
+
+    // 🛑 REDUCE PIN RESIZING: Read once at boot. Toggle requires reload.
+    markerZoomAnimation: !window.reducePinMotion
 };
 
 const map = L.map('map', mapOptions);
@@ -517,13 +520,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (motionToggle) {
             motionToggle.checked = window.reducePinMotion;
             motionToggle.addEventListener('change', (e) => {
-                window.reducePinMotion = e.target.checked;
-                localStorage.setItem('barkReducePinMotion', window.reducePinMotion ? 'true' : 'false');
+                const newVal = e.target.checked;
 
-                if (window.reducePinMotion) {
-                    document.body.classList.add('reduce-pin-motion');
-                } else {
-                    document.body.classList.remove('reduce-pin-motion');
+                if (newVal !== window.reducePinMotion) {
+                    const msg = newVal
+                        ? "Enabling Reduced Pin Resizing requires a page reload to reconfigure the map engine. Proceed?"
+                        : "Restoring full pin animations requires a page reload. Proceed?";
+
+                    if (window.confirm(msg)) {
+                        localStorage.setItem('barkReducePinMotion', newVal ? 'true' : 'false');
+                        location.reload();
+                    } else {
+                        // User cancelled — snap toggle back
+                        e.target.checked = window.reducePinMotion;
+                    }
                 }
             });
         }
