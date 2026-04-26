@@ -26,6 +26,15 @@ window.simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
 window.instantNav = localStorage.getItem('barkInstantNav') === 'true';
 window.rememberMapPosition = localStorage.getItem('remember-map-toggle') === 'true';
 
+// 🛑 REDUCE PIN SCALING / MOTION STATE
+window.reducePinMotion = localStorage.getItem('barkReducePinMotion') === 'true';
+
+if (window.reducePinMotion) {
+    document.body.classList.add('reduce-pin-motion');
+} else {
+    document.body.classList.remove('reduce-pin-motion');
+}
+
 // 🔨 ULTRA-LOW SLEDGEHAMMER STATE
 window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
 
@@ -208,10 +217,14 @@ const mapOptions = window.ultraLowEnabled ? {
     worldCopyJump: true,
     renderer: L.canvas({ padding: 0.5 }),
     preferCanvas: true,
-    zoomSnap: 0.5,              // Smooth enough for custom gestures, crisp for scroll wheel
-    zoomDelta: 1,               // Desktop scroll wheel zooms by 1 full level per tick
-    wheelDebounceTime: 40,      // Responsive trackpad feel
-    wheelPxPerZoomLevel: 120    // Natural scroll-to-zoom ratio
+    zoomSnap: 0.5,
+    zoomDelta: 1,
+    wheelDebounceTime: 40,
+    wheelPxPerZoomLevel: 120,
+
+    // 🛑 THE FIX: Tell the Leaflet Engine to stop doing the heavy zoom math
+    markerZoomAnimation: !window.reducePinMotion,
+    zoomAnimation: !window.reducePinMotion
 };
 
 const map = L.map('map', mapOptions);
@@ -411,6 +424,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const simplifyTrailToggle = document.getElementById('simplify-trail-toggle');
     const instantNavToggle = document.getElementById('instant-nav-toggle');
     const rememberMapToggle = document.getElementById('remember-map-toggle');
+    const motionToggle = document.getElementById('reduce-motion-toggle');
     const ultraLowToggle = document.getElementById('ultra-low-toggle');
 
     // 2. SYNC TOGGLE VISUALS TO SAVED STATE
@@ -422,6 +436,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (simplifyTrailToggle) simplifyTrailToggle.checked = window.simplifyTrails;
         if (instantNavToggle) instantNavToggle.checked = window.instantNav;
         if (rememberMapToggle) rememberMapToggle.checked = window.rememberMapPosition;
+        if (motionToggle) motionToggle.checked = window.reducePinMotion;
         if (ultraLowToggle) ultraLowToggle.checked = window.ultraLowEnabled;
 
         // Set version dynamically
@@ -500,6 +515,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Re-sync markers to apply/remove the new logic instantly
                 window.syncState();
+            });
+        }
+
+        if (motionToggle) {
+            motionToggle.addEventListener('change', (e) => {
+                window.reducePinMotion = e.target.checked;
+                localStorage.setItem('barkReducePinMotion', window.reducePinMotion ? 'true' : 'false');
+
+                if (window.reducePinMotion) {
+                    document.body.classList.add('reduce-pin-motion');
+                    // Dynamically turn off engine animations
+                    map.options.markerZoomAnimation = false;
+                    map.options.zoomAnimation = false;
+                } else {
+                    document.body.classList.remove('reduce-pin-motion');
+                    // Dynamically restore premium engine animations
+                    map.options.markerZoomAnimation = true;
+                    map.options.zoomAnimation = true;
+                }
             });
         }
 

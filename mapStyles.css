@@ -17,12 +17,12 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    
+
     /* 💎 Keep the premium "All" transition for high-end devices */
     transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    
+
     will-change: transform;
-    transform: translateZ(0); 
+    transform: translateZ(0);
 }
 
 /* Hover effects stay active for premium mode */
@@ -404,7 +404,8 @@ body.ultra-low * {
     animation: none !important;
     box-shadow: none !important;
     text-shadow: none !important;
-    border-radius: 0 !important; /* Round corners are surprisingly expensive to render */
+    border-radius: 0 !important;
+    /* Round corners are surprisingly expensive to render */
 }
 
 /* Stop smooth image scaling during zooms */
