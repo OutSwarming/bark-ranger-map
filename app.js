@@ -52,6 +52,9 @@ window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
 // Master state for the engine
 window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
 
+// 1-Finger Zoom disabled state
+window.disable1fingerZoom = localStorage.getItem('barkDisable1Finger') === 'true';
+
 // Apply Master Override if Ultra Low is ON
 if (window.ultraLowEnabled) {
     window.lowGfxEnabled = true;
@@ -232,12 +235,16 @@ const mapOptions = window.ultraLowEnabled ? {
     zoomDelta: 1,
     wheelDebounceTime: 40,
     wheelPxPerZoomLevel: 120,
+    doubleClickZoom: !window.disable1fingerZoom,
 
     // Let Leaflet's native GPU scaling handle the tile stretch
     markerZoomAnimation: true
 };
 
 const map = L.map('map', mapOptions);
+if (window.disable1fingerZoom) {
+    map.tap?.disable();
+}
 
 // 🎯 MAP MEMORY INJECTION
 function setInitialMapView(defaultLat, defaultLng) {
@@ -598,6 +605,22 @@ document.addEventListener('DOMContentLoaded', () => {
         setupPerfToggle('toggle-remove-shadows', 'removeShadows', 'barkRemoveShadows', 'remove-shadows');
         setupPerfToggle('toggle-stop-resizing', 'stopResizing', 'barkStopResizing', 'stop-resizing');
         setupPerfToggle('toggle-viewport-culling', 'viewportCulling', 'barkViewportCulling', 'viewport-culling');
+        
+        const disable1FingerEl = document.getElementById('toggle-disable-1finger');
+        if (disable1FingerEl) {
+            disable1FingerEl.checked = window.disable1fingerZoom;
+            disable1FingerEl.addEventListener('change', (e) => {
+                window.disable1fingerZoom = e.target.checked;
+                localStorage.setItem('barkDisable1Finger', window.disable1fingerZoom ? 'true' : 'false');
+                if (window.disable1fingerZoom) {
+                    map.doubleClickZoom.disable();
+                    map.tap?.disable();
+                } else {
+                    map.doubleClickZoom.enable();
+                    map.tap?.enable();
+                }
+            });
+        }
 
         // Ultra Low Toggle — uses the one already declared at line 413
         if (ultraLowToggle) {
