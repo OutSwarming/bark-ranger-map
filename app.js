@@ -269,10 +269,13 @@ map.on('moveend', () => {
         localStorage.setItem('mapZoom', map.getZoom());
     }, 500);
 
-    // 🚀 MAP SMOOTHNESS DYNAMIC RENDER
-    if (window.removeShadows) {
-        if (!window.clusteringEnabled || (window.premiumClusteringEnabled && map.getZoom() >= 7)) {
-            window.syncState();
+    // 🚀 VIEWPORT CULLING DYNAMIC RENDER (Throttled to prevent flash)
+    if (window.viewportCulling) {
+        if (!window._cullingTimeout) {
+            window._cullingTimeout = setTimeout(() => {
+                window._cullingTimeout = null;
+                window.syncState();
+            }, 300);
         }
     }
 });
@@ -2306,14 +2309,15 @@ function loadData() {
 // (Replaced by safeDataPoll above)
 
 function updateMarkers() {
-    markerLayer.clearLayers();
-    markerClusterGroup.clearLayers();
-
     const currentZoom = map.getZoom();
-    let forceNoClustering = (window.premiumClusteringEnabled && currentZoom >= 7);
+    // 🛑 STOP SPINNING BYPASS: MarkerClusterGroup internally rebuilds DOM nodes.
+    // When Stop Spinning is ON, force ALL markers into the simple markerLayer
+    // so DOM nodes are never destroyed/recreated (no flash, no re-spin).
+    let forceNoClustering = (window.premiumClusteringEnabled && currentZoom >= 7) || window.stopSpinning;
 
     let visibleBounds = L.latLngBounds();
     const screenBounds = map.getBounds().pad(0.2); // 📦 20% buffer for culling
+    const activeMarkerIds = new Set();
 
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
@@ -2344,12 +2348,13 @@ function updateMarkers() {
                 return;
             }
 
+            activeMarkerIds.add(item.id);
             if (!item.marker) item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
 
-            if (forceNoClustering || !window.clusteringEnabled) {
-                markerLayer.addLayer(item.marker);
-            } else {
-                markerClusterGroup.addLayer(item.marker);
+            // 🛑 PERSISTENT MARKER: Only add if not already on map
+            const targetLayer = (forceNoClustering || !window.clusteringEnabled) ? markerLayer : markerClusterGroup;
+            if (!targetLayer.hasLayer(item.marker)) {
+                targetLayer.addLayer(item.marker);
             }
 
             visibleBounds.extend(item.marker.getLatLng());
@@ -2357,6 +2362,16 @@ function updateMarkers() {
                 item.marker._icon.classList.toggle('visited-pin', isVisited);
             }
         }
+    });
+
+    // 🧹 CLEANUP: Remove only stale markers (not matching current filters)
+    markerLayer.eachLayer(l => {
+        const id = l._parkData ? l._parkData.id : null;
+        if (!id || !activeMarkerIds.has(id)) markerLayer.removeLayer(l);
+    });
+    markerClusterGroup.eachLayer(l => {
+        const id = l._parkData ? l._parkData.id : null;
+        if (!id || !activeMarkerIds.has(id)) markerClusterGroup.removeLayer(l);
     });
 
     // Handle Map Layer Assignment
