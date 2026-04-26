@@ -12,27 +12,27 @@ let rememberMapPosition = localStorage.getItem('remember-map-toggle') === 'true'
 // Global Lookup Engine (v25 Performance)
 window.parkLookup = new Map();
 
-let mapSaveTimeout; 
+let mapSaveTimeout;
 
 // Apply initial Low Graphics class
 if (lowGfxEnabled) document.body.classList.add('low-graphics');
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
-document.addEventListener('contextmenu', function(e) {
+document.addEventListener('contextmenu', function (e) {
     if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
     }
 });
 
 let lastTouchTime = 0;
-document.addEventListener('touchstart', function(e) {
+document.addEventListener('touchstart', function (e) {
     const time = new Date().getTime();
     const timeSince = time - lastTouchTime;
     // Intercept the second tap of a double tap (which can lead to a magnifying glass if held)
     if (timeSince < 300 && timeSince > 0) {
         if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && !e.target.isContentEditable) {
-            e.preventDefault(); 
+            e.preventDefault();
         }
     }
     lastTouchTime = time;
@@ -299,14 +299,32 @@ const markerClusterGroup = L.markerClusterGroup({
     chunkedLoading: true, // Processes in batches so old phones don't freeze
     removeOutsideVisibleBounds: true, // Deletes off-screen pins to save RAM
     disableClusteringAtZoom: 16, // Ungroups when zoomed in close
-    animate: false // Turned off specifically to save CPU on older phones
+    animate: false, // Turned off specifically to save CPU on older phones
+    // ✨ THE PREMIUM B.A.R.K. LOGO CLUSTER ✨
+    iconCreateFunction: function(cluster) {
+        const childCount = cluster.getChildCount();
+        
+        const markerHtml = `
+            <div class="cluster-enamel-wrapper">
+                <img src="bark-logo.jpeg" alt="B.A.R.K. Cluster" loading="lazy" />
+                <div class="cluster-count-badge">${childCount}</div>
+            </div>
+        `;
+
+        return L.divIcon({
+            html: markerHtml,
+            className: 'bark-cluster-marker',
+            iconSize: [46, 46],   // Slightly larger than standard pins
+            iconAnchor: [23, 23]  // Perfectly centered
+        });
+    }
 });
 
 // (Settings state moved to top of file)
 
 document.addEventListener('DOMContentLoaded', () => {
     // 🛡️ HARDWARE GUARD (v25)
-    const deviceRAM = navigator.deviceMemory || 4; 
+    const deviceRAM = navigator.deviceMemory || 4;
     if (deviceRAM < 4) {
         document.body.classList.add('low-graphics');
         const gfxToggle = document.getElementById('low-gfx-toggle');
@@ -434,15 +452,15 @@ function populateTrailWarpGrid() {
                 alert("Please sign in first!");
                 return;
             }
-            
+
             console.log(`🛠️ Dev Test: Warping to ${trail.name}...`);
-            
+
             // 1. Assign trail to user
             await assignTrailToUser(user.uid, trail);
-            
+
             // 2. Fly to active trail
             if (typeof flyToActiveTrail === 'function') flyToActiveTrail();
-            
+
             // 3. Close settings modal
             const settingsOverlay = document.getElementById('settings-overlay');
             if (settingsOverlay) settingsOverlay.classList.remove('active');
@@ -837,7 +855,7 @@ async function evaluateAchievements(visitedPlacesMap) {
     // --- STATES SORT: DISTANCE & COMPLETION ---
     const stateDistances = {};
     const refLatLng = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
-    
+
     if (allPoints && allPoints.length > 0) {
         allPoints.forEach(p => {
             if (p.state && p.lat && p.lng) {
@@ -881,12 +899,12 @@ async function evaluateAchievements(visitedPlacesMap) {
         if (!aUnlocked && bUnlocked) return 1;
 
         if (aUnlocked && bUnlocked) {
-             return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0); // newest first
+            return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0); // newest first
         }
 
         const aDist = stateDistances[aCode] !== undefined ? stateDistances[aCode] : Infinity;
         const bDist = stateDistances[bCode] !== undefined ? stateDistances[bCode] : Infinity;
-        
+
         return aDist - bDist; // closest first
     });
 
@@ -1003,7 +1021,7 @@ let cachedTrailsData = null;
 
 async function getTrailsData() {
     if (window._cachedTrailsData) return window._cachedTrailsData;
-    
+
     try {
         const response = await fetch('trails.json');
         window._cachedTrailsData = await response.json();
@@ -1061,7 +1079,7 @@ function formatSwagLinks(text) {
  * Batches DOM updates into a single frame buffer.
  */
 let isSyncing = false;
-window.syncState = function() {
+window.syncState = function () {
     if (isSyncing || (!window.parkLookup || window.parkLookup.size === 0)) return;
     isSyncing = true;
     window.requestAnimationFrame(() => {
@@ -1217,7 +1235,7 @@ if (toggleVirtualBtn) {
         if (this.classList.contains('active')) {
             virtualTrailLayerGroup.addTo(map);
             if (virtualTrailLayerGroup.getLayers().length > 0) {
-                map.fitBounds(virtualTrailLayerGroup.getBounds(), { 
+                map.fitBounds(virtualTrailLayerGroup.getBounds(), {
                     padding: [50, 50],
                     animate: !instantNav,
                     duration: instantNav ? 0 : 0.5
@@ -1236,7 +1254,7 @@ if (toggleCompletedBtn) {
         if (this.classList.contains('active')) {
             completedTrailsLayerGroup.addTo(map);
             if (completedTrailsLayerGroup.getLayers().length > 0) {
-                map.fitBounds(completedTrailsLayerGroup.getBounds(), { 
+                map.fitBounds(completedTrailsLayerGroup.getBounds(), {
                     padding: [50, 50],
                     animate: !instantNav,
                     duration: instantNav ? 0 : 0.5
@@ -1706,14 +1724,14 @@ function processParsedResults(results) {
 
                         markVisitedBtn.classList.add('visited');
                         markVisitedText.textContent = '✓ Visited';
-                        
+
                         // Delete logic styling if setting is flipped
                         if (allowUncheck && !cachedObj.verified) {
                             markVisitedBtn.disabled = false;
                             markVisitedBtn.style.cursor = 'pointer';
                             markVisitedBtn.style.opacity = '1';
                             markVisitedBtn.style.background = '#4CAF50';
-                            
+
                             // Visual cue on hover to delete
                             markVisitedBtn.onmouseenter = () => markVisitedText.textContent = '✖ Remove Check-in';
                             markVisitedBtn.onmouseleave = () => markVisitedText.textContent = '✓ Visited';
@@ -1814,14 +1832,14 @@ function processParsedResults(results) {
                                 markVisitedText.textContent = 'Mark as Visited';
                                 markVisitedBtn.onmouseenter = null;
                                 markVisitedBtn.onmouseleave = null;
-                                
+
                                 // Direct sync
                                 const updatedArray = Array.from(userVisitedPlaces.values());
                                 await firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid).update({ visitedPlaces: updatedArray });
 
                                 window.syncState();
                             }
-                            return; 
+                            return;
                         }
 
                         const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: false, ts: Date.now() };
@@ -1853,9 +1871,9 @@ function processParsedResults(results) {
             const targetLatLng = map.unproject(targetPoint, currentZoom);
 
             // Use panTo instead of setView to guarantee it only moves the camera X/Y
-            map.panTo(targetLatLng, { 
-                animate: !instantNav, 
-                duration: instantNav ? 0 : 0.5 
+            map.panTo(targetLatLng, {
+                animate: !instantNav,
+                duration: instantNav ? 0 : 0.5
             });
 
             slidePanel.classList.add('open');
@@ -2053,7 +2071,7 @@ function loadData() {
 function updateMarkers() {
     markerLayer.clearLayers();
     markerClusterGroup.clearLayers();
-    
+
     let visibleBounds = L.latLngBounds(); // 🎯 Track the boundaries
 
     allPoints.forEach(item => {
@@ -2097,7 +2115,7 @@ function updateMarkers() {
             } else {
                 markerLayer.addLayer(item.marker);
             }
-            
+
             visibleBounds.extend(item.marker.getLatLng()); // 🎯 Expand the invisible frame
 
             if (item.marker._icon) {
@@ -2127,9 +2145,9 @@ function updateMarkers() {
         window._lastFilterState = currentFilterState;
 
         if ((activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
-            map.flyToBounds(visibleBounds, { 
-                padding: [50, 50], 
-                maxZoom: 12, 
+            map.flyToBounds(visibleBounds, {
+                padding: [50, 50],
+                maxZoom: 12,
                 duration: instantNav ? 0 : 0.8,
                 animate: !instantNav
             });
@@ -2201,7 +2219,7 @@ searchInput.addEventListener('input', (e) => {
                     window.syncState();
 
                     if (match.item.marker && match.item.marker._parkData) {
-                        map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, { 
+                        map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, {
                             animate: !instantNav,
                             duration: instantNav ? 0 : 0.4
                         });
@@ -2382,7 +2400,7 @@ async function loadSavedRoutes(uid, isLoadMore = false) {
 
         const populateList = (list) => {
             if (!list) return;
-            
+
             if (snapshot.empty && !isLoadMore) {
                 list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">No saved routes yet. Generate a route to save it here!</p>';
                 return;
@@ -2533,7 +2551,7 @@ if (typeof firebase !== 'undefined') {
                 console.log("🛠️ God Mode Unlocked: Trail Warp Grid Enabled");
             }
         };
-        
+
         ['touchstart', 'mousedown'].forEach(evt => {
             if (profileName) profileName.addEventListener(evt, () => {
                 godModeTimer = setTimeout(triggerGodMode, 3000);
@@ -2874,7 +2892,7 @@ async function checkForUpdates() {
     if (data.version && remoteVersion !== seenVersion) {
         const toast = document.getElementById('update-toast');
         if (toast) toast.classList.add('show');
-        
+
         // Mark this version as "notified/seen" so it won't trigger on every poll/refresh
         localStorage.setItem('bark_seen_version', remoteVersion);
         APP_VERSION = remoteVersion; // Sync the local session variable
@@ -3073,7 +3091,7 @@ function renderLeaderboard(topUsers) {
             const competitorScore = data[rank - 2].totalPoints !== undefined ? data[rank - 2].totalPoints : (data[rank - 2].totalVisited || 0);
             const myScore = user.totalPoints !== undefined ? user.totalPoints : (user.totalVisited || 0);
             const pointsToOvertake = parseFloat((competitorScore - myScore + 0.1).toFixed(1));
-            
+
             if (pointsToOvertake > 0) {
                 const rivalryPill = document.createElement('span');
                 rivalryPill.className = 'rivalry-pill';
@@ -3170,7 +3188,7 @@ async function loadLeaderboard() {
                 const projectId = firebase.app().options.projectId;
                 const idToken = await firebase.auth().currentUser.getIdToken();
                 const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runAggregationQuery`;
-                
+
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: {
@@ -3198,7 +3216,7 @@ async function loadLeaderboard() {
                 // The API returns an array. We target the alias 'rankCount'
                 const countMatched = parseInt(countData[0].result.aggregateFields.rankCount.integerValue);
                 exactRank = countMatched + 1;
-            } catch(e) {
+            } catch (e) {
                 console.warn('REST API aggregate rank lookup failed.', e);
                 exactRank = null;
             }
@@ -3274,7 +3292,7 @@ async function loadMoreLeaderboard() {
                 const projectId = firebase.app().options.projectId;
                 const idToken = await firebase.auth().currentUser.getIdToken();
                 const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runAggregationQuery`;
-                
+
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: {
@@ -3301,7 +3319,7 @@ async function loadMoreLeaderboard() {
                 const countData = await response.json();
                 const countMatched = parseInt(countData[0].result.aggregateFields.rankCount.integerValue);
                 let exactRank = countMatched + 1;
-                
+
                 cachedLeaderboardData.push({
                     uid: user.uid,
                     displayName: user.displayName || 'Bark Ranger',
@@ -3311,7 +3329,7 @@ async function loadMoreLeaderboard() {
                     isPersonalFallback: true,
                     exactRank: exactRank
                 });
-            } catch(e) {
+            } catch (e) {
                 console.warn('REST API aggregate rank lookup failed in loadMore', e);
             }
         }
@@ -4856,7 +4874,7 @@ async function executeGeocode(query, targetType) {
                 window.syncState();
 
                 // Pan map to the new custom location
-                if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { 
+                if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, {
                     animate: !instantNav,
                     duration: instantNav ? 0 : 0.4
                 });
@@ -4896,7 +4914,7 @@ async function executeGeocode(query, targetType) {
                             window.syncState();
 
                             // Pan map to the new custom location
-                            if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { 
+                            if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, {
                                 animate: !instantNav,
                                 duration: instantNav ? 0 : 0.4
                             });
@@ -5112,7 +5130,7 @@ async function generateAndRenderTripRoute() {
 
     if (allBounds.length > 0) {
         const combined = allBounds.reduce((acc, b) => acc.extend(b), allBounds[0]);
-        map.fitBounds(combined, { 
+        map.fitBounds(combined, {
             padding: [50, 50],
             animate: !instantNav,
             duration: instantNav ? 0 : 0.5
@@ -5298,7 +5316,7 @@ const WalkTracker = {
 
     async start() {
         if (!navigator.geolocation) return alert('GPS not supported');
-        
+
         this.points = [];
         this.totalMiles = 0;
         this.lastValidLocation = null;
@@ -5320,7 +5338,7 @@ const WalkTracker = {
             // We overwrite the onclick to stop; initTrainingUI will restore it later
             btn.onclick = () => this.stopAndSave();
         }
-        
+
         const cancelBtn = document.getElementById('cancel-training-btn');
         if (cancelBtn) cancelBtn.style.display = 'block';
 
@@ -5346,7 +5364,7 @@ const WalkTracker = {
         const lng = pos.coords.longitude;
 
         // FILTER 1: Ignore garbage data (radius > 25 meters means weak signal)
-        if (accMeters > 25) return; 
+        if (accMeters > 25) return;
 
         if (!this.lastValidLocation) {
             this.lastValidLocation = { lat, lng, ts: Date.now() };
@@ -5362,7 +5380,7 @@ const WalkTracker = {
             this.totalMiles += miles;
             this.lastValidLocation = { lat, lng, ts: Date.now() };
             this.points.push(this.lastValidLocation);
-            
+
             // Update UI real-time
             this.updateDistanceUI();
         }
@@ -5377,10 +5395,10 @@ const WalkTracker = {
             // App came back to foreground
             this.isBlackedOut = false;
             const blackoutDurationMins = (Date.now() - this.blackoutStartTime) / 60000;
-            
+
             // Re-acquire Wake Lock if it was dropped (iOS Safari quirk)
             if ('wakeLock' in navigator) {
-                navigator.wakeLock.request('screen').then(wl => this.wakeLock = wl).catch(()=>{});
+                navigator.wakeLock.request('screen').then(wl => this.wakeLock = wl).catch(() => { });
             }
 
             // If they were locked out for more than 2 minutes, we likely missed a chunk of the loop
@@ -5392,7 +5410,7 @@ const WalkTracker = {
 
     triggerBlackoutFallback(minutesLost) {
         const manualMiles = prompt(`Welcome back! iOS paused your GPS for ${Math.round(minutesLost)} minutes while your screen was off.\n\nWe successfully tracked ${this.totalMiles.toFixed(2)} miles before the pause. How many missing miles did you walk while the screen was off? (Enter 0 if none)`);
-        
+
         const parsed = parseFloat(manualMiles);
         if (!isNaN(parsed) && parsed > 0) {
             this.totalMiles += parsed;
@@ -5410,7 +5428,7 @@ const WalkTracker = {
             alert(`Expedition Complete! You logged ${finalMiles.toFixed(2)} miles.`);
             await processMileageAddition(finalMiles, 'GPS Active Track');
         }
-        
+
         initTrainingUI(); // Resets UI and restores original onclick
     },
 
@@ -5423,10 +5441,10 @@ const WalkTracker = {
         if (this.watchId !== null) navigator.geolocation.clearWatch(this.watchId);
         if (this.boundVisibilityHandler) document.removeEventListener('visibilitychange', this.boundVisibilityHandler);
         if (this.wakeLock) {
-            this.wakeLock.release().catch(()=>{});
+            this.wakeLock.release().catch(() => { });
             this.wakeLock = null;
         }
-        
+
         // Hide the global banner
         this.hideFloatingBanner();
 
@@ -5469,7 +5487,7 @@ const WalkTracker = {
                 if (profileTab) profileTab.click();
             };
             document.body.appendChild(banner);
-            
+
             const style = document.createElement('style');
             style.innerHTML = `
                 @keyframes pulse {
@@ -5687,19 +5705,19 @@ function showRankUpCelebration(oldTitle, newTitle) {
     if (!lowGfxEnabled) {
         for (let i = 0; i < 40; i++) {
             const particle = document.createElement('div');
-        const color = confettiColors[Math.floor(Math.random() * confettiColors.length)];
-        const left = Math.random() * 100;
-        const delay = Math.random() * 2;
-        const duration = 2 + Math.random() * 3;
-        const size = 6 + Math.random() * 8;
-        particle.style.cssText = `
+            const color = confettiColors[Math.floor(Math.random() * confettiColors.length)];
+            const left = Math.random() * 100;
+            const delay = Math.random() * 2;
+            const duration = 2 + Math.random() * 3;
+            const size = 6 + Math.random() * 8;
+            particle.style.cssText = `
             position: fixed; top: -20px; left: ${left}%; width: ${size}px; height: ${size}px;
             background: ${color}; border-radius: ${Math.random() > 0.5 ? '50%' : '2px'};
             z-index: 100000; pointer-events: none;
             animation: confettiFall ${duration}s ease-in ${delay}s forwards;
         `;
-        overlay.appendChild(particle);
-    }
+            overlay.appendChild(particle);
+        }
     }
 
     // Auto-dismiss after 8 seconds

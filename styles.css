@@ -75,7 +75,9 @@ html {
 }
 
 /* Allow text selection in inputs and textareas */
-input, textarea, [contenteditable="true"] {
+input,
+textarea,
+[contenteditable="true"] {
     -webkit-user-select: text !important;
     -ms-user-select: text !important;
     user-select: text !important;
@@ -1118,14 +1120,14 @@ details[open] .chevron {
     bottom: 3px;
     background-color: white;
     transition: .3s;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-input:checked + .slider {
+input:checked+.slider {
     background-color: #4CAF50;
 }
 
-input:checked + .slider:before {
+input:checked+.slider:before {
     transform: translateX(20px);
 }
 
@@ -1187,7 +1189,8 @@ input:checked + .slider:before {
 .modal-body {
     flex: 1;
     overflow-y: auto;
-    padding-right: 15px; /* Space for scrollbar */
+    padding-right: 15px;
+    /* Space for scrollbar */
     margin-right: -5px;
     display: flex;
     flex-direction: column;
@@ -1198,14 +1201,17 @@ input:checked + .slider:before {
 .modal-body::-webkit-scrollbar {
     width: 4px;
 }
+
 .modal-body::-webkit-scrollbar-track {
     background: #f1f5f9;
     border-radius: 10px;
 }
+
 .modal-body::-webkit-scrollbar-thumb {
     background: #cbd5e1;
     border-radius: 10px;
 }
+
 .modal-body::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
 }
@@ -1266,26 +1272,33 @@ input:checked + .slider:before {
 .dev-warp-btn:active {
     transform: translateY(0);
 }
+
 @keyframes fade-in-up {
     from {
         opacity: 0;
         transform: translateY(20px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
     }
 }
+
 /* --- Performance Pin Grouping Styles --- */
-.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
-    background-color: rgba(45, 52, 54, 0.7) !important; /* Dark slate background */
-    border: 2px solid #fab1a0 !important; /* B.A.R.K. peach border */
+.marker-cluster-small,
+.marker-cluster-medium,
+.marker-cluster-large {
+    background-color: rgba(45, 52, 54, 0.7) !important;
+    /* Dark slate background */
+    border: 2px solid #fab1a0 !important;
+    /* B.A.R.K. peach border */
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
 }
 
 .marker-cluster div {
-    background-color: #fab1a0 !important; 
+    background-color: #fab1a0 !important;
     color: #2d3436 !important;
     font-weight: 800 !important;
     font-family: 'Inter', sans-serif !important;
@@ -1293,7 +1306,7 @@ input:checked + .slider:before {
 }
 
 /* Instantly strips expensive renders when the toggle is ON */
-body.low-graphics .profile-overlay, 
+body.low-graphics .profile-overlay,
 body.low-graphics .modal-overlay,
 body.low-graphics .modal-card,
 body.low-graphics .settings-trigger,
