@@ -1,4 +1,4 @@
-const APP_VERSION = 13;
+const APP_VERSION = 14;
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
@@ -254,8 +254,20 @@ setTimeout(() => {
     map.locate({ setView: false, watch: false });
 }, 500); // Give the map engine a slight delay to settle before prompting
 
+// Create a marker layer group for easy clearing
+const markerLayer = L.layerGroup().addTo(map);
+
+// Creates the clustering engine, but does NOT add it to the map yet.
+const markerClusterGroup = L.markerClusterGroup({
+    chunkedLoading: true, // Processes in batches so old phones don't freeze
+    removeOutsideVisibleBounds: true, // Deletes off-screen pins to save RAM
+    disableClusteringAtZoom: 16, // Ungroups when zoomed in close
+    animate: false // Turned off specifically to save CPU on older phones
+});
+
 // ====== SETTINGS UI LOGIC ======
 let allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
+let clusteringEnabled = localStorage.getItem('barkClusteringEnabled') === 'true';
 
 document.addEventListener('DOMContentLoaded', () => {
     const settingsGearBtn = document.getElementById('settings-gear-btn');
@@ -263,9 +275,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const settingsModal = document.getElementById('settings-modal');
     const closeSettingsBtn = document.getElementById('close-settings-btn');
     const allowUncheckToggle = document.getElementById('allow-uncheck-setting');
+    const clusterToggle = document.getElementById('cluster-toggle');
 
     if (settingsGearBtn && settingsOverlay) {
         if (allowUncheckToggle) allowUncheckToggle.checked = allowUncheck;
+        if (clusterToggle) clusterToggle.checked = clusteringEnabled;
 
         // Set version dinamically
         const versionLabel = document.getElementById('settings-app-version');
@@ -292,11 +306,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.setItem('barkAllowUncheck', allowUncheck ? 'true' : 'false');
             });
         }
+
+        if (clusterToggle) {
+            clusterToggle.addEventListener('change', (e) => {
+                clusteringEnabled = e.target.checked;
+                localStorage.setItem('barkClusteringEnabled', clusteringEnabled ? 'true' : 'false');
+                updateMarkers(); // Instant re-render
+            });
+        }
     }
 });
-
-// Create a marker layer group for easy clearing
-const markerLayer = L.layerGroup().addTo(map);
 
 let allPoints = [];
 let activePinMarker = null;
@@ -1831,6 +1850,8 @@ function loadData() {
 
 function updateMarkers() {
     markerLayer.clearLayers();
+    markerClusterGroup.clearLayers();
+    
     let visibleBounds = L.latLngBounds(); // 🎯 Track the boundaries
 
     allPoints.forEach(item => {
@@ -1867,7 +1888,13 @@ function updateMarkers() {
         const isInTrip = Array.from(tripDays).some(day => day.stops.some(s => s.id === item.id));
 
         if ((matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip) {
-            markerLayer.addLayer(item.marker);
+            // THE STRICT FORK: Where does the pin go?
+            if (clusteringEnabled) {
+                markerClusterGroup.addLayer(item.marker);
+            } else {
+                markerLayer.addLayer(item.marker);
+            }
+            
             visibleBounds.extend(item.marker.getLatLng()); // 🎯 Expand the invisible frame
 
             if (item.marker._icon) {
@@ -1879,6 +1906,15 @@ function updateMarkers() {
             }
         }
     });
+
+    // Handle Map Layer Assignment
+    if (clusteringEnabled) {
+        if (!map.hasLayer(markerClusterGroup)) map.addLayer(markerClusterGroup);
+        if (map.hasLayer(markerLayer)) map.removeLayer(markerLayer);
+    } else {
+        if (!map.hasLayer(markerLayer)) map.addLayer(markerLayer);
+        if (map.hasLayer(markerClusterGroup)) map.removeLayer(markerClusterGroup);
+    }
 
     // 🎯 SMART AUTO-FRAMING (Interrupt Protection)
     // Only swoop the camera if the user actually changed the search/filter criteria
