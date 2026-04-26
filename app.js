@@ -25,6 +25,7 @@ if (lowGfxSaved !== null) {
 window.simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
 window.instantNav = localStorage.getItem('barkInstantNav') === 'true';
 window.rememberMapPosition = localStorage.getItem('remember-map-toggle') === 'true';
+window.startNationalView = localStorage.getItem('barkNationalView') === 'true'; // ✨ NEW
 window.stopAutoMovements = localStorage.getItem('barkStopAutoMove') === 'true';
 
 // 🛑 REDUCE PIN SCALING / MOTION STATE
@@ -259,7 +260,9 @@ function setInitialMapView(defaultLat, defaultLng) {
         return true; // Use saved position
     } else {
         console.log("📍 Starting at default/current location...");
-        map.setView([defaultLat, defaultLng], parseInt(savedZoom), { animate: false });
+        // ✨ NEW: If National View is ON, start at Zoom 4. Otherwise, use Zoom 7.
+        const startZoom = window.startNationalView ? 4 : 7;
+        map.setView([defaultLat, defaultLng], startZoom, { animate: false });
         return false; // Use default position
     }
 }
@@ -416,15 +419,17 @@ map.on('locationerror', function (e) {
 
 // Prompt for location immediately on load
 setTimeout(() => {
-    // Only auto-center if Remember Map Position is OFF
+    // ✨ NEW: Only let the GPS grab the camera if BOTH settings are OFF
     const usedSaved = window.rememberMapPosition && localStorage.getItem('mapLat');
-    if (!usedSaved) {
+    
+    if (!usedSaved && !window.startNationalView) {
+        // Standard behavior: zoom to user
         map.locate({ setView: true, maxZoom: 10 });
     } else {
-        // Just locate without centering (to show the blue dot)
+        // Just drop the blue dot, DO NOT move the camera
         map.locate({ setView: false, watch: false });
     }
-}, 500); // Give the map engine a slight delay to settle before prompting
+}, 500); 
 
 // Create a marker layer group for easy clearing
 const markerLayer = L.layerGroup().addTo(map);
@@ -747,10 +752,33 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        const nationalViewToggle = document.getElementById('national-view-toggle');
         if (rememberMapToggle) {
             rememberMapToggle.addEventListener('change', (e) => {
                 window.rememberMapPosition = e.target.checked;
                 localStorage.setItem('remember-map-toggle', window.rememberMapPosition ? 'true' : 'false');
+                
+                // 🔌 Mutual Exclusivity: Turn off National View if this is on
+                if (window.rememberMapPosition && nationalViewToggle) {
+                    nationalViewToggle.checked = false;
+                    window.startNationalView = false;
+                    localStorage.setItem('barkNationalView', 'false');
+                }
+            });
+        }
+
+        if (nationalViewToggle) {
+            nationalViewToggle.checked = window.startNationalView;
+            nationalViewToggle.addEventListener('change', (e) => {
+                window.startNationalView = e.target.checked;
+                localStorage.setItem('barkNationalView', window.startNationalView ? 'true' : 'false');
+                
+                // 🔌 Mutual Exclusivity: Turn off Remember Position if this is on
+                if (window.startNationalView && rememberMapToggle) {
+                    rememberMapToggle.checked = false;
+                    window.rememberMapPosition = false;
+                    localStorage.setItem('remember-map-toggle', 'false');
+                }
             });
         }
 
@@ -762,6 +790,97 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.setItem('barkStopAutoMove', window.stopAutoMovements ? 'true' : 'false');
             });
         }
+
+        // ☢️ TERMINATE & RELOAD ENGINE
+        const terminateBtn = document.getElementById('terminate-reload-btn');
+        if (terminateBtn) {
+            terminateBtn.addEventListener('click', async () => {
+                const proceed = window.confirm(
+                    "☢️ WARNING: NUCLEAR OPTION ☢️\n\n" +
+                    "This will completely wipe all local app memory, reset all map settings to default, and log you out.\n\n" +
+                    "Don't worry: Your verified visits, reward points, and expedition walks are safely backed up in the cloud and will restore when you log back in.\n\n" +
+                    "Are you absolutely sure you want to terminate and reload?"
+                );
+
+                if (proceed) {
+                    // 1. Change button state to show it's working
+                    terminateBtn.textContent = 'TERMINATING...';
+                    terminateBtn.style.opacity = '0.5';
+                    terminateBtn.disabled = true;
+
+                    try {
+                        // 2. Force a final sync to Firebase just to be absolutely safe (if logged in)
+                        if (typeof firebase !== 'undefined' && firebase.auth().currentUser && typeof syncUserProgress === 'function') {
+                            await syncUserProgress();
+                        }
+
+                        // 3. Log out of Firebase
+                        if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
+                            await firebase.auth().signOut();
+                        }
+                    } catch (e) {
+                        console.error("Non-fatal error during termination sync/logout", e);
+                    }
+
+                    // 4. Nuke the Local Storage (Wipes settings, CSV cache, map position, etc)
+                    localStorage.clear();
+
+                    // 5. Force a hard, cache-bypassing reload of the web app
+                    window.location.reload(true);
+                }
+            });
+        }
+
+        // ☁️ SAVE SETTINGS TO FIREBASE (1 Single Write)
+        const saveSettingsBtn = document.getElementById('save-settings-cloud-btn');
+        if (saveSettingsBtn) {
+            saveSettingsBtn.addEventListener('click', async () => {
+                // Ensure user is logged in
+                if (typeof firebase === 'undefined' || !firebase.auth().currentUser) {
+                    alert("You must be logged in to save settings to the cloud.");
+                    return;
+                }
+
+                // Button visual feedback
+                const originalText = saveSettingsBtn.innerHTML;
+                saveSettingsBtn.innerHTML = '⏳ SAVING...';
+                saveSettingsBtn.disabled = true;
+
+                // Bundle all settings into ONE payload
+                const settingsPayload = {
+                    allowUncheck: window.allowUncheck || false,
+                    standardClustering: window.standardClusteringEnabled !== false, // Defaults to true
+                    premiumClustering: window.premiumClusteringEnabled || false,
+                    lowGfxEnabled: window.lowGfxEnabled || false,
+                    simplifyTrails: window.simplifyTrails || false,
+                    instantNav: window.instantNav || false,
+                    rememberMapPosition: window.rememberMapPosition || false,
+                    startNationalView: window.startNationalView || false,
+                    stopAutoMovements: window.stopAutoMovements || false,
+                    reducePinMotion: window.reducePinMotion || false,
+                    mapStyle: localStorage.getItem('barkMapStyle') || 'default',
+                    visitedFilter: localStorage.getItem('barkVisitedFilter') || 'all'
+                };
+
+                try {
+                    // Fire the single write to Firestore
+                    await firebase.firestore().collection('users')
+                        .doc(firebase.auth().currentUser.uid)
+                        .set({ settings: settingsPayload }, { merge: true });
+                    
+                    saveSettingsBtn.innerHTML = '✅ SAVED TO CLOUD';
+                    setTimeout(() => {
+                        saveSettingsBtn.innerHTML = originalText;
+                        saveSettingsBtn.disabled = false;
+                    }, 2000);
+                } catch (error) {
+                    console.error("Error saving settings to cloud:", error);
+                    saveSettingsBtn.innerHTML = '❌ ERROR SAVING';
+                    saveSettingsBtn.disabled = false;
+                }
+            });
+        }
+
     }
 });
 
@@ -2941,7 +3060,63 @@ if (typeof firebase !== 'undefined') {
 
                     if (doc.exists) {
                         const data = doc.data();
+
+                        // ☁️ LOAD SETTINGS FROM FIREBASE (Included in the existing 1 Read)
+                        if (data.settings) {
+                            const cloudSettings = data.settings;
+                            
+                            // 1. Overwrite localStorage with cloud truth
+                            localStorage.setItem('barkAllowUncheck', cloudSettings.allowUncheck ? 'true' : 'false');
+                            localStorage.setItem('barkStandardClustering', cloudSettings.standardClustering ? 'true' : 'false');
+                            localStorage.setItem('barkPremiumClustering', cloudSettings.premiumClustering ? 'true' : 'false');
+                            localStorage.setItem('barkLowGfxEnabled', cloudSettings.lowGfxEnabled ? 'true' : 'false');
+                            localStorage.setItem('barkSimplifyTrails', cloudSettings.simplifyTrails ? 'true' : 'false');
+                            localStorage.setItem('barkInstantNav', cloudSettings.instantNav ? 'true' : 'false');
+                            localStorage.setItem('remember-map-toggle', cloudSettings.rememberMapPosition ? 'true' : 'false');
+                            localStorage.setItem('barkNationalView', cloudSettings.startNationalView ? 'true' : 'false');
+                            localStorage.setItem('barkStopAutoMove', cloudSettings.stopAutoMovements ? 'true' : 'false');
+                            localStorage.setItem('barkReducePinMotion', cloudSettings.reducePinMotion ? 'true' : 'false');
+                            if (cloudSettings.mapStyle) localStorage.setItem('barkMapStyle', cloudSettings.mapStyle);
+                            if (cloudSettings.visitedFilter) localStorage.setItem('barkVisitedFilter', cloudSettings.visitedFilter);
+
+                            // 2. Update live window variables immediately
+                            window.allowUncheck = cloudSettings.allowUncheck || false;
+                            window.standardClusteringEnabled = cloudSettings.standardClustering !== false;
+                            window.premiumClusteringEnabled = cloudSettings.premiumClustering || false;
+                            window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
+                            window.lowGfxEnabled = cloudSettings.lowGfxEnabled || false;
+                            window.simplifyTrails = cloudSettings.simplifyTrails || false;
+                            window.instantNav = cloudSettings.instantNav || false;
+                            window.rememberMapPosition = cloudSettings.rememberMapPosition || false;
+                            window.startNationalView = cloudSettings.startNationalView || false;
+                            window.stopAutoMovements = cloudSettings.stopAutoMovements || false;
+                            window.reducePinMotion = cloudSettings.reducePinMotion || false;
+
+                            // 3. Visually update all Settings UI Toggles to match
+                            const syncToggle = (id, state) => { const el = document.getElementById(id); if (el) el.checked = state; };
+                            syncToggle('allow-uncheck-setting', window.allowUncheck);
+                            syncToggle('toggle-standard-clustering', window.standardClusteringEnabled);
+                            syncToggle('toggle-premium-clustering', window.premiumClusteringEnabled);
+                            syncToggle('toggle-low-gfx', window.lowGfxEnabled);
+                            syncToggle('toggle-simplify-trails', window.simplifyTrails);
+                            syncToggle('toggle-instant-nav', window.instantNav);
+                            syncToggle('remember-map-toggle', window.rememberMapPosition);
+                            syncToggle('national-view-toggle', window.startNationalView);
+                            syncToggle('toggle-stop-auto-move', window.stopAutoMovements);
+                            syncToggle('toggle-reduce-motion', window.reducePinMotion);
+                            
+                            // Update Dropdowns
+                            const styleDropdown = document.getElementById('map-style-select');
+                            if (styleDropdown && cloudSettings.mapStyle) styleDropdown.value = cloudSettings.mapStyle;
+                            
+                            const filterDropdown = document.getElementById('visited-filter');
+                            if (filterDropdown && cloudSettings.visitedFilter) filterDropdown.value = cloudSettings.visitedFilter;
+
+                            console.log("☁️ Cloud settings synced successfully!");
+                        }
+
                         const placeList = data.visitedPlaces || [];
+
 
                         // Admin Dashboard Reveal
                         const adminContainer = document.getElementById('admin-controls-container');
