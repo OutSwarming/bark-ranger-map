@@ -51,7 +51,9 @@ window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
 window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
 
 // 1-Finger Zoom disabled state
+window.lockMapPanning = localStorage.getItem('barkLockMapPanning') === 'true';
 window.disable1fingerZoom = localStorage.getItem('barkDisable1Finger') === 'true';
+window.disableDoubleTap = localStorage.getItem('barkDisableDoubleTap') === 'true';
 
 // Apply Master Override if Ultra Low is ON
 if (window.ultraLowEnabled) {
@@ -233,16 +235,13 @@ const mapOptions = window.ultraLowEnabled ? {
     zoomDelta: 1,
     wheelDebounceTime: 40,
     wheelPxPerZoomLevel: 120,
-    doubleClickZoom: !window.disable1fingerZoom,
+    doubleClickZoom: !window.disableDoubleTap,
 
     // Let Leaflet's native GPU scaling handle the tile stretch
     markerZoomAnimation: true
 };
 
 const map = L.map('map', mapOptions);
-if (window.disable1fingerZoom) {
-    map.tap?.disable();
-}
 
 // 🎯 MAP MEMORY INJECTION
 function setInitialMapView(defaultLat, defaultLng) {
@@ -603,17 +602,35 @@ document.addEventListener('DOMContentLoaded', () => {
         setupPerfToggle('toggle-stop-resizing', 'stopResizing', 'barkStopResizing', 'stop-resizing');
         setupPerfToggle('toggle-viewport-culling', 'viewportCulling', 'barkViewportCulling', 'viewport-culling');
         
+        const disableDoubleTapEl = document.getElementById('toggle-disable-double-tap');
+        if (disableDoubleTapEl) {
+            disableDoubleTapEl.checked = window.disableDoubleTap;
+            disableDoubleTapEl.addEventListener('change', (e) => {
+                window.disableDoubleTap = e.target.checked;
+                localStorage.setItem('barkDisableDoubleTap', window.disableDoubleTap ? 'true' : 'false');
+                if (window.disableDoubleTap) {
+                    map.doubleClickZoom.disable();
+                } else {
+                    map.doubleClickZoom.enable();
+                }
+            });
+        }
+
         const disable1FingerEl = document.getElementById('toggle-disable-1finger');
         if (disable1FingerEl) {
             disable1FingerEl.checked = window.disable1fingerZoom;
             disable1FingerEl.addEventListener('change', (e) => {
                 window.disable1fingerZoom = e.target.checked;
                 localStorage.setItem('barkDisable1Finger', window.disable1fingerZoom ? 'true' : 'false');
-                if (window.disable1fingerZoom) {
-                    map.doubleClickZoom.disable();
-                } else {
-                    map.doubleClickZoom.enable();
-                }
+            });
+        }
+
+        const lockMapPanningEl = document.getElementById('toggle-lock-map-panning');
+        if (lockMapPanningEl) {
+            lockMapPanningEl.checked = window.lockMapPanning;
+            lockMapPanningEl.addEventListener('change', (e) => {
+                window.lockMapPanning = e.target.checked;
+                localStorage.setItem('barkLockMapPanning', window.lockMapPanning ? 'true' : 'false');
             });
         }
 
@@ -6018,8 +6035,9 @@ if ('ontouchstart' in window) {
     map.doubleClickZoom.disable();
 
     // Centralized cleanup — bulletproof against state corruption
+    // Centralized cleanup — bulletproof against state corruption
     function resetZoomState() {
-        if (window.disable1fingerZoom) return;
+        if (window.disable1fingerZoom && !window.lockMapPanning) return; // Only return tightly if we don't need cleanup for 2 finger pan
         clearTimeout(holdTimer);
         holdTimer = null;
         pendingDoubleTap = false;
@@ -6027,7 +6045,6 @@ if ('ontouchstart' in window) {
 
         if (isOneFingerZooming) {
             isOneFingerZooming = false;
-
             // Snap zoom to nearest 0.5 to prevent jarring jumps on next panTo
             const snappedZoom = Math.round(map.getZoom() * 2) / 2;
             map.setZoom(snappedZoom, { animate: false });
@@ -6035,10 +6052,25 @@ if ('ontouchstart' in window) {
 
         // ALWAYS restore these — safety net
         map.options.zoomSnap = 0.5;
-        map.dragging.enable();
+        if (!window.lockMapPanning) map.dragging.enable();
+    }
+
+    // 🛑 NEW: 2-Finger Pan Initializer
+    if (window.lockMapPanning) {
+        map.dragging.disable(); // Prevent 1-finger drag permanently
     }
 
     mapContainer.addEventListener('touchstart', (e) => {
+        // 🛑 Require 2-Finger Pan Engine
+        if (window.lockMapPanning && e.touches.length === 1 && !isOneFingerZooming) {
+            // Leaflet handles click events internally anyway. But to prevent ANY map panning:
+            // Leaflet dragging module is disabled, so we don't actually need to preventDefault in touchstart!
+            // BUT iOS Safari does bounce-scrolls. 
+            // e.preventDefault() here breaks tap-to-open logic for markers. So we rely on map.dragging.disable!
+        }
+
+        if (window.disable1fingerZoom) return; // 🛑 Respect the 1-Finger Zoom killswitch!
+        
         if (e.touches.length !== 1) return;
         const currentTime = new Date().getTime();
         const tapLength = currentTime - lastTap;

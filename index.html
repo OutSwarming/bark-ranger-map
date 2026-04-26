@@ -602,11 +602,27 @@
                             </label>
                         </div>
 
+                        <!-- 🎯 GESTURE CONTROLS (V25) -->
+                        <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 5px;">Gesture Controls</div>
+                        
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Disable 1-Finger Zoom</div>
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Lock Map Panning</div>
                                 <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Turns off double-tap/double-click to zoom.
+                                    Disables all dragging/scrolling on the map to prevent accidental movement.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-lock-map-panning">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Disable 1-Finger Drag Zoom</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Turns off the custom double-tap and drag zoom integration.
                                 </div>
                             </div>
                             <label class="switch">
@@ -614,6 +630,23 @@
                                 <span class="slider round"></span>
                             </label>
                         </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Disable Double-Tap Zoom</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Turns off native rapid double-tap to zoom in.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-disable-double-tap">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 5px 0;"></div>
+
+                        <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 5px;">Performance Mode</div>
 
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
