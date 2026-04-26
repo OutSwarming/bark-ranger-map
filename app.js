@@ -236,7 +236,7 @@ const mapOptions = window.ultraLowEnabled ? {
     zoomDelta: 1,
     wheelDebounceTime: 40,
     wheelPxPerZoomLevel: 120,
-    doubleClickZoom: !window.disableDoubleTap,
+    doubleClickZoom: false, // 🛑 Managed by Custom Engine
     touchZoom: !window.disablePinchZoom,
     dragging: !window.lockMapPanning,
 
@@ -265,6 +265,15 @@ function setInitialMapView(defaultLat, defaultLng) {
 
 // Initial view set to US center as a placeholder during load
 setInitialMapView(39.8283, -98.5795);
+
+// 🎯 CUSTOM DOUBLE CLICK ZOOM ENGINE
+// Replaces Leaflet's native handler to guarantee execution without conflict
+map.on('dblclick', (e) => {
+    if (window.disableDoubleTap) return; // Respect the settings toggle
+    
+    // Zoom in smoothly around the cursor/tap point
+    map.setZoomAround(e.containerPoint, map.getZoom() + 1);
+});
 
 // 🚀 MAP POSITION SAVER
 map.on('moveend', () => {
@@ -611,11 +620,6 @@ document.addEventListener('DOMContentLoaded', () => {
             disableDoubleTapEl.addEventListener('change', (e) => {
                 window.disableDoubleTap = e.target.checked;
                 localStorage.setItem('barkDisableDoubleTap', window.disableDoubleTap ? 'true' : 'false');
-                if (window.disableDoubleTap) {
-                    map.doubleClickZoom.disable();
-                } else {
-                    map.doubleClickZoom.enable();
-                }
             });
         }
 
@@ -6056,7 +6060,6 @@ if ('ontouchstart' in window) {
     // Centralized cleanup — bulletproof against state corruption
     // Centralized cleanup — bulletproof against state corruption
     function resetZoomState() {
-        if (window.disable1fingerZoom && !window.lockMapPanning) return; // Only return tightly if we don't need cleanup for 2 finger pan
         clearTimeout(holdTimer);
         holdTimer = null;
         pendingDoubleTap = false;
@@ -6074,46 +6077,36 @@ if ('ontouchstart' in window) {
         if (!window.lockMapPanning) map.dragging.enable();
     }
 
-    // 🛑 NEW: 2-Finger Pan Initializer
-    // (Live toggling is now handled by the onchange event above)
-    // if (window.lockMapPanning) { map.dragging.disable(); }
-
     mapContainer.addEventListener('touchstart', (e) => {
-        // 🛑 Require 2-Finger Pan Engine
-        if (window.lockMapPanning && e.touches.length === 1 && !isOneFingerZooming) {
-            // Leaflet handles click events internally anyway. But to prevent ANY map panning:
-            // Leaflet dragging module is disabled, so we don't actually need to preventDefault in touchstart!
-            // BUT iOS Safari does bounce-scrolls. 
-            // e.preventDefault() here breaks tap-to-open logic for markers. So we rely on map.dragging.disable!
-        }
+        // 🛑 Require 2-Finger Pan Engine (No touch interference needed, map.dragging.disable is live)
 
-        if (window.disable1fingerZoom) return; // 🛑 Respect the 1-Finger Zoom killswitch!
-        
         if (e.touches.length !== 1) return;
         const currentTime = new Date().getTime();
         const tapLength = currentTime - lastTap;
 
-        // Detect Double-Tap, but WAIT for a hold before activating
+        // Detect Double-Tap gestures
         if (tapLength < 300 && tapLength > 0) {
             pendingDoubleTap = true;
             const startY = e.touches[0].clientY;
 
-            // Only activate zoom if finger stays down for 150ms (hold gate)
-            holdTimer = setTimeout(() => {
-                if (pendingDoubleTap) {
-                    isOneFingerZooming = true;
-                    zoomStartY = startY;
-                    initialZoom = map.getZoom();
-                    map.dragging.disable();
-                    map.options.zoomSnap = 0;
-                }
-            }, 150);
+            // Start the 150ms hold-gate for Google-style Drag Zoom, UNLESS disabled by the user
+            if (!window.disable1fingerZoom) {
+                holdTimer = setTimeout(() => {
+                    if (pendingDoubleTap) {
+                        isOneFingerZooming = true;
+                        zoomStartY = startY;
+                        initialZoom = map.getZoom();
+                        map.dragging.disable();
+                        map.options.zoomSnap = 0;
+                    }
+                }, 150);
+            }
         }
         lastTap = currentTime;
     }, { passive: false });
 
     mapContainer.addEventListener('touchmove', (e) => {
-        if (window.disable1fingerZoom) return; // 🛑 Respect the toggle here too!
+        if (window.disable1fingerZoom) return; // Safety check
         
         // If we're in the hold-wait period, finger movement confirms zoom intent
         if (pendingDoubleTap && !isOneFingerZooming && e.touches.length === 1) {
@@ -6136,7 +6129,6 @@ if ('ontouchstart' in window) {
         if (!zoomRAF) {
             if (window.stopPinResizing) {
                 // THROW INTO CHUNKS: Wait and update everything at once in 250ms blocks
-                // This creates the "resize at once in groups" effect and kills lag
                 zoomRAF = setTimeout(() => {
                     map.setZoom(targetZoom, { animate: false });
                     zoomRAF = null;
@@ -6151,8 +6143,27 @@ if ('ontouchstart' in window) {
         }
     }, { passive: false });
 
-    // Normal touch end
-    mapContainer.addEventListener('touchend', resetZoomState);
+    // 🎯 MOBILE DOUBLE-TAP ZOOM ENGINE
+    mapContainer.addEventListener('touchend', (e) => {
+        // If user lifted finger during pendingDoubleTap before the 150ms hold finished
+        // AND before they triggered `isOneFingerZooming` by dragging...
+        if (pendingDoubleTap && !isOneFingerZooming) {
+            if (!window.disableDoubleTap) {
+                // It was a rapid iPhone double tap! Zoom the mobile map!
+                const touch = e.changedTouches ? e.changedTouches[0] : null;
+                if (touch) {
+                    const rect = mapContainer.getBoundingClientRect();
+                    const x = touch.clientX - rect.left;
+                    const y = touch.clientY - rect.top;
+                    map.setZoomAround(L.point(x, y), map.getZoom() + 1);
+                } else {
+                    map.setZoomAround(map.getCenter(), map.getZoom() + 1);
+                }
+            }
+        }
+        resetZoomState();
+    });
+
     // Touch cancelled by browser (switching apps, gesture conflict, etc.)
     mapContainer.addEventListener('touchcancel', resetZoomState);
 }
