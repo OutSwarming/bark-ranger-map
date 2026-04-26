@@ -1369,15 +1369,43 @@ body.reduce-pin-motion .leaflet-marker-shadow {
    B.A.R.K. PERFORMANCE MODIFIERS (V24 — 4 Toggles)
    ========================================================= */
 
-/* 1. STOP SPINNING: Kills all animations on pin wrappers + children */
-body.stop-spinning .enamel-pin-wrapper,
-body.stop-spinning .enamel-pin-wrapper *,
-body.stop-spinning .cluster-enamel-wrapper,
-body.stop-spinning .cluster-enamel-wrapper * {
+/* 1. STOP SPINNING: Bulletproof animation paralysis */
+/* Kill all transitions/animations on the entire marker tree */
+body.stop-spinning .leaflet-marker-pane,
+body.stop-spinning .leaflet-marker-pane *,
+body.stop-spinning .custom-bark-marker,
+body.stop-spinning .custom-bark-marker * {
     animation: none !important;
     transition: none !important;
-    transform: none !important;
     will-change: auto !important;
+}
+/* Force-lock the pin's visual state so there's nothing TO animate */
+body.stop-spinning .enamel-pin-wrapper {
+    animation: none !important;
+    transition: none !important;
+    transform: translateZ(0) !important; /* Keep GPU layer, kill scale effects */
+    opacity: 1 !important;
+    will-change: auto !important;
+}
+body.stop-spinning .enamel-pin-wrapper img {
+    animation: none !important;
+    transition: none !important;
+}
+body.stop-spinning .cluster-enamel-wrapper {
+    animation: none !important;
+    transition: none !important;
+    transform: translateZ(0) !important;
+    will-change: auto !important;
+}
+/* Kill hover pop completely */
+body.stop-spinning .enamel-pin-wrapper:hover,
+body.stop-spinning .cluster-enamel-wrapper:hover {
+    transform: translateZ(0) !important;
+}
+/* Kill the unvisited scale-down so all pins render at full size */
+body.stop-spinning .custom-bark-marker.unvisited-marker .enamel-pin-wrapper {
+    transform: translateZ(0) !important;
+    opacity: 1 !important;
 }
 
 /* 2. REMOVE SHADOWS: Strips heavy alpha-mask drop-shadow filters */
