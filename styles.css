@@ -1321,3 +1321,14 @@ body.low-graphics .modal-card {
     background-color: #ffffff !important;
     border: 1px solid #cbd5e1 !important;
 }
+
+/* Ensure the Settings Modal stays "Dark" even in Ultra Low */
+body.ultra-low .modal-overlay {
+    background-color: rgba(0, 0, 0, 0.8) !important; /* Force the darkness */
+    backdrop-filter: none !important; /* Blur is too heavy for Ultra Low */
+}
+
+/* Red Ultra-Low Toggle Alert Styling */
+input#ultra-low-toggle:checked + .slider {
+    background-color: #ef4444 !important;
+}
