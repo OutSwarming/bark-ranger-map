@@ -73,13 +73,60 @@ window.BARK.safeUpdateHTML = safeUpdateHTML;
  * 💓 Batches DOM updates into a single frame buffer.
  */
 let syncScheduled = false;
+let lastMarkerVisibilityStateKey = null;
+
+function serializeSet(set) {
+    return Array.from(set || []).sort().join(',');
+}
+
+function getMarkerVisibilityStateKey() {
+    const map = window.map;
+    const searchCache = window.BARK._searchResultCache || {};
+    const searchCacheIds = searchCache.matchedIds ? Array.from(searchCache.matchedIds).sort().join(',') : '';
+    const tripStops = (window.BARK.tripDays || [])
+        .flatMap(day => (day.stops || []).map(stop => stop.id))
+        .sort()
+        .join(',');
+    const visitedIds = Array.from((window.BARK.userVisitedPlaces || new Map()).keys()).sort().join(',');
+    const viewportKey = window.viewportCulling && map
+        ? map.getBounds().pad(0.2).toBBoxString()
+        : '';
+
+    return [
+        window.BARK._markerDataRevision || 0,
+        serializeSet(window.BARK.activeSwagFilters),
+        window.BARK.activeSearchQuery || '',
+        window.BARK.activeTypeFilter || 'all',
+        window.BARK.visitedFilterState || 'all',
+        visitedIds,
+        tripStops,
+        searchCache.query || '',
+        searchCacheIds,
+        window.clusteringEnabled ? 'cluster-on' : 'cluster-off',
+        window.premiumClusteringEnabled ? 'premium-cluster-on' : 'premium-cluster-off',
+        window.standardClusteringEnabled ? 'standard-cluster-on' : 'standard-cluster-off',
+        window.stopResizing ? 'stop-resizing-on' : 'stop-resizing-off',
+        window.viewportCulling ? 'viewport-culling-on' : 'viewport-culling-off',
+        map ? map.getZoom() : '',
+        viewportKey
+    ].join('|');
+}
+
+window.BARK.invalidateMarkerVisibility = function () {
+    lastMarkerVisibilityStateKey = null;
+};
+
 window.syncState = function () {
     if (syncScheduled) return;
     syncScheduled = true;
     window.requestAnimationFrame(() => {
         syncScheduled = false;
         if (typeof window.BARK.updateMarkers === 'function') {
-            window.BARK.updateMarkers();
+            const markerVisibilityStateKey = getMarkerVisibilityStateKey();
+            if (markerVisibilityStateKey !== lastMarkerVisibilityStateKey) {
+                lastMarkerVisibilityStateKey = markerVisibilityStateKey;
+                window.BARK.updateMarkers();
+            }
         }
         if (typeof window.BARK.updateStatsUI === 'function') {
             window.BARK.updateStatsUI();
@@ -153,13 +200,22 @@ function updateMarkers() {
             item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
         }
 
-        // 🛑 CRITICAL: NEVER remove/add markers from layers during filtering.
-        // Markers are added to their target layer ONCE here if they haven't been added yet.
-        if (!item.marker._layerAdded) {
-            const targetLayer = (forceNoClustering || !window.clusteringEnabled) ? markerLayer : markerClusterGroup;
+        const targetLayerType = (forceNoClustering || !window.clusteringEnabled) ? 'plain' : 'cluster';
+        const targetLayer = targetLayerType === 'plain' ? markerLayer : markerClusterGroup;
+
+        // Layer assignment is stable unless bubble mode actually changes target layer.
+        if (!item.marker._layerAdded || item.marker._barkLayerType !== targetLayerType || !targetLayer.hasLayer(item.marker)) {
+            if (item.marker._barkLayerType === 'plain' && targetLayerType !== 'plain') {
+                markerLayer.removeLayer(item.marker);
+            } else if (item.marker._barkLayerType === 'cluster' && targetLayerType !== 'cluster') {
+                markerClusterGroup.removeLayer(item.marker);
+            }
             targetLayer.addLayer(item.marker);
             item.marker._layerAdded = true;
+            item.marker._barkLayerType = targetLayerType;
         }
+
+        item.marker._barkIsVisible = isVisible;
 
         // 🎯 PURE CSS HIDE/SHOW: No Leaflet API calls, no cluster recalculation, no animation.
         if (isVisible) {
@@ -190,6 +246,7 @@ function updateMarkers() {
         if (!map.hasLayer(markerLayer)) map.addLayer(markerLayer);
         if (map.hasLayer(markerClusterGroup)) map.removeLayer(markerClusterGroup);
     }
+    window.BARK._lastLayerType = (window.clusteringEnabled && !forceNoClustering) ? 'cluster' : 'plain';
 
     // 🎯 SMART AUTO-FRAMING (Interrupt Protection)
     const currentFilterState = activeSearchQuery + '|' + Array.from(activeSwagFilters).join(',');

@@ -251,12 +251,12 @@ setTimeout(() => {
 const markerLayer = L.layerGroup().addTo(map);
 
 const markerClusterGroup = L.markerClusterGroup({
-    chunkedLoading: window.stopResizing,
-    chunkInterval: 200,
+    chunkedLoading: true,
+    chunkInterval: 50,
     chunkDelay: 50,
     removeOutsideVisibleBounds: false,
     disableClusteringAtZoom: 16,
-    animate: false,
+    animate: true,
     animateAddingMarkers: false,
     maxClusterRadius: function (zoom) {
         if (window.premiumClusteringEnabled) return 80;
@@ -316,6 +316,7 @@ window.BARK.rebuildMarkerLayer = function () {
         allPts.forEach(item => {
             if (item.marker) {
                 item.marker._layerAdded = false;
+                item.marker._barkLayerType = null;
             }
         });
     }
@@ -325,6 +326,10 @@ window.BARK.rebuildMarkerLayer = function () {
         markerClusterGroup.addTo(map);
     } else {
         markerLayer.addTo(map);
+    }
+
+    if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
+        window.BARK.invalidateMarkerVisibility();
     }
 };
 

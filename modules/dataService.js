@@ -12,21 +12,53 @@ if (!dataFirebaseService) {
 const dataSyncUserProgress = dataFirebaseService.syncUserProgress;
 
 // ====== CSV PARSING ENGINE ======
+const markerCache = new Map();
 let isRendering = false;
 let pendingCSV = null;
 
+function bindMarkerEvents(marker) {
+    if (marker._barkEventsBound) return;
+    marker._barkEventsBound = true;
+
+    // 🎯 THE DOM RECYCLING FIX
+    marker.on('remove', function () {
+        if (this._icon) {
+            this._icon.classList.remove('active-pin');
+            this._icon.classList.remove('visited-pin');
+            this._icon.classList.remove('marker-filter-hidden');
+        }
+    });
+
+    marker.on('add', function () {
+        if (this._icon) {
+            if (window.BARK.userVisitedPlaces.has(this._parkData.id)) this._icon.classList.add('visited-pin');
+            if (window.BARK.activePinMarker === this) this._icon.classList.add('active-pin');
+            this._icon.classList.toggle('marker-filter-hidden', this._barkIsVisible === false);
+        }
+    });
+
+    marker.on('click', () => {
+        window.BARK.renderMarkerClickPanel({
+            marker,
+            userVisitedPlaces: window.BARK.userVisitedPlaces,
+            syncUserProgress: dataSyncUserProgress,
+            slidePanel: document.getElementById('slide-panel'),
+            titleEl: document.getElementById('panel-title'),
+            infoSection: document.getElementById('panel-info-section'),
+            infoEl: document.getElementById('panel-info'),
+            websitesContainer: document.getElementById('websites-container'),
+            picsEl: document.getElementById('panel-pics'),
+            videoEl: document.getElementById('panel-video')
+        });
+    });
+}
+
 function processParsedResults(results) {
-    const allPoints = window.BARK.allPoints;
     const userVisitedPlaces = window.BARK.userVisitedPlaces;
     const markerLayer = window.BARK.markerLayer;
+    const markerClusterGroup = window.BARK.markerClusterGroup;
     let activePinMarker = window.BARK.activePinMarker;
     const slidePanel = document.getElementById('slide-panel');
-    const titleEl = document.getElementById('panel-title');
-    const infoSection = document.getElementById('panel-info-section');
-    const infoEl = document.getElementById('panel-info');
-    const websitesContainer = document.getElementById('websites-container');
-    const picsEl = document.getElementById('panel-pics');
-    const videoEl = document.getElementById('panel-video');
 
     // Remember currently active pin location
     let activeLat = null, activeLng = null;
@@ -39,11 +71,9 @@ function processParsedResults(results) {
     }
     window.BARK.activePinMarker = null;
 
-    // Phase 2 invariance: preserve the existing marker destroy/rebuild path.
-    // Future optimization can replace this with a stable marker cache.
-    markerLayer.clearLayers();
     window.BARK.allPoints = [];
     const newAllPoints = window.BARK.allPoints;
+    const incomingParkIds = new Set();
 
     results.data.forEach(rawItem => {
         const item = {};
@@ -82,44 +112,44 @@ function processParsedResults(results) {
         // v25: Pre-Normalized Name
         parkData._cachedNormalizedName = window.BARK.normalizeText(name);
 
-        const isVisited = userVisitedPlaces.has(id);
-        const marker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
+        incomingParkIds.add(id);
+
+        let marker = markerCache.get(id);
+        if (!marker) {
+            const isVisited = userVisitedPlaces.has(id);
+            marker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
+            bindMarkerEvents(marker);
+            markerCache.set(id, marker);
+
+            markerLayer.addLayer(marker);
+            marker._layerAdded = true;
+            marker._barkLayerType = 'plain';
+        } else {
+            marker._parkData = parkData;
+        }
 
         parkData.marker = marker;
         parkData.category = parkCategory;
         window.parkLookup.set(id, parkData);
         newAllPoints.push(parkData);
+    });
 
-        // 🎯 THE DOM RECYCLING FIX
-        marker.on('remove', function () {
-            if (this._icon) {
-                this._icon.classList.remove('active-pin');
-                this._icon.classList.remove('visited-pin');
-            }
-        });
+    markerCache.forEach((marker, id) => {
+        if (incomingParkIds.has(id)) return;
+        markerLayer.removeLayer(marker);
+        if (markerClusterGroup) markerClusterGroup.removeLayer(marker);
+        marker._layerAdded = false;
+        marker._barkLayerType = null;
+        markerCache.delete(id);
+        window.parkLookup.delete(id);
+        if (window.BARK.activePinMarker === marker) {
+            window.BARK.activePinMarker = null;
+            if (slidePanel) slidePanel.classList.remove('open');
+        }
+    });
 
-        marker.on('add', function () {
-            if (this._icon) {
-                if (window.BARK.userVisitedPlaces.has(this._parkData.id)) this._icon.classList.add('visited-pin');
-                if (window.BARK.activePinMarker === this) this._icon.classList.add('active-pin');
-            }
-        });
-
-        marker.on('click', () => {
-            // Pass the same live closure references the inline handler previously captured.
-            window.BARK.renderMarkerClickPanel({
-                marker,
-                userVisitedPlaces,
-                syncUserProgress: dataSyncUserProgress,
-                slidePanel,
-                titleEl,
-                infoSection,
-                infoEl,
-                websitesContainer,
-                picsEl,
-                videoEl
-            });
-        });
+    window.parkLookup.forEach((_, id) => {
+        if (!incomingParkIds.has(id)) window.parkLookup.delete(id);
     });
 
     // Hydrate canonical counts for gamification
@@ -127,8 +157,7 @@ function processParsedResults(results) {
         window.gamificationEngine.updateCanonicalCountsFromPoints(newAllPoints);
     }
 
-    // Reset the bubble mode layer type tracking so markers get assigned correctly
-    window.BARK._lastLayerType = null;
+    window.BARK._markerDataRevision = (window.BARK._markerDataRevision || 0) + 1;
 
     window.syncState();
 
