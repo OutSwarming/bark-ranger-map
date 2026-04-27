@@ -415,6 +415,7 @@ const markerClusterGroup = L.markerClusterGroup({
     removeOutsideVisibleBounds: true, // Deletes off-screen pins to save RAM
     disableClusteringAtZoom: 16, // Ungroups when zoomed in close
     animate: false, // Turned off specifically to save CPU on older phones
+    animateAddingMarkers: false, // 🛑 CRITICAL: Prevents markers from "spinning" when re-added to the cluster after clearing a search/filter
 
     maxClusterRadius: function (zoom) {
         if (window.premiumClusteringEnabled) {
