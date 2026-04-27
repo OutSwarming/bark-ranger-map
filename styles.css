@@ -1440,8 +1440,7 @@ body.stop-resizing.map-is-zooming .leaflet-marker-pane {
     transition: none !important;
 }
 
-/* 4. VIEWPORT CULLING: Subtle fade for pins entering the bounding box */
+/* 4. VIEWPORT CULLING: No fade — instant snap to prevent spin/sideways glitch with CSS toggle */
 body.viewport-culling .leaflet-marker-icon {
-    animation: barkFadeIn 0.15s ease-out;
+    animation: none !important;
 }
-@keyframes barkFadeIn { from { opacity: 0; } to { opacity: 1; } }

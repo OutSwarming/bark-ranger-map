@@ -412,7 +412,7 @@ const markerClusterGroup = L.markerClusterGroup({
     chunkInterval: 200, // Process in blocks of 200ms
     chunkDelay: 50,     // Yield to the CPU so the map doesn't freeze
 
-    removeOutsideVisibleBounds: true, // Deletes off-screen pins to save RAM
+    removeOutsideVisibleBounds: false, // 🛑 CRITICAL: Prevents cluster from destroying/recreating icon DOM elements, which causes spin/sideways animations
     disableClusteringAtZoom: 16, // Ungroups when zoomed in close
     animate: false, // Turned off specifically to save CPU on older phones
     animateAddingMarkers: false, // 🛑 CRITICAL: Prevents markers from "spinning" when re-added to the cluster after clearing a search/filter
@@ -2561,27 +2561,30 @@ function updateMarkers() {
             item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
         }
 
-        // 🔄 FILTER AND HIDE: Keep markers alive, just show/hide them
+        // 🛑 CRITICAL: NEVER remove/add markers from layers during filtering.
+        // That triggers MarkerClusterGroup's internal animation lifecycle (spinning, spiderfying, sideways).
+        // Instead, use pure CSS visibility toggling on the marker's existing DOM icon.
+        // Markers are added to their target layer ONCE here if they haven't been added yet.
+        if (!item.marker._layerAdded) {
+            const targetLayer = (forceNoClustering || !window.clusteringEnabled) ? markerLayer : markerClusterGroup;
+            targetLayer.addLayer(item.marker);
+            item.marker._layerAdded = true;
+        }
+
+        // 🎯 PURE CSS HIDE/SHOW: No Leaflet API calls, no cluster recalculation, no animation.
         if (isVisible) {
             activeMarkerIds.add(item.id);
-
-            // 🛑 PERSISTENT MARKER: Only add if not already on map
-            const targetLayer = (forceNoClustering || !window.clusteringEnabled) ? markerLayer : markerClusterGroup;
-            if (!targetLayer.hasLayer(item.marker)) {
-                targetLayer.addLayer(item.marker);
-            }
-
             visibleBounds.extend(item.marker.getLatLng());
 
-            // 🏭 Save DOM write for batch processing (layout thrash prevention)
+            // Show marker by removing the hidden class from its icon
             if (item.marker._icon) {
+                item.marker._icon.classList.remove('marker-filter-hidden');
                 markerClassUpdates.push({ icon: item.marker._icon, isVisited });
             }
         } else {
-            // Only remove if it IS on the map (avoids unnecessary work)
-            const targetLayer = (forceNoClustering || !window.clusteringEnabled) ? markerLayer : markerClusterGroup;
-            if (targetLayer.hasLayer(item.marker)) {
-                targetLayer.removeLayer(item.marker);
+            // Hide marker by adding the hidden class (no Layer API calls)
+            if (item.marker._icon) {
+                item.marker._icon.classList.add('marker-filter-hidden');
             }
         }
     });
