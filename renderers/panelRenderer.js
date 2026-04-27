@@ -15,6 +15,7 @@ function renderMarkerClickPanel(context) {
     const websitesContainer = context.websitesContainer;
     const picsEl = context.picsEl;
     const videoEl = context.videoEl;
+    const firebaseService = window.BARK.services && window.BARK.services.firebase;
 
     if (window.BARK.activePinMarker && window.BARK.activePinMarker._icon) {
         window.BARK.activePinMarker._icon.classList.remove('active-pin');
@@ -160,7 +161,7 @@ function renderMarkerClickPanel(context) {
     const verifyBtnText = document.getElementById('verify-checkin-text');
 
     if (visitedSection && markVisitedBtn && markVisitedText && verifyBtn) {
-        if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
+        if (firebaseService && firebaseService.getCurrentUser()) {
             visitedSection.style.display = 'block';
 
             if (userVisitedPlaces.has(d.id)) {
@@ -227,12 +228,9 @@ function renderMarkerClickPanel(context) {
                         alert(`Check-in Verified! You earned 2 points.`);
                         const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: true, ts: Date.now() };
 
-                        window.BARK.incrementRequestCount();
-                        const docRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
-
                         userVisitedPlaces.set(d.id, newObj);
                         const updatedArray = Array.from(userVisitedPlaces.values());
-                        docRef.update({ visitedPlaces: updatedArray });
+                        firebaseService.updateCurrentUserVisitedPlaces(updatedArray).catch(() => {});
 
                         verifyBtn.style.background = '#4CAF50';
                         verifyBtnText.textContent = '🐾 Verified & Secured';
@@ -280,7 +278,7 @@ function renderMarkerClickPanel(context) {
                     markVisitedBtn.onmouseleave = null;
 
                     const updatedArray = Array.from(userVisitedPlaces.values());
-                    await firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid).update({ visitedPlaces: updatedArray });
+                    await firebaseService.updateCurrentUserVisitedPlaces(updatedArray);
 
                     window.syncState();
                     return;
