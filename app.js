@@ -1545,6 +1545,10 @@ window.syncState = function () {
         if (typeof updateStatsUI === 'function') {
             updateStatsUI();
         }
+        // 🏆 Evaluate achievements (renders vault, dossiers, leaderboard)
+        if (typeof evaluateAchievements === 'function' && window.userVisitedPlaces) {
+            evaluateAchievements(window.userVisitedPlaces);
+        }
     });
 };
 
