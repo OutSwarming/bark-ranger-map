@@ -1116,9 +1116,6 @@ async function evaluateAchievements(visitedPlacesMap) {
         userId = firebase.auth().currentUser.uid;
     }
 
-    // Use our new bulletproof mapping logic to set the required totals per state
-    window.gamificationEngine.updateCanonicalCountsFromPoints(allPoints);
-
     const achievements = await window.gamificationEngine.evaluateAndStoreAchievements(userId, visitedArray, null, window.currentWalkPoints || 0);
 
     // Update Banner
@@ -2315,6 +2312,12 @@ function processParsedResults(results) {
 
         // (allPoints.push moved to top of loop for v1 O(1) indexing)
     });
+
+    // ADD THIS HERE - It now runs ONLY when the data changes
+    if (window.gamificationEngine && allPoints.length > 0) {
+        window.gamificationEngine.updateCanonicalCountsFromPoints(allPoints);
+    }
+
     window.syncState();
 
     // Restore the previously active pin if it still exists in the new data
@@ -2544,16 +2547,22 @@ function updateMarkers() {
         if (visitedFilterState === 'unvisited' && isVisited) matchesVisited = false;
         const isInTrip = Array.from(tripDays).some(day => day.stops.some(s => s.id === item.id));
 
-        const isVisible = (matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip;
+        let isVisible = (matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip;
 
+        // 🎯 VIEWPORT CULLING: Skip off-screen pins entirely
+        if (isVisible && window.viewportCulling && !screenBounds.contains([item.lat, item.lng])) {
+            // Not visible due to culling - treat as invisible
+            isVisible = false;
+        }
+
+        // Ensure marker exists for all items (for reuse)
+        if (!item.marker) {
+            item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
+        }
+
+        // 🔄 FILTER AND HIDE: Keep markers alive, just show/hide them
         if (isVisible) {
-            // 🎯 VIEWPORT CULLING: Skip off-screen pins entirely
-            if (window.viewportCulling && !screenBounds.contains([item.lat, item.lng])) {
-                return;
-            }
-
             activeMarkerIds.add(item.id);
-            if (!item.marker) item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
 
             // 🛑 PERSISTENT MARKER: Only add if not already on map
             const targetLayer = (forceNoClustering || !window.clusteringEnabled) ? markerLayer : markerClusterGroup;
@@ -2567,22 +2576,18 @@ function updateMarkers() {
             if (item.marker._icon) {
                 markerClassUpdates.push({ icon: item.marker._icon, isVisited });
             }
+        } else {
+            // Only remove if it IS on the map (avoids unnecessary work)
+            const targetLayer = (forceNoClustering || !window.clusteringEnabled) ? markerLayer : markerClusterGroup;
+            if (targetLayer.hasLayer(item.marker)) {
+                targetLayer.removeLayer(item.marker);
+            }
         }
     });
 
     // 🏭 BATCH: Apply visited-pin class (avoids interleaved read/write layout thrash)
     markerClassUpdates.forEach(({ icon, isVisited }) => {
         icon.classList.toggle('visited-pin', isVisited);
-    });
-
-    // 🧹 CLEANUP: Remove only stale markers (not matching current filters)
-    markerLayer.eachLayer(l => {
-        const id = l._parkData ? l._parkData.id : null;
-        if (!id || !activeMarkerIds.has(id)) markerLayer.removeLayer(l);
-    });
-    markerClusterGroup.eachLayer(l => {
-        const id = l._parkData ? l._parkData.id : null;
-        if (!id || !activeMarkerIds.has(id)) markerClusterGroup.removeLayer(l);
     });
 
     // Handle Map Layer Assignment
