@@ -18,9 +18,7 @@
     justify-content: center;
     align-items: center;
 
-    /* 🛑 CRITICAL: No base transition — prevents spin animation when markers are re-added to DOM */
-    will-change: transform;
-    transform: translateZ(0);
+    /* No base transition or GPU reservation: avoids zoom-out layer pressure. */
 }
 
 /* Hover effects stay active for premium mode */
@@ -332,7 +330,7 @@ body.low-graphics .enamel-pin-wrapper:hover {
     justify-content: center;
     align-items: center;
 
-    transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.25s ease;
+    transition: none;
 }
 
 /* The Logo Image */

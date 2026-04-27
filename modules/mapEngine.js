@@ -123,21 +123,43 @@ map.on('moveend', () => {
     }
 });
 
-// 🧨 EXPLOSION TRIGGER: Re-evaluate pins every time the zoom changes
-map.on('zoomend', () => {
-    if (window.premiumClusteringEnabled) {
-        window.syncState();
-    }
-});
+function getEffectiveMarkerLayerTypeForZoom(zoom) {
+    const forceNoClustering = (window.premiumClusteringEnabled && zoom >= 7) || window.stopResizing;
+    return (window.clusteringEnabled && !forceNoClustering) ? 'cluster' : 'plain';
+}
 
-// 🧊 TRACKPAD ZOOM DEBOUNCER
+// 🧊 TRACKPAD ZOOM DEBOUNCER + Bubble Mode migration gate
 let trackpadZoomTimeout = null;
+let zoomSyncTimeout = null;
+let lastZoomLayerType = getEffectiveMarkerLayerTypeForZoom(map.getZoom());
+let zoomLayerChangePending = false;
+
 map.on('zoomstart', () => {
+    window.BARK._isZooming = true;
     if (window.stopResizing) {
         document.body.classList.add('map-is-zooming');
     }
 });
+
 map.on('zoomend', () => {
+    const nextLayerType = getEffectiveMarkerLayerTypeForZoom(map.getZoom());
+    const layerTypeChanged = nextLayerType !== lastZoomLayerType;
+    lastZoomLayerType = nextLayerType;
+    zoomLayerChangePending = zoomLayerChangePending || layerTypeChanged;
+
+    clearTimeout(zoomSyncTimeout);
+    zoomSyncTimeout = setTimeout(() => {
+        window.BARK._isZooming = false;
+        if (zoomLayerChangePending || window.BARK._pendingMarkerSync) {
+            zoomLayerChangePending = false;
+            window.BARK._pendingMarkerSync = false;
+            if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
+                window.BARK.invalidateMarkerVisibility();
+            }
+            window.syncState();
+        }
+    }, 150);
+
     if (window.stopResizing) {
         clearTimeout(trackpadZoomTimeout);
         trackpadZoomTimeout = setTimeout(() => {
@@ -253,10 +275,10 @@ const markerLayer = L.layerGroup().addTo(map);
 const markerClusterGroup = L.markerClusterGroup({
     chunkedLoading: true,
     chunkInterval: 50,
-    chunkDelay: 50,
-    removeOutsideVisibleBounds: false,
+    chunkDelay: 100,
+    removeOutsideVisibleBounds: true,
     disableClusteringAtZoom: 16,
-    animate: true,
+    animate: false,
     animateAddingMarkers: false,
     maxClusterRadius: function (zoom) {
         if (window.premiumClusteringEnabled) return 80;

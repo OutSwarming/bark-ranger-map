@@ -160,10 +160,14 @@ window.syncState = function () {
     window.requestAnimationFrame(() => {
         syncScheduled = false;
         if (typeof window.BARK.updateMarkers === 'function') {
-            const markerVisibilityStateKey = getMarkerVisibilityStateKey();
-            if (markerVisibilityStateKey !== lastMarkerVisibilityStateKey) {
-                lastMarkerVisibilityStateKey = markerVisibilityStateKey;
-                window.BARK.updateMarkers();
+            if (window.BARK._isZooming) {
+                window.BARK._pendingMarkerSync = true;
+            } else {
+                const markerVisibilityStateKey = getMarkerVisibilityStateKey();
+                if (markerVisibilityStateKey !== lastMarkerVisibilityStateKey) {
+                    lastMarkerVisibilityStateKey = markerVisibilityStateKey;
+                    window.BARK.updateMarkers();
+                }
             }
         }
         if (typeof window.BARK.updateStatsUI === 'function') {
