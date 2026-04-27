@@ -31,23 +31,46 @@ window.stopAutoMovements = localStorage.getItem('barkStopAutoMove') === 'true';
 // 🛑 REDUCE PIN SCALING / MOTION STATE
 window.reducePinMotion = localStorage.getItem('barkReducePinMotion') === 'true';
 
-if (window.reducePinMotion) {
-    document.body.classList.add('reduce-pin-motion');
-} else {
-    document.body.classList.remove('reduce-pin-motion');
-}
-
 // 🚀 B.A.R.K. PERFORMANCE MODIFIERS (V24 — 4 Toggles)
 window.removeShadows = localStorage.getItem('barkRemoveShadows') === 'true';
 window.stopResizing = localStorage.getItem('barkStopResizing') === 'true';
 window.viewportCulling = localStorage.getItem('barkViewportCulling') === 'true';
 
-if (window.removeShadows) document.body.classList.add('remove-shadows');
-if (window.stopResizing) document.body.classList.add('stop-resizing');
-if (window.viewportCulling) document.body.classList.add('viewport-culling');
-
 // 🔨 ULTRA-LOW SLEDGEHAMMER STATE
 window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
+
+/**
+ * 🏭 Batch-apply body CSS classes from window state — one DOM write, no layout thrash.
+ */
+function applyGlobalStyles() {
+    const addClasses = [];
+    const removeClasses = [];
+
+    if (window.reducePinMotion) addClasses.push('reduce-pin-motion');
+    else removeClasses.push('reduce-pin-motion');
+
+    if (window.removeShadows) addClasses.push('remove-shadows');
+    else removeClasses.push('remove-shadows');
+
+    if (window.stopResizing) addClasses.push('stop-resizing');
+    else removeClasses.push('stop-resizing');
+
+    if (window.viewportCulling) addClasses.push('viewport-culling');
+    else removeClasses.push('viewport-culling');
+
+    if (window.ultraLowEnabled) addClasses.push('ultra-low');
+    else removeClasses.push('ultra-low');
+
+    if (window.lowGfxEnabled) addClasses.push('low-graphics');
+    else removeClasses.push('low-graphics');
+
+    // Single batch DOM write
+    if (addClasses.length) document.body.classList.add(...addClasses);
+    if (removeClasses.length) document.body.classList.remove(...removeClasses);
+}
+
+// Apply initial styles
+applyGlobalStyles();
 
 // Master state for the engine
 window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
@@ -65,11 +88,6 @@ if (window.ultraLowEnabled) {
     window.instantNav = true;
     window.simplifyTrails = true; // Added missing master-forced state
     window.clusteringEnabled = true;
-    document.body.classList.add('ultra-low');
-    document.body.classList.add('low-graphics'); // Ensure both are on
-} else {
-    // Safety: Ensure class is gone if setting is off
-    document.body.classList.remove('ultra-low');
 }
 
 // Global Lookup Engine (v25 Performance)
@@ -77,12 +95,8 @@ window.parkLookup = new Map();
 
 let mapSaveTimeout;
 
-// Apply initial Low Graphics class strictly based on the final setting
-if (window.lowGfxEnabled) {
-    document.body.classList.add('low-graphics');
-} else {
-    document.body.classList.remove('low-graphics');
-}
+// 🏭 Batch-apply CSS classes in one DOM write after all vars are configured
+applyGlobalStyles();
 
 // ====== iOS SAFARI MAGNIFIER PROTECTION (CSS-managed; kept for non-iOS fallback) ======
 document.addEventListener('contextmenu', function (e) {
@@ -537,11 +551,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.lowGfxEnabled = e.target.checked;
                 localStorage.setItem('barkLowGfxEnabled', window.lowGfxEnabled ? 'true' : 'false');
 
-                if (window.lowGfxEnabled) {
-                    document.body.classList.add('low-graphics');
-                } else {
-                    document.body.classList.remove('low-graphics');
-                }
+                applyGlobalStyles();
 
                 // Re-sync markers to apply/remove the new logic instantly
                 window.syncState();
@@ -570,21 +580,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // 🚀 B.A.R.K. PERFORMANCE MODIFIERS (V24 — 4 Toggles)
-        const setupPerfToggle = (id, windowVar, storageKey, className) => {
+        const setupPerfToggle = (id, windowVar, storageKey) => {
             const el = document.getElementById(id);
             if (!el) return;
             el.checked = window[windowVar];
             el.addEventListener('change', (e) => {
                 window[windowVar] = e.target.checked;
                 localStorage.setItem(storageKey, window[windowVar] ? 'true' : 'false');
-                document.body.classList.toggle(className, window[windowVar]);
+                applyGlobalStyles();
                 window.syncState(); // Force re-render for ALL toggles
             });
         };
 
-        setupPerfToggle('toggle-remove-shadows', 'removeShadows', 'barkRemoveShadows', 'remove-shadows');
-        setupPerfToggle('toggle-stop-resizing', 'stopResizing', 'barkStopResizing', 'stop-resizing');
-        setupPerfToggle('toggle-viewport-culling', 'viewportCulling', 'barkViewportCulling', 'viewport-culling');
+        setupPerfToggle('toggle-remove-shadows', 'removeShadows', 'barkRemoveShadows');
+        setupPerfToggle('toggle-stop-resizing', 'stopResizing', 'barkStopResizing');
+        setupPerfToggle('toggle-viewport-culling', 'viewportCulling', 'barkViewportCulling');
 
         const disableDoubleTapEl = document.getElementById('toggle-disable-double-tap');
         if (disableDoubleTapEl) {
@@ -2509,6 +2519,9 @@ function updateMarkers() {
     const screenBounds = map.getBounds().pad(0.2); // 📦 20% buffer for culling
     const activeMarkerIds = new Set();
 
+    // Collect DOM writes to batch them (avoids layout thrashing)
+    const markerClassUpdates = [];
+
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
         const cachedSearch = _searchResultCache;
@@ -2549,10 +2562,17 @@ function updateMarkers() {
             }
 
             visibleBounds.extend(item.marker.getLatLng());
+
+            // 🏭 Save DOM write for batch processing (layout thrash prevention)
             if (item.marker._icon) {
-                item.marker._icon.classList.toggle('visited-pin', isVisited);
+                markerClassUpdates.push({ icon: item.marker._icon, isVisited });
             }
         }
+    });
+
+    // 🏭 BATCH: Apply visited-pin class (avoids interleaved read/write layout thrash)
+    markerClassUpdates.forEach(({ icon, isVisited }) => {
+        icon.classList.toggle('visited-pin', isVisited);
     });
 
     // 🧹 CLEANUP: Remove only stale markers (not matching current filters)
@@ -3050,21 +3070,17 @@ if (typeof firebase !== 'undefined') {
                                 sessionStorage.removeItem('skipCloudHydration');
                                 console.log("☁️ Cloud settings skipped: Preserving local force-reload state.");
                             } else {
-                                const s = data.settings;
+                            const s = data.settings;
 
-                                // 1. Strict State Injection Tool (Updates memory AND forces physical CSS classes)
-                                const applySetting = (key, val, bodyClass = null) => {
+                                // 1. Strict State Injection Tool (Updates memory only — CSS is applied in batch below)
+                                const applySetting = (key, val) => {
                                     localStorage.setItem(key, val ? 'true' : 'false');
-                                    if (bodyClass) {
-                                        if (val) document.body.classList.add(bodyClass);
-                                        else document.body.classList.remove(bodyClass);
-                                    }
                                     return val;
                                 };
                                 window._cloudSettingsLoaded = true; 
 
 
-                            // 2. Hydrate Variables & Apply Core CSS Overrides
+                            // 2. Hydrate Variables (no CSS writes — batched later)
                             window.allowUncheck = applySetting('barkAllowUncheck', s.allowUncheck || false);
                             window.rememberMapPosition = applySetting('remember-map-toggle', s.rememberMapPosition || false);
                             window.startNationalView = applySetting('barkNationalView', s.startNationalView || false);
@@ -3075,11 +3091,11 @@ if (typeof firebase !== 'undefined') {
                             window.stopAutoMovements = applySetting('barkStopAutoMove', s.stopAutoMovements || false);
 
                             // Hardware / Performance Modifiers
-                            window.lowGfxEnabled = applySetting('barkLowGfxEnabled', s.lowGfxEnabled || false, 'low-graphics');
-                            window.removeShadows = applySetting('barkRemoveShadows', s.removeShadows || false, 'remove-shadows');
-                            window.stopResizing = applySetting('barkStopResizing', s.stopResizing || false, 'stop-resizing');
-                            window.viewportCulling = applySetting('barkViewportCulling', s.viewportCulling || false, 'viewport-culling');
-                            window.ultraLowEnabled = applySetting('barkUltraLowEnabled', s.ultraLowEnabled || false, 'ultra-low');
+                            window.lowGfxEnabled = applySetting('barkLowGfxEnabled', s.lowGfxEnabled || false);
+                            window.removeShadows = applySetting('barkRemoveShadows', s.removeShadows || false);
+                            window.stopResizing = applySetting('barkStopResizing', s.stopResizing || false);
+                            window.viewportCulling = applySetting('barkViewportCulling', s.viewportCulling || false);
+                            window.ultraLowEnabled = applySetting('barkUltraLowEnabled', s.ultraLowEnabled || false);
 
                             // Leaflet Core Settings (Map Interaction Locks)
                             window.lockMapPanning = applySetting('barkLockMapPanning', s.lockMapPanning || false);
@@ -3094,6 +3110,9 @@ if (typeof firebase !== 'undefined') {
 
                             window.disable1fingerZoom = applySetting('barkDisable1Finger', s.disable1fingerZoom || false);
                             window.disableDoubleTap = applySetting('barkDisableDoubleTap', s.disableDoubleTap || false);
+
+                            // 🏭 Batch-apply CSS classes in one DOM write after all vars are hydrated
+                            applyGlobalStyles();
 
                             // 3. Update all checkboxes visually in the UI Menu
                             const ids = {
