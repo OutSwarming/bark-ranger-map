@@ -2623,19 +2623,17 @@ searchInput.addEventListener('input', (e) => {
             if (nameNorm.includes(queryNorm)) {
                 score = 0;
             } else if (queryNorm.length > 2) {
-                // Optimization: Skip Levenshtein if length difference is massive
-                if (Math.abs(queryNorm.length - nameNorm.length) < 15) {
-                    let minDist = levenshtein(queryNorm, nameNorm);
-                    const words = nameNorm.split(' ');
-                    for (let i = 0; i < words.length; i++) {
-                        if (minDist <= 1) break; // Optimization: Early exit if we have a close match
-                        const word = words[i];
-                        if (Math.abs(queryNorm.length - word.length) < 5) {
-                            minDist = Math.min(minDist, levenshtein(queryNorm, word));
-                        }
+                // 🎯 Match updateMarkers() logic: always run Levenshtein on full name + words
+                let minDist = levenshtein(queryNorm, nameNorm);
+                const words = nameNorm.split(' ');
+                for (let i = 0; i < words.length; i++) {
+                    if (minDist <= 1) break; // Optimization: Early exit if we have a close match
+                    const word = words[i];
+                    if (Math.abs(queryNorm.length - word.length) < 5) {
+                        minDist = Math.min(minDist, levenshtein(queryNorm, word));
                     }
-                    score = minDist;
                 }
+                score = minDist;
             }
             if (score <= 2) {
                 matchedIds.add(item.id);
