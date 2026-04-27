@@ -7,7 +7,6 @@ window.BARK = window.BARK || {};
 function renderMarkerClickPanel(context) {
     const marker = context.marker;
     const userVisitedPlaces = context.userVisitedPlaces;
-    const syncUserProgress = context.syncUserProgress;
     const slidePanel = context.slidePanel;
     const titleEl = context.titleEl;
     const infoSection = context.infoSection;
@@ -219,23 +218,17 @@ function renderMarkerClickPanel(context) {
                 verifyBtn.style.opacity = '1';
             }
 
-            verifyBtn.onclick = () => {
-                if (!navigator.geolocation) { alert("Geolocation is not supported by your browser."); return; }
-                if (!checkinService || typeof checkinService.verifyAndProcessCheckin !== 'function') {
+            verifyBtn.onclick = async () => {
+                if (!checkinService || typeof checkinService.verifyGpsCheckin !== 'function') {
                     alert("Check-in service is unavailable. Try again later.");
                     return;
                 }
                 verifyBtnText.textContent = 'Locating...';
 
-                navigator.geolocation.getCurrentPosition((position) => {
-                    const checkinResult = checkinService.verifyAndProcessCheckin(d, position.coords, userVisitedPlaces);
+                try {
+                    const checkinResult = await checkinService.verifyGpsCheckin(d, userVisitedPlaces);
                     if (checkinResult.success) {
                         alert(`Check-in Verified! You earned 2 points.`);
-                        const newObj = checkinResult.visitRecord;
-
-                        userVisitedPlaces.set(d.id, newObj);
-                        const updatedArray = Array.from(userVisitedPlaces.values());
-                        firebaseService.updateCurrentUserVisitedPlaces(updatedArray).catch(() => {});
 
                         verifyBtn.style.background = '#4CAF50';
                         verifyBtnText.textContent = '🐾 Verified & Secured';
@@ -251,61 +244,66 @@ function renderMarkerClickPanel(context) {
 
                         window.syncState();
                         window.BARK.updateStatsUI();
-                        window.attemptDailyStreakIncrement();
                     } else {
                         const radiusKm = window.BARK.config && window.BARK.config.CHECKIN_RADIUS_KM;
                         if (checkinResult.error === 'OUT_OF_RANGE' && Number.isFinite(checkinResult.distance)) {
                             alert(`Out of Range! You are ${checkinResult.distance.toFixed(1)} km away. You must be within ${radiusKm} km to verify.`);
+                        } else if (checkinResult.error === 'GEOLOCATION_UNSUPPORTED') {
+                            alert("Geolocation is not supported by your browser.");
+                        } else if (checkinResult.error === 'PERMISSION_DENIED') {
+                            alert("Location permission denied. GPS is required for verified check-ins.");
+                        } else if (checkinResult.error === 'LOCATION_FAILED') {
+                            alert("Failed to get location. Try again later.");
                         } else {
                             alert("Check-in could not be verified. Try again later.");
                         }
                         verifyBtnText.textContent = '🐾 Verified Check-In';
                     }
-                }, (error) => {
-                    if (error.code === error.PERMISSION_DENIED) {
-                        alert("Location permission denied. GPS is required for verified check-ins.");
-                    } else {
-                        alert("Failed to get location. Try again later.");
-                    }
+                } catch (error) {
+                    console.error("[panelRenderer] verify check-in failed:", error);
+                    alert("Failed to get location. Try again later.");
                     verifyBtnText.textContent = '🐾 Verified Check-In';
-                }, { enableHighAccuracy: true });
+                }
             };
 
             markVisitedBtn.onclick = async () => {
-                if (userVisitedPlaces.has(d.id)) {
-                    const cachedObj = userVisitedPlaces.get(d.id);
-                    if (cachedObj.verified) return;
-
-                    if (!window.allowUncheck) {
-                        alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
-                        return;
-                    }
-
-                    userVisitedPlaces.delete(d.id);
-                    markVisitedBtn.classList.remove('visited');
-                    markVisitedText.textContent = 'Mark as Visited';
-                    markVisitedBtn.onmouseenter = null;
-                    markVisitedBtn.onmouseleave = null;
-
-                    const updatedArray = Array.from(userVisitedPlaces.values());
-                    await firebaseService.updateCurrentUserVisitedPlaces(updatedArray);
-
-                    window.syncState();
+                if (!checkinService || typeof checkinService.markAsVisited !== 'function') {
+                    alert("Check-in service is unavailable. Try again later.");
                     return;
                 }
 
-                const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: false, ts: Date.now() };
-                userVisitedPlaces.set(d.id, newObj);
+                try {
+                    const visitResult = await checkinService.markAsVisited(d, userVisitedPlaces);
+                    if (!visitResult.success) {
+                        if (visitResult.error === 'UNCHECK_LOCKED') {
+                            alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
+                        } else if (visitResult.error !== 'ALREADY_VERIFIED') {
+                            alert("Check-in service is unavailable. Try again later.");
+                        }
+                        return;
+                    }
 
-                markVisitedBtn.classList.add('visited');
-                markVisitedText.textContent = '✓ Visited';
-                markVisitedBtn.disabled = false;
-                markVisitedBtn.style.cursor = 'pointer';
-                markVisitedBtn.style.opacity = '1';
+                    if (visitResult.action === 'removed') {
+                        markVisitedBtn.classList.remove('visited');
+                        markVisitedText.textContent = 'Mark as Visited';
+                        markVisitedBtn.onmouseenter = null;
+                        markVisitedBtn.onmouseleave = null;
 
-                await syncUserProgress();
-                window.syncState();
-                window.attemptDailyStreakIncrement();
+                        window.syncState();
+                        return;
+                    }
+
+                    markVisitedBtn.classList.add('visited');
+                    markVisitedText.textContent = '✓ Visited';
+                    markVisitedBtn.disabled = false;
+                    markVisitedBtn.style.cursor = 'pointer';
+                    markVisitedBtn.style.opacity = '1';
+
+                    window.syncState();
+                } catch (error) {
+                    console.error("[panelRenderer] mark visited failed:", error);
+                    alert("Check-in service is unavailable. Try again later.");
+                }
             };
         } else {
             visitedSection.style.display = 'none';

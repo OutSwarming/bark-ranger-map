@@ -15,6 +15,43 @@ function getLocationCoords(userLocation) {
     return { latitude, longitude };
 }
 
+function getFirebaseService() {
+    return window.BARK.services && window.BARK.services.firebase;
+}
+
+function getCurrentVisitedPlaces(userVisitedPlaces) {
+    return userVisitedPlaces || window.BARK.userVisitedPlaces;
+}
+
+function createVisitRecord(parkData, verified) {
+    return {
+        id: parkData.id,
+        name: parkData.name,
+        lat: parkData.lat,
+        lng: parkData.lng,
+        verified,
+        ts: Date.now()
+    };
+}
+
+function getCurrentPosition(options) {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            resolve({ error: 'GEOLOCATION_UNSUPPORTED' });
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(resolve, reject, options);
+    });
+}
+
+function queueDailyStreakIncrement(firebaseService) {
+    if (firebaseService && typeof firebaseService.attemptDailyStreakIncrement === 'function') {
+        firebaseService.attemptDailyStreakIncrement()
+            .catch(error => console.error('[checkinService] daily streak increment failed:', error));
+    }
+}
+
 function verifyAndProcessCheckin(parkData, userLocation, userVisitedPlaces) {
     const result = {
         success: false,
@@ -63,14 +100,7 @@ function verifyAndProcessCheckin(parkData, userLocation, userVisitedPlaces) {
         }
 
         result.success = true;
-        result.visitRecord = {
-            id: parkData.id,
-            name: parkData.name,
-            lat: parkData.lat,
-            lng: parkData.lng,
-            verified: true,
-            ts: Date.now()
-        };
+        result.visitRecord = createVisitRecord(parkData, true);
         return result;
     } catch (error) {
         console.error('[checkinService] verifyAndProcessCheckin failed:', error);
@@ -79,6 +109,92 @@ function verifyAndProcessCheckin(parkData, userLocation, userVisitedPlaces) {
     }
 }
 
+async function verifyGpsCheckin(parkData, userVisitedPlaces) {
+    const visitedPlaces = getCurrentVisitedPlaces(userVisitedPlaces);
+    const firebaseService = getFirebaseService();
+
+    if (!visitedPlaces) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
+    if (!firebaseService || typeof firebaseService.updateCurrentUserVisitedPlaces !== 'function') {
+        return { success: false, error: 'SERVICE_UNAVAILABLE' };
+    }
+
+    let position;
+    try {
+        position = await getCurrentPosition({ enableHighAccuracy: true });
+    } catch (error) {
+        if (error && error.code === error.PERMISSION_DENIED) {
+            return { success: false, error: 'PERMISSION_DENIED' };
+        }
+
+        return { success: false, error: 'LOCATION_FAILED' };
+    }
+
+    if (position && position.error) return { success: false, error: position.error };
+
+    try {
+        const checkinResult = verifyAndProcessCheckin(parkData, position.coords, visitedPlaces);
+        if (!checkinResult.success) return checkinResult;
+
+        visitedPlaces.set(parkData.id, checkinResult.visitRecord);
+        await firebaseService.updateCurrentUserVisitedPlaces(Array.from(visitedPlaces.values()));
+        queueDailyStreakIncrement(firebaseService);
+
+        return {
+            ...checkinResult,
+            action: 'verified'
+        };
+    } catch (error) {
+        console.error('[checkinService] verifyGpsCheckin failed:', error);
+        return { success: false, error: 'CHECKIN_FAILED' };
+    }
+}
+
+async function markAsVisited(parkData, userVisitedPlaces) {
+    const visitedPlaces = getCurrentVisitedPlaces(userVisitedPlaces);
+    const firebaseService = getFirebaseService();
+
+    if (!visitedPlaces) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
+    if (!firebaseService) return { success: false, error: 'SERVICE_UNAVAILABLE' };
+
+    try {
+        if (visitedPlaces.has(parkData.id)) {
+            const cachedObj = visitedPlaces.get(parkData.id);
+            if (cachedObj.verified) return { success: false, error: 'ALREADY_VERIFIED' };
+            if (!window.allowUncheck) return { success: false, error: 'UNCHECK_LOCKED' };
+            if (typeof firebaseService.updateCurrentUserVisitedPlaces !== 'function') {
+                return { success: false, error: 'SERVICE_UNAVAILABLE' };
+            }
+
+            visitedPlaces.delete(parkData.id);
+            await firebaseService.updateCurrentUserVisitedPlaces(Array.from(visitedPlaces.values()));
+            return { success: true, action: 'removed' };
+        }
+
+        const canSyncProgress = typeof firebaseService.syncUserProgress === 'function';
+        const canUpdateVisitedPlaces = typeof firebaseService.updateCurrentUserVisitedPlaces === 'function';
+        if (!canSyncProgress && !canUpdateVisitedPlaces) {
+            return { success: false, error: 'SERVICE_UNAVAILABLE' };
+        }
+
+        const visitRecord = createVisitRecord(parkData, false);
+        visitedPlaces.set(parkData.id, visitRecord);
+
+        if (canSyncProgress) {
+            await firebaseService.syncUserProgress();
+        } else {
+            await firebaseService.updateCurrentUserVisitedPlaces(Array.from(visitedPlaces.values()));
+        }
+
+        queueDailyStreakIncrement(firebaseService);
+        return { success: true, action: 'added', visitRecord };
+    } catch (error) {
+        console.error('[checkinService] markAsVisited failed:', error);
+        return { success: false, error: 'VISIT_UPDATE_FAILED' };
+    }
+}
+
 window.BARK.services.checkin = {
-    verifyAndProcessCheckin
+    verifyAndProcessCheckin,
+    verifyGpsCheckin,
+    markAsVisited
 };
