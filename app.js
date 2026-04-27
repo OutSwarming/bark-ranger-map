@@ -1546,8 +1546,11 @@ window.syncState = function () {
             updateStatsUI();
         }
         // 🏆 Evaluate achievements (renders vault, dossiers, leaderboard)
-        if (typeof evaluateAchievements === 'function' && window.userVisitedPlaces) {
-            evaluateAchievements(window.userVisitedPlaces);
+        if (typeof evaluateAchievements === 'function' && !window._evalInProgress) {
+            window._evalInProgress = true;
+            evaluateAchievements(userVisitedPlaces).finally(() => {
+                window._evalInProgress = false;
+            });
         }
     });
 };
