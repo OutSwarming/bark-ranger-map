@@ -121,9 +121,8 @@ function processParsedResults(results) {
             bindMarkerEvents(marker);
             markerCache.set(id, marker);
 
-            markerLayer.addLayer(marker);
-            marker._layerAdded = true;
-            marker._barkLayerType = 'plain';
+            marker._layerAdded = false;
+            marker._barkLayerType = null;
         } else {
             marker._parkData = parkData;
         }

@@ -79,6 +79,11 @@ function serializeSet(set) {
     return Array.from(set || []).sort().join(',');
 }
 
+function getTargetMarkerLayerType(zoom) {
+    const forceNoClustering = (window.premiumClusteringEnabled && zoom >= 7) || window.stopResizing;
+    return (window.clusteringEnabled && !forceNoClustering) ? 'cluster' : 'plain';
+}
+
 function getMarkerVisibilityStateKey() {
     const map = window.map;
     const searchCache = window.BARK._searchResultCache || {};
@@ -91,6 +96,7 @@ function getMarkerVisibilityStateKey() {
     const viewportKey = window.viewportCulling && map
         ? map.getBounds().pad(0.2).toBBoxString()
         : '';
+    const zoom = map ? map.getZoom() : 0;
 
     return [
         window.BARK._markerDataRevision || 0,
@@ -107,7 +113,8 @@ function getMarkerVisibilityStateKey() {
         window.standardClusteringEnabled ? 'standard-cluster-on' : 'standard-cluster-off',
         window.stopResizing ? 'stop-resizing-on' : 'stop-resizing-off',
         window.viewportCulling ? 'viewport-culling-on' : 'viewport-culling-off',
-        map ? map.getZoom() : '',
+        getTargetMarkerLayerType(zoom),
+        window.viewportCulling ? zoom : '',
         viewportKey
     ].join('|');
 }
@@ -115,6 +122,37 @@ function getMarkerVisibilityStateKey() {
 window.BARK.invalidateMarkerVisibility = function () {
     lastMarkerVisibilityStateKey = null;
 };
+
+function migrateMarkersToLayer(allPoints, targetLayerType, markerLayer, markerClusterGroup) {
+    const markersToAdd = [];
+
+    allPoints.forEach(item => {
+        if (!item.marker) {
+            const isVisited = window.BARK.userVisitedPlaces.has(item.id);
+            item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
+        }
+
+        if (item.marker._layerAdded && item.marker._barkLayerType === targetLayerType) return;
+
+        if (item.marker._barkLayerType === 'plain') {
+            markerLayer.removeLayer(item.marker);
+        } else if (item.marker._barkLayerType === 'cluster') {
+            markerClusterGroup.removeLayer(item.marker);
+        }
+
+        item.marker._layerAdded = true;
+        item.marker._barkLayerType = targetLayerType;
+        markersToAdd.push(item.marker);
+    });
+
+    if (!markersToAdd.length) return;
+
+    if (targetLayerType === 'cluster') {
+        markerClusterGroup.addLayers(markersToAdd);
+    } else {
+        markersToAdd.forEach(marker => markerLayer.addLayer(marker));
+    }
+}
 
 window.syncState = function () {
     if (syncScheduled) return;
@@ -156,8 +194,8 @@ function updateMarkers() {
     const _searchResultCache = window.BARK._searchResultCache;
 
     const currentZoom = map.getZoom();
-    // 🛑 PERFORMANCE BYPASS: MarkerClusterGroup internally destroys/rebuilds DOM nodes.
-    let forceNoClustering = (window.premiumClusteringEnabled && currentZoom >= 7) || window.stopResizing;
+    const targetLayerType = getTargetMarkerLayerType(currentZoom);
+    const forceNoClustering = targetLayerType === 'plain';
 
     let visibleBounds = L.latLngBounds();
     const screenBounds = map.getBounds().pad(0.2);
@@ -165,6 +203,8 @@ function updateMarkers() {
 
     // Collect DOM writes to batch them (avoids layout thrashing)
     const markerClassUpdates = [];
+
+    migrateMarkersToLayer(allPoints, targetLayerType, markerLayer, markerClusterGroup);
 
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
@@ -193,26 +233,6 @@ function updateMarkers() {
         // 🎯 VIEWPORT CULLING: Skip off-screen pins entirely
         if (isVisible && window.viewportCulling && !screenBounds.contains([item.lat, item.lng])) {
             isVisible = false;
-        }
-
-        // Ensure marker exists for all items (for reuse)
-        if (!item.marker) {
-            item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
-        }
-
-        const targetLayerType = (forceNoClustering || !window.clusteringEnabled) ? 'plain' : 'cluster';
-        const targetLayer = targetLayerType === 'plain' ? markerLayer : markerClusterGroup;
-
-        // Layer assignment is stable unless bubble mode actually changes target layer.
-        if (!item.marker._layerAdded || item.marker._barkLayerType !== targetLayerType || !targetLayer.hasLayer(item.marker)) {
-            if (item.marker._barkLayerType === 'plain' && targetLayerType !== 'plain') {
-                markerLayer.removeLayer(item.marker);
-            } else if (item.marker._barkLayerType === 'cluster' && targetLayerType !== 'cluster') {
-                markerClusterGroup.removeLayer(item.marker);
-            }
-            targetLayer.addLayer(item.marker);
-            item.marker._layerAdded = true;
-            item.marker._barkLayerType = targetLayerType;
         }
 
         item.marker._barkIsVisible = isVisible;
