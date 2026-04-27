@@ -80,16 +80,16 @@ function renderMarkerClickPanel(context) {
         if (formattedPics.includes('<a ')) {
             if (picsEl) { picsEl.style.display = 'grid'; picsEl.innerHTML = formattedPics; }
         } else {
-            if (picsEl) picsEl.style.display = 'none';
+            if (picsEl) { picsEl.style.display = 'none'; picsEl.innerHTML = ''; }
         }
     } else {
-        if (picsEl) picsEl.style.display = 'none';
+        if (picsEl) { picsEl.style.display = 'none'; picsEl.innerHTML = ''; }
     }
 
     if (d.video && typeof d.video === 'string' && d.video.startsWith('http')) {
         if (videoEl) { videoEl.style.display = 'block'; videoEl.href = d.video; }
     } else {
-        if (videoEl) videoEl.style.display = 'none';
+        if (videoEl) { videoEl.style.display = 'none'; videoEl.removeAttribute('href'); }
     }
 
     if (websitesContainer) {
