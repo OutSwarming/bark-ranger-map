@@ -84,27 +84,12 @@ if (window.lowGfxEnabled) {
     document.body.classList.remove('low-graphics');
 }
 
-// ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
-// Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
+// ====== iOS SAFARI MAGNIFIER PROTECTION (CSS-managed; kept for non-iOS fallback) ======
 document.addEventListener('contextmenu', function (e) {
     if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
     }
 });
-
-let lastTouchTime = 0;
-document.addEventListener('touchstart', function (e) {
-    const time = new Date().getTime();
-    const timeSince = time - lastTouchTime;
-    // Intercept the second tap of a double tap (which can lead to a magnifying glass if held)
-    if (timeSince < 300 && timeSince > 0) {
-        if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && !e.target.isContentEditable) {
-            e.preventDefault();
-        }
-    }
-    lastTouchTime = time;
-}, { passive: false });
-
 
 // ====== SAFETY & COST CONTROLS ======
 let globalRequestCounter = 0;
@@ -164,60 +149,30 @@ window.attemptDailyStreakIncrement = async function () {
 // iOS Safari resizes the visual viewport when the keyboard opens,
 // but position:fixed elements (like the nav bar) don't move with it.
 // This causes the nav bar to float over or under the screen.
-(function () {
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// Modern Visual Viewport API — single source of truth for keyboard detection
+if (window.visualViewport) {
+    let initialHeight = window.visualViewport.height;
 
-    // Method 1: visualViewport resize detection (most reliable)
-    if (window.visualViewport) {
-        let initialHeight = window.visualViewport.height;
-        window.visualViewport.addEventListener('resize', () => {
-            const currentHeight = window.visualViewport.height;
-            // If viewport shrunk significantly, keyboard is likely open.
-            // Using 25% of height as a more robust threshold than a fixed pixel value.
-            if (initialHeight - currentHeight > window.screen.height * 0.2) {
-                document.body.classList.add('keyboard-open');
-                if (window.innerWidth < 768 && slidePanel) {
-                    slidePanel.classList.remove('open');
-                }
-            } else {
-                document.body.classList.remove('keyboard-open');
-            }
-        });
-        // Update baseline on orientation change
-        window.addEventListener('orientationchange', () => {
-            setTimeout(() => { initialHeight = window.visualViewport.height; }, 1000); // Wait for Safari chrome animation
-        });
-    }
+    window.visualViewport.addEventListener('resize', () => {
+        // If the viewport shrinks by more than 20%, the keyboard is almost certainly open
+        const isKeyboardOpen = (initialHeight - window.visualViewport.height) > window.screen.height * 0.2;
+        
+        document.body.classList.toggle('keyboard-open', isKeyboardOpen);
 
-    // Method 2: Focus/blur on input elements (fallback)
-    document.addEventListener('focusin', (e) => {
-        if (e.target.matches('input, textarea')) {
-            document.body.classList.add('keyboard-open');
-
-            // Explicitly close slide panel on mobile if typing starts
-            if (window.innerWidth < 768 && typeof slidePanel !== 'undefined' && slidePanel) {
-                slidePanel.classList.remove('open');
-            }
-
-            // Scroll the focused element into view after a short delay
-            if (isIOS) {
-                setTimeout(() => {
-                    e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 400); // Slightly longer for Safari stability
-            }
+        // UI Adjustment: Close the slide panel on mobile if keyboard opens to save space
+        if (isKeyboardOpen && window.innerWidth < 768) {
+            const slidePanel = document.querySelector('.slide-panel');
+            if (slidePanel) slidePanel.classList.remove('open');
         }
     });
-    document.addEventListener('focusout', (e) => {
-        if (e.target.matches('input, textarea')) {
-            document.body.classList.remove('keyboard-open');
-            // Force iOS to recalculate layout
-            if (isIOS) {
-                window.scrollTo(0, 0);
-            }
-        }
+
+    // Reset reference height if the phone rotates (Portrait to Landscape)
+    window.addEventListener('orientationchange', () => {
+        setTimeout(() => { 
+            initialHeight = window.visualViewport.height; 
+        }, 500);
     });
-})();
+}
 
 // Initialize map centered on the US
 const mapOptions = window.ultraLowEnabled ? {
@@ -2657,6 +2612,8 @@ searchInput.addEventListener('input', (e) => {
 
     searchTimeout = setTimeout(() => {
         const queryNorm = normalizeText(activeSearchQuery);
+
+        // 🔥 FIRST PASS: Build the cache (this runs Levenshtein once)
         const matchedIds = new Set();
         let matches = [];
 
@@ -2687,9 +2644,13 @@ searchInput.addEventListener('input', (e) => {
         });
         _searchResultCache = { query: queryNorm, matchedIds };
 
+        // 🆕 SECOND PASS: Use the cache — no duplicate Levenshtein needed
+        const cachedIds = _searchResultCache.matchedIds;
+        const suggestions = allPoints.filter(p => cachedIds.has(p.id));
 
-        matches.sort((a, b) => a.score - b.score);
-        const topMatches = matches.slice(0, 10);
+        // Sort by name for consistency (limit to top 8)
+        suggestions.sort((a, b) => a.name.localeCompare(b.name));
+        const topMatches = suggestions.slice(0, 8);
 
         searchSuggestions.innerHTML = '';
 
@@ -2698,22 +2659,22 @@ searchInput.addEventListener('input', (e) => {
             topMatches.forEach(match => {
                 const div = document.createElement('div');
                 div.className = 'suggestion-item';
-                div.textContent = match.item.name + (match.item.state ? `, ${match.item.state}` : '');
+                div.textContent = match.name + (match.state ? `, ${match.state}` : '');
                 div.addEventListener('click', () => {
-                    searchInput.value = match.item.name;
-                    activeSearchQuery = match.item.name;
+                    searchInput.value = match.name;
+                    activeSearchQuery = match.name;
                     searchSuggestions.style.display = 'none';
                     window.syncState();
 
-                    if (match.item.marker && match.item.marker._parkData) {
+                    if (match.marker && match.marker._parkData) {
                         // Wrap the view change
                         if (!window.stopAutoMovements) {
-                            map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, {
+                            map.setView([match.marker._parkData.lat, match.marker._parkData.lng], 12, {
                                 animate: !window.lowGfxEnabled,
                                 duration: window.lowGfxEnabled ? 0 : 1.5
                             });
                         }
-                        match.item.marker.fire('click');
+                        match.marker.fire('click');
                     }
                 });
                 searchSuggestions.appendChild(div);
