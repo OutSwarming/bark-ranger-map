@@ -185,6 +185,42 @@ function handleExpeditionSync(data) {
     }
 }
 
+function handleVisitedPlacesSync(placeList) {
+    try {
+        if (Array.isArray(placeList)) {
+            window.BARK.userVisitedPlaces = new Map();
+            placeList.forEach(obj => {
+                if (obj && obj.id) window.BARK.userVisitedPlaces.set(obj.id, obj);
+            });
+        }
+    } catch (error) {
+        console.error("[authService] visited places sync failed:", error);
+    }
+}
+
+function handlePremiumGating(isLoggedIn) {
+    try {
+        const premiumWrap = document.getElementById('premium-filters-wrap');
+        const visitedSelect = document.getElementById('visited-filter');
+        const mapStyleSelectF = document.getElementById('map-style-select');
+        if (premiumWrap) {
+            if (isLoggedIn) {
+                premiumWrap.classList.remove('premium-locked');
+                premiumWrap.classList.add('premium-unlocked');
+                if (visitedSelect) visitedSelect.disabled = false;
+                if (mapStyleSelectF) mapStyleSelectF.disabled = false;
+            } else {
+                premiumWrap.classList.add('premium-locked');
+                premiumWrap.classList.remove('premium-unlocked');
+                if (visitedSelect) { visitedSelect.disabled = true; visitedSelect.value = 'all'; }
+                if (mapStyleSelectF) { mapStyleSelectF.disabled = true; mapStyleSelectF.value = 'default'; }
+            }
+        }
+    } catch (error) {
+        console.error("[authService] premium gating failed:", error);
+    }
+}
+
 function initFirebase() {
     if (typeof firebase === 'undefined') return;
 
@@ -284,15 +320,9 @@ function initFirebase() {
                                 window.currentWalkPoints = Math.round(walkVal * 100) / 100;
 
                                 handleExpeditionSync(data);
-
-                                if (Array.isArray(placeList)) {
-                                    window.BARK.userVisitedPlaces = new Map();
-                                    placeList.forEach(obj => {
-                                        if (obj && obj.id) window.BARK.userVisitedPlaces.set(obj.id, obj);
-                                    });
-                                }
+                                handleVisitedPlacesSync(placeList);
                             } else {
-                                window.BARK.userVisitedPlaces = new Map();
+                                handleVisitedPlacesSync([]);
                             }
                             window.syncState();
                             if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
@@ -324,17 +354,7 @@ function initFirebase() {
                 }
 
                 loadSavedRoutes(user.uid);
-
-                // UNLOCK PREMIUM FILTERS
-                const premiumWrap = document.getElementById('premium-filters-wrap');
-                const visitedSelect = document.getElementById('visited-filter');
-                const mapStyleSelectF = document.getElementById('map-style-select');
-                if (premiumWrap) {
-                    premiumWrap.classList.remove('premium-locked');
-                    premiumWrap.classList.add('premium-unlocked');
-                    if (visitedSelect) visitedSelect.disabled = false;
-                    if (mapStyleSelectF) mapStyleSelectF.disabled = false;
-                }
+                handlePremiumGating(true);
             } else {
                 if (loginContainer) loginContainer.style.display = 'block';
                 if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
@@ -355,16 +375,7 @@ function initFirebase() {
                 if (savedList) savedList.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Sign in to view saved routes.</p>';
                 if (savedCount) savedCount.textContent = '0';
 
-                // LOCK PREMIUM FILTERS
-                const premiumWrap = document.getElementById('premium-filters-wrap');
-                const visitedSelect = document.getElementById('visited-filter');
-                const mapStyleSelectF = document.getElementById('map-style-select');
-                if (premiumWrap) {
-                    premiumWrap.classList.add('premium-locked');
-                    premiumWrap.classList.remove('premium-unlocked');
-                    if (visitedSelect) { visitedSelect.disabled = true; visitedSelect.value = 'all'; }
-                    if (mapStyleSelectF) { mapStyleSelectF.disabled = true; mapStyleSelectF.value = 'default'; }
-                }
+                handlePremiumGating(false);
             }
         });
     } catch (error) {
