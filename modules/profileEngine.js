@@ -81,22 +81,20 @@ const LEADERBOARD_SYNC_DEBOUNCE_MS = 10000;
 async function syncScoreToLeaderboard() {
     if (_leaderboardSyncInProgress) return;
 
+    const now = Date.now();
+    if (now - _lastLeaderboardSyncTime < LEADERBOARD_SYNC_DEBOUNCE_MS) return;
+
+    const user = firebase.auth().currentUser;
+    if (!user) return;
+
+    const userVisitedPlaces = window.BARK.userVisitedPlaces;
+    const scoreSummary = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints);
+    const totalScore = scoreSummary.totalScore;
+
+    if (totalScore === window._lastSyncedScore) return;
+
     _leaderboardSyncInProgress = true;
     try {
-        const now = Date.now();
-        if (now - _lastLeaderboardSyncTime < LEADERBOARD_SYNC_DEBOUNCE_MS) return;
-
-        const user = firebase.auth().currentUser;
-        if (!user) return;
-
-        const userVisitedPlaces = window.BARK.userVisitedPlaces;
-        const scoreSummary = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints);
-        const totalScore = scoreSummary.totalScore;
-
-        if (totalScore === window._lastSyncedScore) return;
-
-        _lastLeaderboardSyncTime = now;
-
         const db = firebase.firestore();
         window.BARK.incrementRequestCount();
 
@@ -137,6 +135,7 @@ async function syncScoreToLeaderboard() {
         }
     } finally {
         _leaderboardSyncInProgress = false;
+        _lastLeaderboardSyncTime = Date.now();
     }
 }
 

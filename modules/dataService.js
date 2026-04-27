@@ -16,6 +16,72 @@ const markerCache = new Map();
 let isRendering = false;
 let pendingCSV = null;
 
+const CSV_COLUMNS = {
+    LOCATION: 'Location',
+    STATE: 'State',
+    SWAG_COST: 'Swag Cost',
+    TYPE: 'Type',
+    INFO: 'Useful/Important/Other Info',
+    WEBSITE: 'Website',
+    PICS: 'Swag Pics - If available, and may not be current.',
+    VIDEO: 'Swearing-In Video. Not all sites do this, and ones that do only do it as time permits.',
+    LAT: 'lat',
+    LNG: 'lng'
+};
+
+const SWAG_TYPE_COLUMNS = ['Swag Type', 'Swag', 'Swag Available'];
+
+function cleanCSVValue(value) {
+    if (value === undefined || value === null) return '';
+    if (typeof value === 'string') return value.trim();
+    return value;
+}
+
+function getCSVValue(row, columnName) {
+    if (!row) return '';
+    if (Object.prototype.hasOwnProperty.call(row, columnName)) return cleanCSVValue(row[columnName]);
+
+    const matchingKey = Object.keys(row).find(key => cleanCSVValue(key) === columnName);
+    return matchingKey ? cleanCSVValue(row[matchingKey]) : '';
+}
+
+function getFirstPresentCSVValue(row, columnNames) {
+    for (const columnName of columnNames) {
+        if (row && Object.prototype.hasOwnProperty.call(row, columnName)) {
+            return { found: true, value: cleanCSVValue(row[columnName]) };
+        }
+        const matchingKey = row && Object.keys(row).find(key => cleanCSVValue(key) === columnName);
+        if (matchingKey) return { found: true, value: cleanCSVValue(row[matchingKey]) };
+    }
+    return { found: false, value: '' };
+}
+
+function normalizeSwagType(value) {
+    if (!value) return 'Other';
+    if (['Tag', 'Bandana', 'Certificate', 'Other'].includes(value)) return value;
+    return window.BARK.getSwagType(value);
+}
+
+function normalizeCSVRow(rawItem) {
+    const row = rawItem && typeof rawItem === 'object' ? rawItem : {};
+    const info = getCSVValue(row, CSV_COLUMNS.INFO);
+    const explicitSwag = getFirstPresentCSVValue(row, SWAG_TYPE_COLUMNS);
+
+    return {
+        name: getCSVValue(row, CSV_COLUMNS.LOCATION),
+        state: getCSVValue(row, CSV_COLUMNS.STATE),
+        cost: getCSVValue(row, CSV_COLUMNS.SWAG_COST),
+        category: getCSVValue(row, CSV_COLUMNS.TYPE),
+        info,
+        website: getCSVValue(row, CSV_COLUMNS.WEBSITE),
+        pics: getCSVValue(row, CSV_COLUMNS.PICS),
+        video: getCSVValue(row, CSV_COLUMNS.VIDEO),
+        lat: getCSVValue(row, CSV_COLUMNS.LAT),
+        lng: getCSVValue(row, CSV_COLUMNS.LNG),
+        swagType: explicitSwag.found ? normalizeSwagType(explicitSwag.value) : window.BARK.getSwagType(info)
+    };
+}
+
 function bindMarkerEvents(marker) {
     if (marker._barkEventsBound) return;
     marker._barkEventsBound = true;
@@ -53,6 +119,55 @@ function bindMarkerEvents(marker) {
     });
 }
 
+function hasMarkerDataChanged(currentData, nextData) {
+    if (!currentData) return true;
+
+    return [
+        'name',
+        'state',
+        'cost',
+        'swagType',
+        'info',
+        'website',
+        'pics',
+        'video',
+        'lat',
+        'lng',
+        'parkCategory',
+        '_cachedNormalizedName'
+    ].some(key => currentData[key] !== nextData[key]);
+}
+
+function updateCachedMarker(marker, parkData, wasVisited, isVisited) {
+    if (!hasMarkerDataChanged(marker._parkData, parkData) && wasVisited === isVisited) {
+        marker._parkData = parkData;
+        return;
+    }
+
+    const currentLatLng = marker.getLatLng();
+    const nextLat = Number(parkData.lat);
+    const nextLng = Number(parkData.lng);
+    if (
+        Number.isFinite(nextLat) &&
+        Number.isFinite(nextLng) &&
+        (currentLatLng.lat !== nextLat || currentLatLng.lng !== nextLng)
+    ) {
+        marker.setLatLng([parkData.lat, parkData.lng]);
+    }
+
+    if (marker._parkData && marker._parkData.parkCategory !== parkData.parkCategory) {
+        const replacementMarker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
+        marker.setIcon(replacementMarker.options.icon);
+    }
+
+    marker._parkData = parkData;
+
+    if (marker._icon) {
+        marker._icon.classList.toggle('visited-pin', isVisited);
+        marker._icon.classList.toggle('marker-filter-hidden', marker._barkIsVisible === false);
+    }
+}
+
 function processParsedResults(results) {
     const userVisitedPlaces = window.BARK.userVisitedPlaces;
     const markerLayer = window.BARK.markerLayer;
@@ -61,8 +176,10 @@ function processParsedResults(results) {
     const slidePanel = document.getElementById('slide-panel');
 
     // Remember currently active pin location
+    let activeId = null;
     let activeLat = null, activeLng = null;
     if (activePinMarker && activePinMarker._parkData) {
+        activeId = activePinMarker._parkData.id;
         activeLat = activePinMarker._parkData.lat;
         activeLng = activePinMarker._parkData.lng;
     }
@@ -76,25 +193,17 @@ function processParsedResults(results) {
     const incomingParkIds = new Set();
 
     results.data.forEach(rawItem => {
-        const item = {};
-        if (rawItem && typeof rawItem === 'object') {
-            Object.keys(rawItem).forEach(key => {
-                let val = rawItem[key];
-                if (typeof val === 'string') val = val.trim();
-                item[key] = val;
-            });
-        }
-
-        const name = item['Location'];
-        const state = item['State'];
-        const cost = item['Swag Cost'];
-        const category = item['Type'];
-        const info = item[' Useful/Important/Other Info'];
-        const website = item['Website'];
-        const pics = item['Swag Pics - If available, and may not be current.'];
-        const video = item['Swearing-In Video. Not all sites do this, and ones that do only do it as time permits.'];
-        let lat = item['lat'];
-        let lng = item['lng'];
+        const item = normalizeCSVRow(rawItem);
+        const name = item.name;
+        const state = item.state;
+        const cost = item.cost;
+        const category = item.category;
+        const info = item.info;
+        const website = item.website;
+        const pics = item.pics;
+        const video = item.video;
+        let lat = item.lat;
+        let lng = item.lng;
 
         if (name && name.includes('War in the Pacific')) {
             lat = 13.402746;
@@ -103,7 +212,7 @@ function processParsedResults(results) {
 
         if (!lat || !lng) return;
 
-        const swagType = window.BARK.getSwagType(info);
+        const swagType = item.swagType;
         const parkCategory = window.BARK.getParkCategory(category);
 
         const id = window.BARK.generatePinId(lat, lng);
@@ -124,7 +233,9 @@ function processParsedResults(results) {
             marker._layerAdded = false;
             marker._barkLayerType = null;
         } else {
-            marker._parkData = parkData;
+            const wasVisited = userVisitedPlaces.has(marker._parkData.id);
+            const isVisited = userVisitedPlaces.has(id);
+            updateCachedMarker(marker, parkData, wasVisited, isVisited);
         }
 
         parkData.marker = marker;
@@ -161,8 +272,8 @@ function processParsedResults(results) {
     window.syncState();
 
     // Restore the previously active pin
-    if (activeLat !== null && activeLng !== null) {
-        const match = window.parkLookup.get(window.BARK.generatePinId(activeLat, activeLng));
+    if (activeId !== null || (activeLat !== null && activeLng !== null)) {
+        const match = window.parkLookup.get(activeId) || window.parkLookup.get(window.BARK.generatePinId(activeLat, activeLng));
         if (match) {
             window.BARK.activePinMarker = match.marker;
             if (window.BARK.activePinMarker._icon) {
@@ -183,7 +294,13 @@ function parseCSVString(csvString) {
     Papa.parse(csvString, {
         header: true,
         dynamicTyping: true,
+        skipEmptyLines: 'greedy',
+        transformHeader: header => cleanCSVValue(header),
+        transform: value => cleanCSVValue(value),
         complete: function (results) {
+            if (results.errors && results.errors.length) {
+                console.warn('[dataService] CSV parse completed with recoverable row issues:', results.errors);
+            }
             processParsedResults(results);
             isRendering = false;
             if (pendingCSV) {
