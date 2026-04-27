@@ -248,7 +248,7 @@ const mapOptions = window.ultraLowEnabled ? {
     markerZoomAnimation: true
 };
 
-window.map = L.map('map', mapOptions);
+const map = L.map('map', mapOptions);
 
 // 🎯 MAP MEMORY INJECTION
 function setInitialMapView(defaultLat, defaultLng) {
@@ -439,7 +439,7 @@ const markerLayer = L.layerGroup().addTo(map);
 // Creates the clustering engine, but does NOT add it to the map yet.
 const markerClusterGroup = L.markerClusterGroup({
     // 🎯 Use Leaflet's internal bounding-block logic when toggled on
-    chunkedLoading: window.stopResizing,
+    chunkedLoading: window.stopPinResizing,
     chunkInterval: 200, // Process in blocks of 200ms
     chunkDelay: 50,     // Yield to the CPU so the map doesn't freeze
 
@@ -692,34 +692,69 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                // 2. Instantly update state & write to local storage
+                // 2. Instantly update the window variable & synchronous save to local storage
                 window.ultraLowEnabled = isEnabled;
                 localStorage.setItem('barkUltraLowEnabled', isEnabled ? 'true' : 'false');
 
-                if (isEnabled) {
-                    localStorage.setItem('barkLowGfxEnabled', 'true');
-                    localStorage.setItem('barkStandardClustering', 'true');
-                    localStorage.setItem('barkPremiumClustering', 'false');
-                    localStorage.setItem('barkInstantNav', 'true');
-                    localStorage.setItem('barkSimplifyTrails', 'true');
-                } else {
-                    localStorage.setItem('barkLowGfxEnabled', 'false');
-                    localStorage.setItem('barkInstantNav', 'false');
-                    localStorage.setItem('barkSimplifyTrails', 'false');
-                }
-
-                // 3. Visual feedback
+                // 3. Add a visual warning
                 const label = e.target.closest('.setting-row') || e.target.parentElement;
                 if (label) {
                     label.style.opacity = '0.5';
                     label.innerHTML += "<br><span style='color:red; font-weight:bold; font-size:12px;'>RELOADING ENGINE...</span>";
                 }
 
-                // 4. Set skip flag & reload
+                // 4. Set a skip flag so Firebase doesn't wipe this change out upon reload
                 sessionStorage.setItem('skipCloudHydration', 'true');
+
+                // 5. Give the browser 150ms to finish writing to memory BEFORE killing the page thread
                 setTimeout(() => {
-                    window.location.reload(true);
+                    window.location.reload(true); // forces hard refresh from server
                 }, 150);
+        // Ultra Low Toggle — uses the one already declared at line 413
+        if (ultraLowToggle) {
+            ultraLowToggle.addEventListener('change', (e) => {
+                const isTurningOn = e.target.checked;
+
+                if (isTurningOn) {
+                    // === ENTERING ULTRA LOW ===
+                    const confirmOn = window.confirm(
+                        "⚠️ ENABLE ULTRA-LOW GRAPHICS?\n\nThis will disable all animations, effects, and live updates.\nPage will reload to optimize the map engine."
+                    );
+
+                    if (confirmOn) {
+                        // Write ALL state to localStorage FIRST, then reload
+                        localStorage.setItem('barkUltraLowEnabled', 'true');
+                        localStorage.setItem('barkLowGfxEnabled', 'true');
+                        localStorage.setItem('barkStandardClustering', 'true');
+                        localStorage.setItem('barkPremiumClustering', 'false');
+                        localStorage.setItem('barkInstantNav', 'true');
+                        localStorage.setItem('barkSimplifyTrails', 'true');
+                        window.location.reload(); // Hard reset the Leaflet engine
+                    } else {
+                        // User cancelled — snap toggle back
+                        e.target.checked = false;
+                    }
+
+                } else {
+                    // === EXITING ULTRA LOW ===
+                    const confirmOff = window.confirm(
+                        "Switching to High Graphics requires a page reload to restore all visual effects. Proceed?"
+                    );
+
+                    if (confirmOff) {
+                        // Write ALL state to localStorage FIRST, then reload
+                        localStorage.setItem('barkUltraLowEnabled', 'false');
+                        localStorage.setItem('barkLowGfxEnabled', 'false');
+                        localStorage.setItem('barkStandardClustering', 'true');
+                        localStorage.setItem('barkPremiumClustering', 'false');
+                        localStorage.setItem('barkInstantNav', 'false');
+                        localStorage.setItem('barkSimplifyTrails', 'false');
+                        window.location.reload(); // Clean slate — Leaflet rebuilds smooth
+                    } else {
+                        // User cancelled — snap toggle back to ON
+                        e.target.checked = true;
+                    }
+                }
             });
         }
 
@@ -887,8 +922,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         }
-    }
-});
+    });
 
 
 function populateTrailWarpGrid() {
@@ -1535,7 +1569,7 @@ function formatSwagLinks(text) {
  */
 let syncScheduled = false;
 window.syncState = function () {
-    if (syncScheduled) return;
+    if (syncScheduled || (!window.parkLookup || window.parkLookup.size === 0)) return;
     syncScheduled = true;
     window.requestAnimationFrame(() => {
         syncScheduled = false;
@@ -2659,19 +2693,11 @@ searchInput.addEventListener('input', (e) => {
             if (nameNorm.includes(queryNorm)) {
                 score = 0;
             } else if (queryNorm.length > 2) {
-                // Optimization: Skip Levenshtein if length difference is massive
-                if (Math.abs(queryNorm.length - nameNorm.length) < 15) {
-                    let minDist = levenshtein(queryNorm, nameNorm);
-                    const words = nameNorm.split(' ');
-                    for (let i = 0; i < words.length; i++) {
-                        if (minDist <= 1) break; // Optimization: Early exit if we have a close match
-                        const word = words[i];
-                        if (Math.abs(queryNorm.length - word.length) < 5) {
-                            minDist = Math.min(minDist, levenshtein(queryNorm, word));
-                        }
-                    }
-                    score = minDist;
+                let minDist = levenshtein(queryNorm, nameNorm);
+                for (const word of nameNorm.split(' ')) {
+                    minDist = Math.min(minDist, levenshtein(queryNorm, word));
                 }
+                score = minDist;
             }
             if (score <= 2) {
                 matchedIds.add(item.id);
@@ -3174,14 +3200,14 @@ if (typeof firebase !== 'undefined') {
                             if (typeof window.syncState === 'function' && window.parkLookup && window.parkLookup.size > 0) {
                                 window.syncState(); // Actually redraws the pins
                             }
-                        } // Closes the `else` (28 spaces)
 
-                        if (window.startNationalView && typeof map !== 'undefined') {
-                            map.setView([39.8283, -98.5795], 4, { animate: false });
+                            if (window.startNationalView && typeof map !== 'undefined') {
+                                map.setView([39.8283, -98.5795], 4, { animate: false });
+                            }
+
+                            console.log("☁️ Cloud settings loaded and injected perfectly!");
                         }
-
-                        console.log("☁️ Cloud settings loaded and injected perfectly!");
-                    } // Closes the `if (data.settings && !window._cloudSettingsLoaded)` (24 spaces)
+                    }
 
                         const placeList = data.visitedPlaces || [];
 
@@ -6412,7 +6438,7 @@ if ('ontouchstart' in window) {
 
         // 🛡️ CHUNKED THROTTLE: Updates in bounding blocks to prevent CPU melt
         if (!zoomRAF) {
-            if (window.stopResizing) {
+            if (window.stopPinResizing) {
                 // THROW INTO CHUNKS: Wait and update everything at once in 250ms blocks
                 zoomRAF = setTimeout(() => {
                     map.setZoom(targetZoom, { animate: false });
@@ -6450,5 +6476,6 @@ if ('ontouchstart' in window) {
     });
 
     // Touch cancelled by browser (switching apps, gesture conflict, etc.)
+    mapContainer.addEventListener('touchcancel', resetZoomState);
 }
-
+}
