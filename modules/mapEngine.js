@@ -36,14 +36,15 @@ function applyGlobalStyles() {
     if (removeClasses.length) document.body.classList.remove(...removeClasses);
 }
 
-// Apply initial styles
-applyGlobalStyles();
-// 🏭 Batch-apply CSS classes in one DOM write after all vars are configured
-applyGlobalStyles();
-
 window.BARK.applyGlobalStyles = applyGlobalStyles;
 
 // ====== MAP INITIALIZATION ======
+window.BARK.initMap = function initMap() {
+if (window.map && window.BARK.markerLayer && window.BARK.markerClusterGroup) return window.map;
+
+// Apply initial styles
+applyGlobalStyles();
+
 let mapSaveTimeout;
 
 const mapOptions = window.ultraLowEnabled ? {
@@ -187,7 +188,6 @@ if (mapStyleSelect) {
         loadLayer(style);
     });
 }
-
 window.BARK.loadLayer = loadLayer;
 
 // ====== LOCATE CONTROL ======
@@ -430,3 +430,6 @@ if ('ontouchstart' in window) {
         resetZoomState();
     });
 }
+
+return window.map;
+};

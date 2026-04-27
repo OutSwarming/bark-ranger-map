@@ -4,6 +4,7 @@
  */
 window.BARK = window.BARK || {};
 
+window.BARK.initUI = function initUI() {
 // ====== iOS SAFARI MAGNIFIER PROTECTION ======
 document.addEventListener('contextmenu', function (e) {
     if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
@@ -157,3 +158,4 @@ const refreshBtn = document.getElementById('refresh-btn');
 if (refreshBtn) {
     refreshBtn.addEventListener('click', () => window.location.reload(true));
 }
+};

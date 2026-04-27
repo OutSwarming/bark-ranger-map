@@ -4,7 +4,7 @@
  */
 window.BARK = window.BARK || {};
 
-document.addEventListener('DOMContentLoaded', () => {
+window.BARK.initSettings = function initSettings() {
     const settingsGearBtn = document.getElementById('settings-gear-btn');
     const settingsOverlay = document.getElementById('settings-overlay');
     const closeSettingsBtn = document.getElementById('close-settings-btn');
@@ -322,4 +322,4 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
     }
-});
+};
