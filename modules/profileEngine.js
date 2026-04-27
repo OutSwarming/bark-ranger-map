@@ -80,10 +80,8 @@ async function syncScoreToLeaderboard() {
     if (!user) return;
 
     const userVisitedPlaces = window.BARK.userVisitedPlaces;
-    let verifiedCount = 0;
-    let regularCount = 0;
-    userVisitedPlaces.forEach(p => { if (p.verified) verifiedCount++; else regularCount++; });
-    const totalScore = (verifiedCount * 2) + regularCount + window.BARK.sanitizeWalkPoints(window.currentWalkPoints);
+    const scoreSummary = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints);
+    const totalScore = scoreSummary.totalScore;
 
     if (totalScore === window._lastSyncedScore) return;
 
@@ -380,15 +378,10 @@ function updateStatsUI() {
         }
     });
 
-    let verifiedCount = 0;
-    let regularCount = 0;
-
-    userVisitedPlaces.forEach((p) => {
-        if (p.verified) verifiedCount++;
-        else regularCount++;
-    });
-
-    const totalScore = (verifiedCount * 2) + regularCount + window.BARK.sanitizeWalkPoints(window.currentWalkPoints);
+    const scoreSummary = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints);
+    const totalScore = scoreSummary.totalScore;
+    const verifiedCount = scoreSummary.verifiedCount;
+    const regularCount = scoreSummary.regularCount;
 
     scoreEl.textContent = totalScore;
     verifiedEl.textContent = verifiedCount;
@@ -551,9 +544,7 @@ async function loadLeaderboard() {
         const user = firebase.auth().currentUser;
         if (user && !topUsers.find(u => u.uid === user.uid)) {
             const userVisitedPlaces = window.BARK.userVisitedPlaces;
-            let localVerified = 0, localRegular = 0;
-            userVisitedPlaces.forEach(p => { if (p.verified) localVerified++; else localRegular++; });
-            const localScore = (localVerified * 2) + localRegular + window.BARK.sanitizeWalkPoints(window.currentWalkPoints);
+            const localScore = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints).totalScore;
 
             let exactRank = null;
             try {
@@ -601,9 +592,7 @@ async function loadMoreLeaderboard() {
         const user = firebase.auth().currentUser;
         if (user && !cachedLeaderboardData.find(u => u.uid === user.uid)) {
             const userVisitedPlaces = window.BARK.userVisitedPlaces;
-            let localVerified = 0, localRegular = 0;
-            userVisitedPlaces.forEach(p => { if (p.verified) localVerified++; else localRegular++; });
-            const localScore = (localVerified * 2) + localRegular + window.BARK.sanitizeWalkPoints(window.currentWalkPoints);
+            const localScore = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints).totalScore;
 
             try {
                 const projectId = firebase.app().options.projectId;

@@ -111,22 +111,12 @@ window.tripStartNode = null;
 window.tripEndNode = null;
 
 // ====== UTILITY FUNCTIONS ======
-const generatePinId = (lat, lng) => `${parseFloat(lat).toFixed(2)}_${parseFloat(lng).toFixed(2)}`;
-
-const haversineDistance = (lat1, lon1, lat2, lon2) => {
-    const r = 6371; // km
-    const p = Math.PI / 180;
-    const a = 0.5 - Math.cos((lat2 - lat1) * p) / 2 +
-        Math.cos(lat1 * p) * Math.cos(lat2 * p) *
-        (1 - Math.cos((lon2 - lon1) * p)) / 2;
-    return 2 * r * Math.asin(Math.sqrt(a));
-};
-
-/**
- * 🛡️ FLOAT PRECISION GUARD 🛡️
- */
-function sanitizeWalkPoints(raw) {
-    return Math.floor(Math.round((raw || 0) * 100) / 100);
+if (
+    typeof window.BARK.generatePinId !== 'function' ||
+    typeof window.BARK.haversineDistance !== 'function' ||
+    typeof window.BARK.sanitizeWalkPoints !== 'function'
+) {
+    throw new Error('geoUtils.js must load before barkState.js');
 }
 
 // ====== GAMIFICATION ENGINE INSTANCE ======
@@ -150,7 +140,4 @@ Object.defineProperties(window.BARK, {
 });
 
 window.BARK.DAY_COLORS = DAY_COLORS;
-window.BARK.generatePinId = generatePinId;
-window.BARK.haversineDistance = haversineDistance;
-window.BARK.sanitizeWalkPoints = sanitizeWalkPoints;
 window.BARK.clearActivePin = clearActivePin;

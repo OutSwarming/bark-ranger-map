@@ -55,17 +55,13 @@ class GamificationEngine {
     }
 
     evaluate(visitedParksArray, userRank = null, walkPoints = 0) {
-        // 🛡️ FLOAT PRECISION GUARD: Round to 2 decimal places before flooring
-        // to prevent IEEE 754 drift (e.g. 10.999999... → 10 instead of 11)
-        let totalScore = Math.floor(Math.round((walkPoints || 0) * 100) / 100);
-        let verifiedCount = 0;
+        const scoreSummary = window.BARK.calculateVisitScore(visitedParksArray, walkPoints);
+        let totalScore = scoreSummary.totalScore;
+        let verifiedCount = scoreSummary.verifiedCount;
         let stateVisitsTotalMap = {};
         let stateVisitsVerifiedMap = {};
 
         visitedParksArray.forEach(park => {
-            if (park.verified) { verifiedCount++; totalScore += 2; } 
-            else { totalScore += 1; }
-
             if (park.state) {
                 const stArray = String(park.state).split(/[,/]/);
                 stArray.forEach(s => {
