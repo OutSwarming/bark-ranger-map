@@ -1272,9 +1272,26 @@
     <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-functions-compat.js"></script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Core Dependencies (load before modules) -->
     <script src="gamificationLogic.js?v=3" defer></script>
     <script src="MapMarkerConfig.js?v=3" defer></script>
-    <script src="app.js?v=25" defer></script>
+
+    <!-- NEW: Modular Architecture (strict load order) -->
+    <script src="modules/barkState.js?v=1" defer></script>
+    <script src="modules/barkConfig.js?v=1" defer></script>
+    <script src="modules/mapEngine.js?v=1" defer></script>
+    <script src="modules/renderEngine.js?v=1" defer></script>
+    <script src="modules/searchEngine.js?v=1" defer></script>
+    <script src="modules/dataService.js?v=1" defer></script>
+    <script src="modules/profileEngine.js?v=1" defer></script>
+    <script src="modules/expeditionEngine.js?v=1" defer></script>
+    <script src="modules/tripPlanner.js?v=1" defer></script>
+    <script src="modules/shareEngine.js?v=1" defer></script>
+    <script src="modules/settingsController.js?v=1" defer></script>
+    <script src="modules/uiController.js?v=1" defer></script>
+
+    <!-- ENTRY POINT: Bootstrap Orchestrator (must load LAST) -->
+    <script src="app.js?v=26" defer></script>
     <!-- SCORING PROTOCOL MODAL -->
     <div id="scoring-modal" class="scoring-modal-overlay">
         <div class="scoring-modal-card">

@@ -1,0 +1,559 @@
+/**
+ * tripPlanner.js — Trip Builder, Route Generation, Optimization, Map Visuals
+ * Loaded NINTH in the boot sequence.
+ */
+window.BARK = window.BARK || {};
+
+let draftTripLines = [];
+
+function showTripToast(message) {
+    let toast = document.getElementById('trip-action-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'trip-action-toast';
+        toast.className = 'trip-toast';
+        document.body.appendChild(toast);
+    }
+    toast.innerHTML = `✅ <span>${message}</span>`;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+window.BARK.showTripToast = showTripToast;
+
+window.draftBookendMarkers = window.draftBookendMarkers || [];
+window.draftCustomMarkers = window.draftCustomMarkers || [];
+
+function updateTripMapVisuals() {
+    document.querySelectorAll('.trip-stop-badge').forEach(el => el.remove());
+    draftTripLines.forEach(line => map.removeLayer(line));
+    draftTripLines = [];
+    window.draftBookendMarkers.forEach(m => map.removeLayer(m));
+    window.draftBookendMarkers = [];
+    window.draftCustomMarkers.forEach(m => map.removeLayer(m));
+    window.draftCustomMarkers = [];
+
+    const tripDays = window.BARK.tripDays;
+    let startLatLng = window.tripStartNode ? [window.tripStartNode.lat, window.tripStartNode.lng] : null;
+    let endLatLng = window.tripEndNode ? [window.tripEndNode.lat, window.tripEndNode.lng] : null;
+    let isRoundTrip = startLatLng && endLatLng && window.BARK.haversineDistance(startLatLng[0], startLatLng[1], endLatLng[0], endLatLng[1]) < 0.5;
+
+    if (startLatLng) {
+        let bg = isRoundTrip ? '#8b5cf6' : '#22c55e';
+        let iconText = isRoundTrip ? '🔄' : 'A';
+        let startIcon = L.divIcon({ className: 'bookend-icon', html: `<div style="background:${bg}; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; border:2px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.5); font-size:12px; z-index: 1000;">${iconText}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
+        window.draftBookendMarkers.push(L.marker(startLatLng, { icon: startIcon }).addTo(map));
+    }
+    if (endLatLng && !isRoundTrip) {
+        let endIcon = L.divIcon({ className: 'bookend-icon', html: `<div style="background:#ef4444; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; border:2px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.5); font-size:12px; z-index: 1000;">B</div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
+        window.draftBookendMarkers.push(L.marker(endLatLng, { icon: endIcon }).addTo(map));
+    }
+
+    tripDays.forEach((day, dayIdx) => {
+        const latlngs = [];
+        if (dayIdx === 0 && startLatLng) latlngs.push(startLatLng);
+        if (dayIdx > 0 && tripDays[dayIdx - 1].stops.length > 0) {
+            const prevLast = tripDays[dayIdx - 1].stops[tripDays[dayIdx - 1].stops.length - 1];
+            latlngs.push([prevLast.lat, prevLast.lng]);
+        }
+
+        day.stops.forEach((stop, stopIdx) => {
+            latlngs.push([stop.lat, stop.lng]);
+            const point = window.parkLookup.get(stop.id);
+
+            let badgeContainer;
+            if (point && point.marker && point.marker._icon) {
+                badgeContainer = point.marker._icon;
+            } else {
+                const customIcon = L.divIcon({
+                    className: 'custom-trip-pin',
+                    html: `<div style="background: #475569; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.4); position: relative;"></div>`,
+                    iconSize: [14, 14], iconAnchor: [7, 7]
+                });
+                const customMarker = L.marker([stop.lat, stop.lng], { icon: customIcon, interactive: false }).addTo(map);
+                window.draftCustomMarkers.push(customMarker);
+                if (customMarker._icon) badgeContainer = customMarker._icon.firstChild;
+            }
+
+            if (badgeContainer) {
+                const badge = document.createElement('div');
+                badge.className = 'trip-stop-badge';
+                badge.style.background = day.color;
+                badge.textContent = stopIdx + 1;
+                badgeContainer.appendChild(badge);
+            }
+        });
+
+        if (dayIdx === tripDays.length - 1 && endLatLng) latlngs.push(endLatLng);
+
+        if (latlngs.length >= 2) {
+            const line = L.polyline(latlngs, { color: day.color, weight: 3, dashArray: '5, 10', opacity: 0.6 }).addTo(map);
+            draftTripLines.push(line);
+        }
+    });
+}
+
+// ====== TRIP UI ======
+function getTotalStops() {
+    return window.BARK.tripDays.reduce((sum, d) => sum + d.stops.length, 0);
+}
+
+window.addStopToTrip = function (stopData) {
+    const tripDays = window.BARK.tripDays;
+    let activeDayIdx = window.BARK.activeDayIdx;
+
+    for (let i = 0; i < tripDays.length; i++) {
+        if (tripDays[i].stops.find(s => s.lat === stopData.lat && s.lng === stopData.lng)) {
+            alert(`This location is already in your trip on Day ${i + 1}!`);
+            return false;
+        }
+    }
+
+    if (tripDays[activeDayIdx].stops.length >= 10) {
+        const lastStopOfCurrentDay = tripDays[activeDayIdx].stops[tripDays[activeDayIdx].stops.length - 1];
+        if (activeDayIdx + 1 < tripDays.length) {
+            window.BARK.activeDayIdx = ++activeDayIdx;
+        } else {
+            const nextColor = window.BARK.DAY_COLORS[tripDays.length % window.BARK.DAY_COLORS.length];
+            tripDays.push({ color: nextColor, stops: [{ ...lastStopOfCurrentDay }], notes: "" });
+            window.BARK.activeDayIdx = tripDays.length - 1;
+            activeDayIdx = window.BARK.activeDayIdx;
+        }
+        showTripToast(`Day full! Auto-moved to Day ${activeDayIdx + 1} 🚐`);
+    }
+
+    tripDays[activeDayIdx].stops.push(stopData);
+    updateTripUI();
+    setTimeout(() => showTripToast(`Added to Day ${activeDayIdx + 1}!`), 50);
+    return true;
+};
+
+window.autoSortDay = function () {
+    const tripDays = window.BARK.tripDays;
+    const activeDayIdx = window.BARK.activeDayIdx;
+    const day = tripDays[activeDayIdx];
+    if (day.stops.length <= 2) { alert('You need at least 3 stops to sort a route!'); return; }
+
+    const sorted = [day.stops[0]];
+    const unvisited = day.stops.slice(1);
+    let currentStop = sorted[0];
+    while (unvisited.length > 0) {
+        let nearestIdx = 0, minDist = Infinity;
+        for (let i = 0; i < unvisited.length; i++) {
+            const dist = window.BARK.haversineDistance(currentStop.lat, currentStop.lng, unvisited[i].lat, unvisited[i].lng);
+            if (dist < minDist) { minDist = dist; nearestIdx = i; }
+        }
+        currentStop = unvisited.splice(nearestIdx, 1)[0];
+        sorted.push(currentStop);
+    }
+    tripDays[activeDayIdx].stops = sorted;
+    updateTripUI();
+    showTripToast('✨ Route Optimized!');
+};
+
+window.executeSmartOptimization = function () {
+    const tripDays = window.BARK.tripDays;
+    const userMaxStops = parseInt(document.getElementById('opt-max-stops').value) || 5;
+    const userMaxHours = parseFloat(document.getElementById('opt-max-hours').value) || 4;
+    const totalStops = tripDays.reduce((sum, d) => sum + d.stops.length, 0);
+    if (totalStops < 2) { alert('Add at least two stops before optimizing!'); return; }
+
+    let allUniqueStops = [];
+    tripDays.forEach(day => {
+        day.stops.forEach(stop => {
+            if (allUniqueStops.length === 0) allUniqueStops.push(stop);
+            else {
+                const lastStop = allUniqueStops[allUniqueStops.length - 1];
+                const isDuplicate = stop.id && lastStop.id ? stop.id === lastStop.id : (stop.lat === lastStop.lat && stop.lng === lastStop.lng);
+                if (!isDuplicate) allUniqueStops.push(stop);
+            }
+        });
+    });
+
+    let sorted = [], unvisited = [...allUniqueStops], currentStop;
+    if (window.tripStartNode) currentStop = window.tripStartNode;
+    else { currentStop = unvisited.shift(); sorted.push(currentStop); }
+    while (unvisited.length > 0) {
+        let nearestIdx = 0, minDist = Infinity;
+        for (let i = 0; i < unvisited.length; i++) {
+            const dist = window.BARK.haversineDistance(currentStop.lat, currentStop.lng, unvisited[i].lat, unvisited[i].lng);
+            if (dist < minDist) { minDist = dist; nearestIdx = i; }
+        }
+        currentStop = unvisited.splice(nearestIdx, 1)[0];
+        sorted.push(currentStop);
+    }
+
+    let newTripDays = [], currentDayStops = [], currentDayHours = 0, dayColorIndex = 0;
+    for (let i = 0; i < sorted.length; i++) {
+        const stop = sorted[i];
+        if (currentDayStops.length > 0) {
+            const prev = currentDayStops[currentDayStops.length - 1];
+            const distKm = window.BARK.haversineDistance(prev.lat, prev.lng, stop.lat, stop.lng);
+            currentDayHours += (distKm * 0.621371) / 55;
+        }
+        currentDayStops.push(stop);
+        const isLastStop = i === sorted.length - 1;
+        if (isLastStop || currentDayStops.length >= userMaxStops || currentDayHours >= userMaxHours) {
+            newTripDays.push({ color: window.BARK.DAY_COLORS[dayColorIndex % window.BARK.DAY_COLORS.length], stops: [...currentDayStops], notes: tripDays[dayColorIndex] ? tripDays[dayColorIndex].notes : "" });
+            dayColorIndex++;
+            if (!isLastStop) { currentDayStops = [{ ...stop }]; currentDayHours = 0; }
+        }
+    }
+
+    window.BARK.tripDays = newTripDays;
+    window.BARK.activeDayIdx = 0;
+    document.getElementById('optimizer-modal').style.display = 'none';
+    updateTripUI();
+    showTripToast('✨ Smart Optimization Complete!');
+};
+
+window.exportDayToMaps = function (dayIdx) {
+    const tripDays = window.BARK.tripDays;
+    const day = tripDays[dayIdx];
+    const waypoints = [];
+    if (dayIdx === 0 && window.tripStartNode) waypoints.push(`${window.tripStartNode.lat},${window.tripStartNode.lng}`);
+    if (dayIdx > 0 && tripDays[dayIdx - 1].stops.length > 0) {
+        const prevLast = tripDays[dayIdx - 1].stops[tripDays[dayIdx - 1].stops.length - 1];
+        waypoints.push(`${prevLast.lat},${prevLast.lng}`);
+    }
+    day.stops.forEach(stop => waypoints.push(`${stop.lat},${stop.lng}`));
+    if (dayIdx === tripDays.length - 1 && window.tripEndNode) waypoints.push(`${window.tripEndNode.lat},${window.tripEndNode.lng}`);
+    if (waypoints.length < 2) { alert('Not enough stops to generate a driving route for this day!'); return; }
+    window.open(`https://www.google.com/maps/dir/${waypoints.join('/')}`, '_blank');
+};
+
+// ====== DAY MANAGEMENT ======
+window.shiftDayLeft = function () {
+    const tripDays = window.BARK.tripDays;
+    let activeDayIdx = window.BARK.activeDayIdx;
+    if (activeDayIdx === 0) return;
+    const temp = tripDays[activeDayIdx - 1];
+    tripDays[activeDayIdx - 1] = tripDays[activeDayIdx];
+    tripDays[activeDayIdx] = temp;
+    window.BARK.activeDayIdx--;
+    updateTripUI(); updateTripMapVisuals();
+};
+
+window.shiftDayRight = function () {
+    const tripDays = window.BARK.tripDays;
+    let activeDayIdx = window.BARK.activeDayIdx;
+    if (activeDayIdx === tripDays.length - 1) return;
+    const temp = tripDays[activeDayIdx + 1];
+    tripDays[activeDayIdx + 1] = tripDays[activeDayIdx];
+    tripDays[activeDayIdx] = temp;
+    window.BARK.activeDayIdx++;
+    updateTripUI(); updateTripMapVisuals();
+};
+
+window.insertDayAfter = function () {
+    const tripDays = window.BARK.tripDays;
+    if (tripDays.length >= 5) return;
+    const nextColor = window.BARK.DAY_COLORS[tripDays.length % window.BARK.DAY_COLORS.length];
+    tripDays.splice(window.BARK.activeDayIdx + 1, 0, { color: nextColor, stops: [], notes: "" });
+    window.BARK.activeDayIdx++;
+    updateTripUI();
+};
+
+window.editBookend = function (type) {
+    const el = document.getElementById(type === 'start' ? 'ui-start-node' : 'ui-end-node');
+    const currentName = type === 'start' ? (window.tripStartNode ? window.tripStartNode.name : '') : (window.tripEndNode ? window.tripEndNode.name : '');
+    const color = type === 'start' ? '#22c55e' : '#ef4444';
+    const bg = type === 'start' ? '#f0fdf4' : '#fef2f2';
+
+    el.innerHTML = `
+    <div style="background: ${bg}; border: 2px solid ${color}; border-radius: 12px; padding: 12px; margin-top: ${type === 'end' ? '15px' : '0'}; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+        <div style="font-size: 11px; font-weight: 900; color: ${color}; margin-bottom: 8px; text-transform: uppercase;">📍 Set Trip ${type}</div>
+        <div style="display: flex; gap: 5px;">
+            <input type="text" id="inline-${type}-input" value="${currentName}" placeholder="Search town or 'My location'" style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1); font-size: 13px; outline: none; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+            <button onclick="processInlineSearch('${type}')" class="glass-btn primary-btn" style="padding: 10px 15px; border-radius: 8px; font-size: 12px; font-weight: 800;">🔍</button>
+            <button onclick="updateTripUI()" class="glass-btn" style="padding: 10px; border-radius: 8px; font-size: 12px; font-weight: 800; color: #666;">✕</button>
+        </div>
+        <div id="inline-suggest-${type}" style="display: none; background: white; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; margin-top: 8px; max-height: 200px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></div>
+        ${currentName ? `<div style="text-align:right; margin-top: 8px;"><button onclick="window.trip${type === 'start' ? 'Start' : 'End'}Node=null; updateTripUI()" style="background: transparent; color: #dc2626; border: none; font-size: 11px; font-weight: 800; cursor: pointer; text-decoration: underline;">Remove ${type.toUpperCase()}</button></div>` : ''}
+    </div>`;
+
+    setTimeout(() => { const input = document.getElementById(`inline-${type}-input`); if (input) { input.focus(); input.select(); } }, 50);
+    document.getElementById(`inline-${type}-input`).addEventListener('keypress', function (e) { if (e.key === 'Enter') window.processInlineSearch(type); });
+};
+
+function updateTripUI() {
+    const tripDays = window.BARK.tripDays;
+    let activeDayIdx = window.BARK.activeDayIdx;
+    const plannerBadge = document.getElementById('planner-badge');
+    const list = document.getElementById('trip-queue-list');
+    if (!list) return;
+
+    const total = getTotalStops();
+    if (plannerBadge) {
+        if (total > 0) { plannerBadge.style.display = 'block'; plannerBadge.textContent = total; }
+        else { plannerBadge.style.display = 'none'; }
+    }
+
+    let tabContainer = document.getElementById('trip-day-tabs');
+    if (!tabContainer && list.parentElement) {
+        tabContainer = document.createElement('div');
+        tabContainer.id = 'trip-day-tabs';
+        tabContainer.style.cssText = 'display:flex; gap:6px; flex-wrap: wrap; margin-bottom:14px; align-items:center;';
+        list.parentElement.insertBefore(tabContainer, list);
+    }
+    if (tabContainer) tabContainer.innerHTML = '';
+
+    // START BOOKEND
+    let startEl = document.getElementById('ui-start-node');
+    if (!startEl && tabContainer && tabContainer.parentElement) {
+        startEl = document.createElement('div');
+        startEl.id = 'ui-start-node';
+        tabContainer.parentElement.insertBefore(startEl, tabContainer);
+    }
+
+    if (startEl && window.tripStartNode) {
+        startEl.innerHTML = `<div onclick="editBookend('start')" class="trip-node-card" style="background: #f0fdf4; cursor: pointer; padding: 10px; margin-bottom: 10px; border-radius: 8px;"><div style="display: flex; align-items: center; gap: 10px;"><span style="background: #22c55e; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; justify-content: center; align-items: center; font-size: 11px; font-weight: 800;">A</span><div><div class="planner-metadata" style="color: #15803d; font-size: 10px;">Trip Start</div><div style="font-weight: 700; color: #333; font-size: 13px;">${window.tripStartNode.name}</div></div></div><div class="planner-metadata" style="opacity: 0.6; font-size: 10px;">Edit</div></div>`;
+    } else if (startEl) {
+        startEl.innerHTML = `<button onclick="editBookend('start')" class="glass-btn" style="width: 100%; height: 36px; background: #fff; border: 1px dashed #22c55e; color: #15803d; font-weight: 800; font-size: 11px; margin-bottom: 10px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 8px;"><span>➕</span> SET TRIP START</button>`;
+    }
+
+    // DAY TABS
+    tripDays.forEach((day, di) => {
+        const tab = document.createElement('div');
+        tab.style.cssText = `display:inline-flex; align-items:center; gap:5px; padding:6px 12px; border-radius:20px; cursor:pointer; font-size:13px; font-weight:600; border: 2px solid ${di === activeDayIdx ? day.color : '#ddd'}; background:${di === activeDayIdx ? day.color : '#f5f5f5'}; color:${di === activeDayIdx ? 'white' : '#555'}; transition: all 0.2s;`;
+
+        const swatch = document.createElement('input');
+        swatch.type = 'color'; swatch.value = day.color; swatch.title = 'Change day color';
+        swatch.style.cssText = 'width:14px; height:14px; border:none; padding:0; background:none; cursor:pointer; border-radius:50%; outline:none;';
+        swatch.onclick = (e) => e.stopPropagation();
+        swatch.oninput = (e) => { tripDays[di].color = e.target.value; updateTripUI(); };
+
+        const label = document.createElement('span');
+        label.textContent = `Day ${di + 1} (${day.stops.length})`;
+        tab.appendChild(swatch); tab.appendChild(label);
+
+        if (tripDays.length > 1 && day.stops.length === 0) {
+            const delBtn = document.createElement('span');
+            delBtn.textContent = '×'; delBtn.title = 'Remove day';
+            delBtn.style.cssText = 'font-size:14px; cursor:pointer; margin-left:2px;';
+            delBtn.onclick = (e) => { e.stopPropagation(); tripDays.splice(di, 1); if (window.BARK.activeDayIdx >= tripDays.length) window.BARK.activeDayIdx = tripDays.length - 1; updateTripUI(); };
+            tab.appendChild(delBtn);
+        }
+        tab.onclick = () => { window.BARK.activeDayIdx = di; updateTripUI(); };
+        tabContainer.appendChild(tab);
+    });
+
+    // Add Day button
+    const addDayBtn = document.createElement('button');
+    addDayBtn.textContent = '+ Add Day';
+    addDayBtn.style.cssText = 'padding:6px 12px; border-radius:20px; border:2px dashed #bbb; background:none; color:#888; font-size:13px; font-weight:600; cursor:pointer;';
+    addDayBtn.onclick = () => {
+        const prevDay = tripDays[tripDays.length - 1];
+        const initialStops = [];
+        if (prevDay && prevDay.stops.length > 0) initialStops.push({ ...prevDay.stops[prevDay.stops.length - 1] });
+        tripDays.push({ color: window.BARK.DAY_COLORS[tripDays.length % window.BARK.DAY_COLORS.length], stops: initialStops, notes: "" });
+        window.BARK.activeDayIdx = tripDays.length - 1;
+        updateTripUI();
+    };
+    tabContainer.appendChild(addDayBtn);
+
+    // Day management bar
+    let dayManager = document.getElementById('day-management-bar');
+    if (!dayManager) { dayManager = document.createElement('div'); dayManager.id = 'day-management-bar'; list.parentElement.insertBefore(dayManager, list); }
+    if (window.isTripEditMode) {
+        dayManager.innerHTML = `<div style="display: flex; gap: 8px; margin-bottom: 10px; padding: 8px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;"><button onclick="window.shiftDayLeft()" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 700; border-radius: 6px; color: #475569; border: 1px solid #cbd5e1; background: white;" ${activeDayIdx === 0 ? 'disabled' : ''}>← Shift Day</button><button onclick="window.insertDayAfter()" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 700; border-radius: 6px; color: #15803d; border: 1px solid #bbf7d0; background: #f0fdf4;">+ Insert Day</button><button onclick="window.shiftDayRight()" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 700; border-radius: 6px; color: #475569; border: 1px solid #cbd5e1; background: white;" ${activeDayIdx === tripDays.length - 1 ? 'disabled' : ''}>Shift Day →</button></div>`;
+        dayManager.style.display = 'block';
+    } else { dayManager.style.display = 'none'; }
+
+    // Render stops
+    const activeDay = tripDays[activeDayIdx];
+    if (typeof window.isTripEditMode === 'undefined') window.isTripEditMode = false;
+    window.toggleTripEditMode = () => { window.isTripEditMode = !window.isTripEditMode; updateTripUI(); };
+
+    list.innerHTML = '';
+
+    if (activeDay.stops.length > 0) {
+        const actionBar = document.createElement('div');
+        actionBar.style.cssText = 'display: flex; justify-content: flex-end; align-items: center; margin-bottom: 12px; padding: 0 4px;';
+        actionBar.innerHTML = `<button onclick="toggleTripEditMode()" class="glass-btn" style="background: ${window.isTripEditMode ? '#e8f5e9' : '#f8fafc'}; border: 1px solid ${window.isTripEditMode ? '#4CAF50' : '#cbd5e1'}; color: ${window.isTripEditMode ? '#2E7D32' : '#64748b'}; font-size: 11px; font-weight: 800; padding: 6px 16px; border-radius: 8px; cursor: pointer; transition: all 0.2s;">${window.isTripEditMode ? '✅ Done Editing' : '✏️ Edit Stops & Days'}</button>`;
+        list.appendChild(actionBar);
+    }
+
+    if (activeDay.stops.length === 0) {
+        const empty = document.createElement('li');
+        empty.style.cssText = 'color:#aaa; font-size:13px; text-align:center; padding:18px 0;';
+        empty.textContent = 'No stops yet. Add parks or a town above!';
+        list.appendChild(empty);
+    }
+
+    activeDay.stops.forEach((stop, index) => {
+        const li = document.createElement('li');
+        li.className = 'stop-list-item';
+        let controlsHtml = '';
+        if (window.isTripEditMode) {
+            const moveToDayOptions = tripDays.map((d, di) => di !== activeDayIdx ? `<option value="${di}">Day ${di + 1}</option>` : '').join('');
+            const moveSelect = moveToDayOptions ? `<select class="move-to-day-select" data-index="${index}" style="border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px; background: white; font-size: 11px; cursor:pointer; color:#475569; outline:none; font-weight:600;"><option value="">↳ Move</option>${moveToDayOptions}</select>` : '';
+            controlsHtml = `<div style="display: flex; gap: 6px; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(0,0,0,0.05); width: 100%;">${moveSelect}<div style="flex: 1;"></div><button class="move-up-btn" data-index="${index}" style="background:#f1f5f9; border:none; border-radius:6px; cursor:pointer; font-size:14px; color:#475569; padding:4px 10px; ${index === 0 ? 'visibility:hidden;' : ''}" title="Move Up">↑</button><button class="move-down-btn" data-index="${index}" style="background:#f1f5f9; border:none; border-radius:6px; cursor:pointer; font-size:14px; color:#475569; padding:4px 10px; ${index === activeDay.stops.length - 1 ? 'visibility:hidden;' : ''}" title="Move Down">↓</button><button class="remove-stop-btn" data-index="${index}" style="background:#fee2e2; border:none; border-radius:6px; color:#ef4444; font-weight:900; font-size:12px; cursor:pointer; padding:6px 12px; margin-left: 4px;" title="Remove">✕</button></div>`;
+        }
+        li.innerHTML = `<div style="display: flex; flex-direction: column; width: 100%; padding: ${window.isTripEditMode ? '8px' : '12px 4px'}; background: ${window.isTripEditMode ? '#f8fafc' : 'transparent'}; border-radius: 10px; border: ${window.isTripEditMode ? '1px solid #e2e8f0' : '1px solid transparent'}; transition: all 0.2s;"><div style="display: flex; align-items: center; width: 100%;"><span style="background:${activeDay.color}; color:white; border-radius: 6px; width: 24px; height: 24px; min-width: 24px; display: inline-flex; justify-content: center; align-items: center; font-size: 12px; font-weight:900; margin-right: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${index + 1}</span><span style="font-weight: 700; color: #1e293b; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;" title="${stop.name}">${stop.name}</span></div>${controlsHtml}</div>`;
+        list.appendChild(li);
+    });
+
+    // Ghost button
+    const ghostBtn = document.createElement('div');
+    ghostBtn.style.cssText = `margin: 10px 4px; padding: 12px; border: 2px dashed #e2e8f0; border-radius: 10px; color: #94a3b8; font-size: 12px; font-weight: 800; text-align: center; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px;`;
+    ghostBtn.innerHTML = `➕ Add Stop to Day ${activeDayIdx + 1}`;
+    ghostBtn.onmouseover = () => { ghostBtn.style.borderColor = activeDay.color; ghostBtn.style.color = activeDay.color; };
+    ghostBtn.onmouseout = () => { ghostBtn.style.borderColor = '#e2e8f0'; ghostBtn.style.color = '#94a3b8'; };
+    ghostBtn.onclick = () => { const gs = document.getElementById('park-search'); if (gs) { gs.focus(); gs.scrollIntoView({ behavior: 'smooth', block: 'center' }); gs.style.boxShadow = `0 0 0 4px ${activeDay.color}44`; setTimeout(() => gs.style.boxShadow = '', 1500); document.querySelector('[data-target="map-view"]')?.click(); } };
+    list.appendChild(ghostBtn);
+
+    // Notes
+    const notesContainer = document.getElementById('day-notes-container');
+    if (notesContainer) {
+        notesContainer.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;"><label style="font-size:11px; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; margin:0;">📋 Day ${activeDayIdx + 1} Notes</label><button onclick="exportDayToMaps(${activeDayIdx})" style="background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; font-size:10px; font-weight:800; padding:4px 8px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:4px; transition:all 0.2s;" onmouseover="this.style.background='#dbeafe'" onmouseout="this.style.background='#eff6ff'">🗺️ Drive Day ${activeDayIdx + 1}</button></div><textarea id="day-notes-textarea" placeholder="Hiking trails, confirmation #s, lunch spots..." style="width:100%; height:60px; padding:10px; border-radius:8px; border:none; background:#f8fafc; font-size:13px; outline:none; resize:none; font-family:inherit; color:#334155; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);" onfocus="this.style.boxShadow='inset 0 0 0 2px ${activeDay.color}'" onblur="this.style.boxShadow='inset 0 2px 4px rgba(0,0,0,0.02)'">${activeDay.notes || ""}</textarea><div style="text-align:right; font-size:10px; color:#cbd5e1; margin-top:4px;"><span id="char-count">${(activeDay.notes || "").length}</span> / 1000</div>`;
+        const textarea = document.getElementById('day-notes-textarea');
+        const charCount = document.getElementById('char-count');
+        textarea.oninput = (e) => { let val = e.target.value; if (val.length > 1000) { val = val.substring(0, 1000); e.target.value = val; } activeDay.notes = val; charCount.textContent = val.length; };
+    }
+
+    // Wire up buttons
+    document.querySelectorAll('.remove-stop-btn').forEach(btn => { btn.onclick = (e) => { tripDays[activeDayIdx].stops.splice(parseInt(e.currentTarget.getAttribute('data-index')), 1); updateTripUI(); }; });
+    document.querySelectorAll('.move-up-btn').forEach(btn => { btn.onclick = (e) => { const idx = parseInt(e.currentTarget.getAttribute('data-index')); if (idx > 0) { const stops = tripDays[activeDayIdx].stops; [stops[idx], stops[idx - 1]] = [stops[idx - 1], stops[idx]]; updateTripUI(); } }; });
+    document.querySelectorAll('.move-down-btn').forEach(btn => { btn.onclick = (e) => { const idx = parseInt(e.currentTarget.getAttribute('data-index')); const stops = tripDays[activeDayIdx].stops; if (idx < stops.length - 1) { [stops[idx], stops[idx + 1]] = [stops[idx + 1], stops[idx]]; updateTripUI(); } }; });
+    document.querySelectorAll('.move-to-day-select').forEach(sel => { sel.onchange = (e) => { const fromIdx = parseInt(e.currentTarget.getAttribute('data-index')); const toDayIdx = parseInt(e.target.value); if (isNaN(toDayIdx)) return; const stop = tripDays[activeDayIdx].stops.splice(fromIdx, 1)[0]; tripDays[toDayIdx].stops.push(stop); updateTripUI(); }; });
+
+    // END BOOKEND
+    let endEl = document.getElementById('ui-end-node');
+    if (!endEl) { const wrapper = document.getElementById('itinerary-timeline-wrapper'); if (wrapper) { endEl = document.createElement('div'); endEl.id = 'ui-end-node'; wrapper.appendChild(endEl); } }
+    if (endEl && window.tripEndNode) {
+        endEl.innerHTML = `<div onclick="editBookend('end')" style="cursor:pointer; background: #fef2f2; border: 2px solid #ef4444; border-radius: 8px; padding: 10px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(239,68,68,0.05);"><div style="font-size: 13px; font-weight: 900; color: #b91c1c; display: flex; align-items: center; gap: 8px;"><span style="background: #ef4444; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; justify-content: center; align-items: center; font-size: 11px;">B</span> TRIP END: <span style="font-weight:600; color:#333; margin-left: 4px;">${window.tripEndNode.name}</span></div><div style="font-size:10px; color:#ef4444; font-weight:800; text-transform:uppercase;">Edit</div></div>`;
+    } else if (endEl) {
+        endEl.innerHTML = `<button onclick="editBookend('end')" style="width:100%; cursor:pointer; background: #fff; border: 1px dashed #ef4444; color:#b91c1c; border-radius: 8px; padding: 10px; margin-top: 10px; font-weight:800; text-transform:uppercase; font-size:11px;">+ Set Trip End</button>`;
+    }
+
+    try { updateTripMapVisuals(); } catch (e) { console.error("Map visuals update failed:", e); }
+}
+
+window.BARK.updateTripUI = updateTripUI;
+
+// ====== INIT TRIP PLANNER ======
+function initTripPlanner() {
+    const clearTripBtn = document.getElementById('clear-trip-btn');
+    const startRouteBtn = document.getElementById('start-route-btn');
+    const saveRouteBtn = document.getElementById('save-route-btn');
+    const optimizeTripBtn = document.getElementById('optimize-trip-btn');
+    let currentRouteLayers = [];
+
+    if (optimizeTripBtn) {
+        optimizeTripBtn.onclick = () => { document.getElementById('optimizer-modal').style.display = 'flex'; };
+    }
+
+    if (clearTripBtn) {
+        clearTripBtn.onclick = () => {
+            if (getTotalStops() > 0) { if (!confirm("Are you sure you want to clear your trip?")) return; }
+            window.BARK.tripDays = [{ color: window.BARK.DAY_COLORS[0], stops: [] }];
+            window.BARK.activeDayIdx = 0;
+            window.tripStartNode = null; window.tripEndNode = null;
+            currentRouteLayers.forEach(layer => map.removeLayer(layer));
+            currentRouteLayers = [];
+            draftTripLines.forEach(line => map.removeLayer(line));
+            draftTripLines = [];
+            const nameInput = document.getElementById('tripNameInput');
+            if (nameInput) nameInput.value = '';
+            const telemetryEl = document.getElementById('route-telemetry');
+            if (telemetryEl) { telemetryEl.style.display = 'none'; telemetryEl.innerHTML = ''; }
+            updateTripUI();
+        };
+    }
+
+    if (saveRouteBtn) {
+        saveRouteBtn.onclick = async () => {
+            saveRouteBtn.textContent = 'Saving...'; saveRouteBtn.disabled = true;
+            const saved = await saveCurrentTrip();
+            saveRouteBtn.textContent = '💾 Save'; saveRouteBtn.disabled = false;
+            if (saved) alert('✅ Trip saved! Check Profile → Saved Routes.');
+        };
+    }
+
+    if (startRouteBtn) {
+        startRouteBtn.onclick = () => { if (getTotalStops() === 0) return; generateAndRenderTripRoute(); };
+    }
+
+    async function saveCurrentTrip() {
+        const user = (typeof firebase !== 'undefined') ? firebase.auth().currentUser : null;
+        if (!user) { alert('Please sign in to save routes.'); return false; }
+        window.BARK.incrementRequestCount();
+        if (getTotalStops() === 0) { alert('Nothing to save — add some stops first!'); return false; }
+        const nameInput = document.getElementById('tripNameInput');
+        const tripName = nameInput ? nameInput.value.trim() : "";
+        if (!tripName) { alert('Please enter a name for your trip.'); if (nameInput) nameInput.focus(); return false; }
+        try {
+            const tripDays = window.BARK.tripDays;
+            const routeData = {
+                tripName: tripName,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                tripDays: tripDays.map(d => ({ color: d.color, stops: d.stops.map(s => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng })), notes: d.notes || "" }))
+            };
+            await firebase.firestore().collection('users').doc(user.uid).collection('savedRoutes').add(routeData);
+            window.BARK.loadSavedRoutes(user.uid);
+            return true;
+        } catch (err) { console.error('Save failed:', err); alert('Could not save route: ' + err.message); return false; }
+    }
+
+    async function generateAndRenderTripRoute() {
+        const user = (typeof firebase !== 'undefined') ? firebase.auth().currentUser : null;
+        if (!user) { alert("Please sign in to generate routes."); return; }
+        window.BARK.incrementRequestCount();
+        const tripDays = window.BARK.tripDays;
+        const daysWithStops = tripDays.filter(d => d.stops.length >= 2);
+        if (daysWithStops.length === 0) { alert("Each day needs at least 2 stops."); return; }
+
+        currentRouteLayers.forEach(layer => map.removeLayer(layer)); currentRouteLayers = [];
+        draftTripLines.forEach(line => map.removeLayer(line)); draftTripLines = [];
+
+        if (startRouteBtn) { startRouteBtn.textContent = 'Calculating...'; startRouteBtn.disabled = true; }
+
+        const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
+        const allBounds = [];
+        let anySucceeded = false, totalDistMeters = 0, totalDurSeconds = 0;
+
+        for (let i = 0; i < daysWithStops.length; i++) {
+            const day = daysWithStops[i];
+            let dayStops = [...day.stops];
+            if (i === 0 && window.tripStartNode) dayStops.unshift(window.tripStartNode);
+            if (i === daysWithStops.length - 1 && window.tripEndNode) dayStops.push(window.tripEndNode);
+
+            try {
+                const orsCoordinates = dayStops.map(s => [Number(s.lng), Number(s.lat)]);
+                const response = await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson", {
+                    method: "POST",
+                    headers: { "Authorization": hardcodedApiKey, "Content-Type": "application/json", "Accept": "application/json, application/geo+json; charset=utf-8" },
+                    body: JSON.stringify({ coordinates: orsCoordinates, radiuses: new Array(orsCoordinates.length).fill(-1) })
+                });
+                if (!response.ok) { const errData = await response.json(); throw new Error(errData.error?.message || "ORS error"); }
+                const geoJSONData = await response.json();
+                const layer = L.geoJSON(geoJSONData, { style: () => ({ color: day.color, weight: 5, opacity: 0.85, dashArray: '10, 8' }) }).addTo(map);
+                currentRouteLayers.push(layer); allBounds.push(layer.getBounds()); anySucceeded = true;
+                const summary = geoJSONData.features[0].properties.summary;
+                if (summary) { totalDistMeters += summary.distance; totalDurSeconds += summary.duration; }
+            } catch (err) { console.error(`Route failed for day (${day.color}):`, err); alert(`A day's route failed: ${err.message}`); }
+        }
+
+        if (allBounds.length > 0) {
+            const combined = allBounds.reduce((acc, b) => acc.extend(b), allBounds[0]);
+            map.fitBounds(combined, { padding: [50, 50], animate: !window.instantNav, duration: window.instantNav ? 0 : 0.5 });
+        }
+
+        const telemetryEl = document.getElementById('route-telemetry');
+        if (telemetryEl) {
+            if (anySucceeded) {
+                const miles = (totalDistMeters * 0.000621371).toFixed(1);
+                const hrs = Math.floor(totalDurSeconds / 3600);
+                const mins = Math.floor((totalDurSeconds % 3600) / 60);
+                telemetryEl.style.display = 'block';
+                telemetryEl.innerHTML = `<span style="font-weight: 700; color: #1976D2;">Total Drive:</span> ${miles} Miles | ${hrs}h ${mins}m`;
+            } else { telemetryEl.style.display = 'none'; }
+        }
+
+        if (anySucceeded) document.querySelector('[data-target="map-view"]')?.click();
+        if (startRouteBtn) { startRouteBtn.textContent = 'Generate Route'; startRouteBtn.disabled = false; }
+    }
+}
+
+window.BARK.initTripPlanner = initTripPlanner;
