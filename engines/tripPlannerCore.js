@@ -1,5 +1,5 @@
 /**
- * tripPlanner.js — Trip Builder, Route Generation, Optimization, Map Visuals
+ * tripPlannerCore.js — Trip Builder, Route Generation, Optimization, Map Visuals
  * Loaded NINTH in the boot sequence.
  */
 window.BARK = window.BARK || {};
@@ -7,7 +7,7 @@ window.BARK = window.BARK || {};
 let draftTripLines = [];
 
 function showTripToast(message) {
-    let toast = document.getElementById('trip-action-toast');
+    let toast = window.BARK.DOM.tripActionToast();
     if (!toast) {
         toast = document.createElement('div');
         toast.id = 'trip-action-toast';
@@ -153,8 +153,8 @@ window.autoSortDay = function () {
 
 window.executeSmartOptimization = function () {
     const tripDays = window.BARK.tripDays;
-    const userMaxStops = parseInt(document.getElementById('opt-max-stops').value) || 5;
-    const userMaxHours = parseFloat(document.getElementById('opt-max-hours').value) || 4;
+    const userMaxStops = parseInt(window.BARK.DOM.optMaxStops().value) || 5;
+    const userMaxHours = parseFloat(window.BARK.DOM.optMaxHours().value) || 4;
     const totalStops = tripDays.reduce((sum, d) => sum + d.stops.length, 0);
     if (totalStops < 2) { alert('Add at least two stops before optimizing!'); return; }
 
@@ -202,7 +202,7 @@ window.executeSmartOptimization = function () {
 
     window.BARK.tripDays = newTripDays;
     window.BARK.activeDayIdx = 0;
-    document.getElementById('optimizer-modal').style.display = 'none';
+    window.BARK.DOM.optimizerModal().style.display = 'none';
     updateTripUI();
     showTripToast('✨ Smart Optimization Complete!');
 };
@@ -255,7 +255,7 @@ window.insertDayAfter = function () {
 };
 
 window.editBookend = function (type) {
-    const el = document.getElementById(type === 'start' ? 'ui-start-node' : 'ui-end-node');
+    const el = type === 'start' ? window.BARK.DOM.uiStartNode() : window.BARK.DOM.uiEndNode();
     const currentName = type === 'start' ? (window.tripStartNode ? window.tripStartNode.name : '') : (window.tripEndNode ? window.tripEndNode.name : '');
     const color = type === 'start' ? '#22c55e' : '#ef4444';
     const bg = type === 'start' ? '#f0fdf4' : '#fef2f2';
@@ -272,15 +272,15 @@ window.editBookend = function (type) {
         ${currentName ? `<div style="text-align:right; margin-top: 8px;"><button onclick="window.trip${type === 'start' ? 'Start' : 'End'}Node=null; updateTripUI()" style="background: transparent; color: #dc2626; border: none; font-size: 11px; font-weight: 800; cursor: pointer; text-decoration: underline;">Remove ${type.toUpperCase()}</button></div>` : ''}
     </div>`;
 
-    setTimeout(() => { const input = document.getElementById(`inline-${type}-input`); if (input) { input.focus(); input.select(); } }, 50);
-    document.getElementById(`inline-${type}-input`).addEventListener('keypress', function (e) { if (e.key === 'Enter') window.processInlineSearch(type); });
+    setTimeout(() => { const input = window.BARK.DOM.inlineInput(type); if (input) { input.focus(); input.select(); } }, 50);
+    window.BARK.DOM.inlineInput(type).addEventListener('keypress', function (e) { if (e.key === 'Enter') window.processInlineSearch(type); });
 };
 
 function updateTripUI() {
     const tripDays = window.BARK.tripDays;
     let activeDayIdx = window.BARK.activeDayIdx;
-    const plannerBadge = document.getElementById('planner-badge');
-    const list = document.getElementById('trip-queue-list');
+    const plannerBadge = window.BARK.DOM.plannerBadge();
+    const list = window.BARK.DOM.tripQueueList();
     if (!list) return;
 
     const total = getTotalStops();
@@ -289,7 +289,7 @@ function updateTripUI() {
         else { plannerBadge.style.display = 'none'; }
     }
 
-    let tabContainer = document.getElementById('trip-day-tabs');
+    let tabContainer = window.BARK.DOM.tripDayTabs();
     if (!tabContainer && list.parentElement) {
         tabContainer = document.createElement('div');
         tabContainer.id = 'trip-day-tabs';
@@ -299,7 +299,7 @@ function updateTripUI() {
     if (tabContainer) tabContainer.innerHTML = '';
 
     // START BOOKEND
-    let startEl = document.getElementById('ui-start-node');
+    let startEl = window.BARK.DOM.uiStartNode();
     if (!startEl && tabContainer && tabContainer.parentElement) {
         startEl = document.createElement('div');
         startEl.id = 'ui-start-node';
@@ -353,7 +353,7 @@ function updateTripUI() {
     tabContainer.appendChild(addDayBtn);
 
     // Day management bar
-    let dayManager = document.getElementById('day-management-bar');
+    let dayManager = window.BARK.DOM.dayManagementBar();
     if (!dayManager) { dayManager = document.createElement('div'); dayManager.id = 'day-management-bar'; list.parentElement.insertBefore(dayManager, list); }
     if (window.isTripEditMode) {
         dayManager.innerHTML = `<div style="display: flex; gap: 8px; margin-bottom: 10px; padding: 8px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;"><button onclick="window.shiftDayLeft()" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 700; border-radius: 6px; color: #475569; border: 1px solid #cbd5e1; background: white;" ${activeDayIdx === 0 ? 'disabled' : ''}>← Shift Day</button><button onclick="window.insertDayAfter()" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 700; border-radius: 6px; color: #15803d; border: 1px solid #bbf7d0; background: #f0fdf4;">+ Insert Day</button><button onclick="window.shiftDayRight()" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 700; border-radius: 6px; color: #475569; border: 1px solid #cbd5e1; background: white;" ${activeDayIdx === tripDays.length - 1 ? 'disabled' : ''}>Shift Day →</button></div>`;
@@ -400,15 +400,15 @@ function updateTripUI() {
     ghostBtn.innerHTML = `➕ Add Stop to Day ${activeDayIdx + 1}`;
     ghostBtn.onmouseover = () => { ghostBtn.style.borderColor = activeDay.color; ghostBtn.style.color = activeDay.color; };
     ghostBtn.onmouseout = () => { ghostBtn.style.borderColor = '#e2e8f0'; ghostBtn.style.color = '#94a3b8'; };
-    ghostBtn.onclick = () => { const gs = document.getElementById('park-search'); if (gs) { gs.focus(); gs.scrollIntoView({ behavior: 'smooth', block: 'center' }); gs.style.boxShadow = `0 0 0 4px ${activeDay.color}44`; setTimeout(() => gs.style.boxShadow = '', 1500); document.querySelector('[data-target="map-view"]')?.click(); } };
+    ghostBtn.onclick = () => { const gs = window.BARK.DOM.parkSearch(); if (gs) { gs.focus(); gs.scrollIntoView({ behavior: 'smooth', block: 'center' }); gs.style.boxShadow = `0 0 0 4px ${activeDay.color}44`; setTimeout(() => gs.style.boxShadow = '', 1500); document.querySelector('[data-target="map-view"]')?.click(); } };
     list.appendChild(ghostBtn);
 
     // Notes
-    const notesContainer = document.getElementById('day-notes-container');
+    const notesContainer = window.BARK.DOM.dayNotesContainer();
     if (notesContainer) {
         notesContainer.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;"><label style="font-size:11px; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; margin:0;">📋 Day ${activeDayIdx + 1} Notes</label><button onclick="exportDayToMaps(${activeDayIdx})" style="background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; font-size:10px; font-weight:800; padding:4px 8px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:4px; transition:all 0.2s;" onmouseover="this.style.background='#dbeafe'" onmouseout="this.style.background='#eff6ff'">🗺️ Drive Day ${activeDayIdx + 1}</button></div><textarea id="day-notes-textarea" placeholder="Hiking trails, confirmation #s, lunch spots..." style="width:100%; height:60px; padding:10px; border-radius:8px; border:none; background:#f8fafc; font-size:13px; outline:none; resize:none; font-family:inherit; color:#334155; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);" onfocus="this.style.boxShadow='inset 0 0 0 2px ${activeDay.color}'" onblur="this.style.boxShadow='inset 0 2px 4px rgba(0,0,0,0.02)'">${activeDay.notes || ""}</textarea><div style="text-align:right; font-size:10px; color:#cbd5e1; margin-top:4px;"><span id="char-count">${(activeDay.notes || "").length}</span> / 1000</div>`;
-        const textarea = document.getElementById('day-notes-textarea');
-        const charCount = document.getElementById('char-count');
+        const textarea = window.BARK.DOM.dayNotesTextarea();
+        const charCount = window.BARK.DOM.charCount();
         textarea.oninput = (e) => { let val = e.target.value; if (val.length > 1000) { val = val.substring(0, 1000); e.target.value = val; } activeDay.notes = val; charCount.textContent = val.length; };
     }
 
@@ -419,8 +419,8 @@ function updateTripUI() {
     document.querySelectorAll('.move-to-day-select').forEach(sel => { sel.onchange = (e) => { const fromIdx = parseInt(e.currentTarget.getAttribute('data-index')); const toDayIdx = parseInt(e.target.value); if (isNaN(toDayIdx)) return; const stop = tripDays[activeDayIdx].stops.splice(fromIdx, 1)[0]; tripDays[toDayIdx].stops.push(stop); updateTripUI(); }; });
 
     // END BOOKEND
-    let endEl = document.getElementById('ui-end-node');
-    if (!endEl) { const wrapper = document.getElementById('itinerary-timeline-wrapper'); if (wrapper) { endEl = document.createElement('div'); endEl.id = 'ui-end-node'; wrapper.appendChild(endEl); } }
+    let endEl = window.BARK.DOM.uiEndNode();
+    if (!endEl) { const wrapper = window.BARK.DOM.itineraryTimelineWrapper(); if (wrapper) { endEl = document.createElement('div'); endEl.id = 'ui-end-node'; wrapper.appendChild(endEl); } }
     if (endEl && window.tripEndNode) {
         endEl.innerHTML = `<div onclick="editBookend('end')" style="cursor:pointer; background: #fef2f2; border: 2px solid #ef4444; border-radius: 8px; padding: 10px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(239,68,68,0.05);"><div style="font-size: 13px; font-weight: 900; color: #b91c1c; display: flex; align-items: center; gap: 8px;"><span style="background: #ef4444; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; justify-content: center; align-items: center; font-size: 11px;">B</span> TRIP END: <span style="font-weight:600; color:#333; margin-left: 4px;">${window.tripEndNode.name}</span></div><div style="font-size:10px; color:#ef4444; font-weight:800; text-transform:uppercase;">Edit</div></div>`;
     } else if (endEl) {
@@ -434,14 +434,14 @@ window.BARK.updateTripUI = updateTripUI;
 
 // ====== INIT TRIP PLANNER ======
 function initTripPlanner() {
-    const clearTripBtn = document.getElementById('clear-trip-btn');
-    const startRouteBtn = document.getElementById('start-route-btn');
-    const saveRouteBtn = document.getElementById('save-route-btn');
-    const optimizeTripBtn = document.getElementById('optimize-trip-btn');
+    const clearTripBtn = window.BARK.DOM.clearTripBtn();
+    const startRouteBtn = window.BARK.DOM.startRouteBtn();
+    const saveRouteBtn = window.BARK.DOM.saveRouteBtn();
+    const optimizeTripBtn = window.BARK.DOM.optimizeTripBtn();
     let currentRouteLayers = [];
 
     if (optimizeTripBtn) {
-        optimizeTripBtn.onclick = () => { document.getElementById('optimizer-modal').style.display = 'flex'; };
+        optimizeTripBtn.onclick = () => { window.BARK.DOM.optimizerModal().style.display = 'flex'; };
     }
 
     if (clearTripBtn) {
@@ -454,9 +454,9 @@ function initTripPlanner() {
             currentRouteLayers = [];
             draftTripLines.forEach(line => map.removeLayer(line));
             draftTripLines = [];
-            const nameInput = document.getElementById('tripNameInput');
+            const nameInput = window.BARK.DOM.tripNameInput();
             if (nameInput) nameInput.value = '';
-            const telemetryEl = document.getElementById('route-telemetry');
+            const telemetryEl = window.BARK.DOM.routeTelemetry();
             if (telemetryEl) { telemetryEl.style.display = 'none'; telemetryEl.innerHTML = ''; }
             updateTripUI();
         };
@@ -480,7 +480,7 @@ function initTripPlanner() {
         if (!user) { alert('Please sign in to save routes.'); return false; }
         window.BARK.incrementRequestCount();
         if (getTotalStops() === 0) { alert('Nothing to save — add some stops first!'); return false; }
-        const nameInput = document.getElementById('tripNameInput');
+        const nameInput = window.BARK.DOM.tripNameInput();
         const tripName = nameInput ? nameInput.value.trim() : "";
         if (!tripName) { alert('Please enter a name for your trip.'); if (nameInput) nameInput.focus(); return false; }
         try {
@@ -509,7 +509,6 @@ function initTripPlanner() {
 
         if (startRouteBtn) { startRouteBtn.textContent = 'Calculating...'; startRouteBtn.disabled = true; }
 
-        const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
         const allBounds = [];
         let anySucceeded = false, totalDistMeters = 0, totalDurSeconds = 0;
 
@@ -521,13 +520,7 @@ function initTripPlanner() {
 
             try {
                 const orsCoordinates = dayStops.map(s => [Number(s.lng), Number(s.lat)]);
-                const response = await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson", {
-                    method: "POST",
-                    headers: { "Authorization": hardcodedApiKey, "Content-Type": "application/json", "Accept": "application/json, application/geo+json; charset=utf-8" },
-                    body: JSON.stringify({ coordinates: orsCoordinates, radiuses: new Array(orsCoordinates.length).fill(-1) })
-                });
-                if (!response.ok) { const errData = await response.json(); throw new Error(errData.error?.message || "ORS error"); }
-                const geoJSONData = await response.json();
+                const geoJSONData = await window.BARK.services.ors.directions(orsCoordinates, { radiuses: new Array(orsCoordinates.length).fill(-1) });
                 const layer = L.geoJSON(geoJSONData, { style: () => ({ color: day.color, weight: 5, opacity: 0.85, dashArray: '10, 8' }) }).addTo(map);
                 currentRouteLayers.push(layer); allBounds.push(layer.getBounds()); anySucceeded = true;
                 const summary = geoJSONData.features[0].properties.summary;
@@ -540,7 +533,7 @@ function initTripPlanner() {
             map.fitBounds(combined, { padding: [50, 50], animate: !window.instantNav, duration: window.instantNav ? 0 : 0.5 });
         }
 
-        const telemetryEl = document.getElementById('route-telemetry');
+        const telemetryEl = window.BARK.DOM.routeTelemetry();
         if (telemetryEl) {
             if (anySucceeded) {
                 const miles = (totalDistMeters * 0.000621371).toFixed(1);

@@ -75,7 +75,6 @@
                 callback(value, previousValue, key);
             } catch (error) {
                 console.error(`BARK appState listener failed for "${key}".`, error);
-                throw error;
             }
         });
     }

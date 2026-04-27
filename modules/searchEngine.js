@@ -42,10 +42,11 @@ window.BARK.levenshtein = levenshtein;
 
 // ====== SEARCH UI BINDING ======
 function initSearchEngine() {
-    const searchInput = document.getElementById('park-search');
-    const clearSearchBtn = document.getElementById('clear-search-btn');
-    const searchSuggestions = document.getElementById('search-suggestions');
-    const typeSelect = document.getElementById('type-filter');
+    const DOM = window.BARK.DOM;
+    const searchInput = DOM.parkSearch();
+    const clearSearchBtn = DOM.clearSearchBtn();
+    const searchSuggestions = DOM.searchSuggestions();
+    const typeSelect = DOM.typeFilter();
     const filterBtns = document.querySelectorAll('.filter-btn');
     let searchTimeout = null;
 
@@ -250,15 +251,15 @@ window.BARK.initSearchEngine = initSearchEngine;
 // ====== UNIVERSAL GEOCODER ======
 async function executeGeocode(query, targetType) {
     if (!query) return;
+    const DOM = window.BARK.DOM;
     const lowerQ = query.trim().toLowerCase();
-    const incrementRequestCount = window.BARK.incrementRequestCount;
 
     // 🔥 SMART INTERCEPT: GPS Routing
     if (lowerQ === 'my location' || lowerQ === 'current location') {
-        const mainSearch = document.getElementById('park-search');
+        const mainSearch = DOM.parkSearch();
         if (targetType === 'stop' && mainSearch) mainSearch.value = 'Locating GPS...';
         else {
-            const inlineInput = document.getElementById(`inline-${targetType}-input`);
+            const inlineInput = DOM.inlineInput(targetType);
             if (inlineInput) inlineInput.value = 'Locating GPS...';
         }
 
@@ -283,15 +284,11 @@ async function executeGeocode(query, targetType) {
     // Standard API Search
     try {
         window.BARK.incrementRequestCount();
-        const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
-        const url = `https://api.openrouteservice.org/geocode/search?api_key=${hardcodedApiKey}&text=${encodeURIComponent(query)}&size=5&boundary.country=US`;
-
-        const response = await fetch(url);
-        const data = await response.json();
+        const data = await window.BARK.services.ors.geocode(query, { size: 5, country: 'US' });
 
         const disambiguationContainer = (targetType === 'stop')
-            ? document.getElementById('search-suggestions')
-            : document.getElementById(targetType === 'start' ? 'inline-suggest-start' : 'inline-suggest-end');
+            ? DOM.searchSuggestions()
+            : DOM.inlineSuggest(targetType);
 
         if (data.features && data.features.length > 0) {
             if (data.features.length === 1) {
@@ -301,8 +298,8 @@ async function executeGeocode(query, targetType) {
                 else if (targetType === 'end') window.tripEndNode = node;
                 else window.addStopToTrip(node);
 
-                const mainSearch = document.getElementById('park-search');
-                const clearBtn = document.getElementById('clear-search-btn');
+                const mainSearch = DOM.parkSearch();
+                const clearBtn = DOM.clearSearchBtn();
 
                 if (mainSearch) mainSearch.value = '';
                 if (typeof window.BARK.activeSearchQuery !== 'undefined') window.BARK.activeSearchQuery = '';
@@ -339,8 +336,8 @@ async function executeGeocode(query, targetType) {
                             else if (targetType === 'end') window.tripEndNode = node;
                             else window.addStopToTrip(node);
 
-                            const mainSearch = document.getElementById('park-search');
-                            const clearBtn = document.getElementById('clear-search-btn');
+                            const mainSearch = DOM.parkSearch();
+                            const clearBtn = DOM.clearSearchBtn();
 
                             if (mainSearch) mainSearch.value = '';
                             if (typeof window.BARK.activeSearchQuery !== 'undefined') window.BARK.activeSearchQuery = '';
@@ -370,6 +367,7 @@ async function executeGeocode(query, targetType) {
             }
         }
     } catch (err) {
+        console.error('Search geocode failed:', err);
         alert("Search service unavailable.");
     }
 }
@@ -377,9 +375,10 @@ async function executeGeocode(query, targetType) {
 window.BARK.executeGeocode = executeGeocode;
 // Also expose on window for inline HTML handlers
 window.processInlineSearch = function (type) {
-    const input = document.getElementById(`inline-${type}-input`);
+    const DOM = window.BARK.DOM;
+    const input = DOM.inlineInput(type);
     if (input && input.value.trim() !== '') {
-        const suggestBox = document.getElementById(`inline-suggest-${type}`);
+        const suggestBox = DOM.inlineSuggest(type);
         if (suggestBox) {
             suggestBox.style.display = 'block';
             suggestBox.innerHTML = '<p style="padding: 10px; font-size: 12px; color: #666; text-align: center;">Searching...</p>';

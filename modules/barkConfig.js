@@ -30,6 +30,10 @@ window.BARK.firebaseConfig = {
     measurementId: "G-V2QCN2MFBZ"
 };
 
+// ====== SERVICE CONFIG ======
+window.BARK.config = window.BARK.config || {};
+window.BARK.config.ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
+
 // ====== VIRTUAL EXPEDITION TRAILS ======
 window.BARK.TOP_10_TRAILS = [
     { id: 'half_dome', name: 'Half Dome', miles: 16.0, park: 'Yosemite National Park', info: 'Geologically, Half Dome is a granodiorite magma chamber that cooled slowly deep underground millions of years ago, later exposed and sheared in half by glacial activity. Before the 1870s, it was declared "perfectly inaccessible," but today, hikers ascend the final 400 feet using steel cables originally installed by the Sierra Club in 1919.' },

@@ -64,7 +64,6 @@
                 callback(value, previousValue, key);
             } catch (error) {
                 console.error(`BARK settings listener failed for "${key}".`, error);
-                throw error;
             }
         });
     }

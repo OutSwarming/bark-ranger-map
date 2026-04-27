@@ -13,7 +13,7 @@
  *   6. dataService.js    → CSV polling, Firebase auth, Firestore sync
  *   7. profileEngine.js  → Gamification, leaderboard, stats, achievements
  *   8. expeditionEngine.js → Virtual expeditions, WalkTracker, trail overlays
- *   9. tripPlanner.js    → Trip builder, route generation, optimization
+ *   9. tripPlannerCore.js → Trip builder, route generation, optimization
  *  10. shareEngine.js    → Export/share, QR codes, watermark
  *  11. settingsController.js → Settings modal, toggles, cloud sync
  *  12. uiController.js   → Navigation, panels, modals, iOS fixes
