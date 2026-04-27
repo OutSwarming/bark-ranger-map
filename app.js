@@ -677,6 +677,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+<<<<<<< HEAD
         // Ultra Low Toggle — uses the outer declaration from line 500
         if (ultraLowToggle) {
             ultraLowToggle.addEventListener('change', (e) => {
@@ -710,6 +711,53 @@ document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
                     window.location.reload(true); // forces hard refresh from server
                 }, 150);
+=======
+        // Ultra Low Toggle — uses the one already declared at line 413
+        if (ultraLowToggle) {
+            ultraLowToggle.addEventListener('change', (e) => {
+                const isTurningOn = e.target.checked;
+
+                if (isTurningOn) {
+                    // === ENTERING ULTRA LOW ===
+                    const confirmOn = window.confirm(
+                        "⚠️ ENABLE ULTRA-LOW GRAPHICS?\n\nThis will disable all animations, effects, and live updates.\nPage will reload to optimize the map engine."
+                    );
+
+                    if (confirmOn) {
+                        // Write ALL state to localStorage FIRST, then reload
+                        localStorage.setItem('barkUltraLowEnabled', 'true');
+                        localStorage.setItem('barkLowGfxEnabled', 'true');
+                        localStorage.setItem('barkStandardClustering', 'true');
+                        localStorage.setItem('barkPremiumClustering', 'false');
+                        localStorage.setItem('barkInstantNav', 'true');
+                        localStorage.setItem('barkSimplifyTrails', 'true');
+                        window.location.reload(); // Hard reset the Leaflet engine
+                    } else {
+                        // User cancelled — snap toggle back
+                        e.target.checked = false;
+                    }
+
+                } else {
+                    // === EXITING ULTRA LOW ===
+                    const confirmOff = window.confirm(
+                        "Switching to High Graphics requires a page reload to restore all visual effects. Proceed?"
+                    );
+
+                    if (confirmOff) {
+                        // Write ALL state to localStorage FIRST, then reload
+                        localStorage.setItem('barkUltraLowEnabled', 'false');
+                        localStorage.setItem('barkLowGfxEnabled', 'false');
+                        localStorage.setItem('barkStandardClustering', 'true');
+                        localStorage.setItem('barkPremiumClustering', 'false');
+                        localStorage.setItem('barkInstantNav', 'false');
+                        localStorage.setItem('barkSimplifyTrails', 'false');
+                        window.location.reload(); // Clean slate — Leaflet rebuilds smooth
+                    } else {
+                        // User cancelled — snap toggle back to ON
+                        e.target.checked = true;
+                    }
+                }
+>>>>>>> 5058012d81008eb092031d7983fdd92503d86ad7
             });
         }
 
@@ -914,7 +962,10 @@ function populateTrailWarpGrid() {
 }
 
 let allPoints = [];
+<<<<<<< HEAD
 let _searchResultCache = { query: '', matchedIds: null };
+=======
+>>>>>>> 5058012d81008eb092031d7983fdd92503d86ad7
 let activePinMarker = null;
 
 // Helper to clear the active pin highlight
@@ -1523,12 +1574,20 @@ function formatSwagLinks(text) {
  * 💓 THE HEARTBEAT (v25)
  * Batches DOM updates into a single frame buffer.
  */
+<<<<<<< HEAD
 let syncScheduled = false;
 window.syncState = function () {
     if (syncScheduled || (!window.parkLookup || window.parkLookup.size === 0)) return;
     syncScheduled = true;
     window.requestAnimationFrame(() => {
             syncScheduled = false;
+=======
+let isSyncing = false;
+window.syncState = function () {
+    if (isSyncing || (!window.parkLookup || window.parkLookup.size === 0)) return;
+    isSyncing = true;
+    window.requestAnimationFrame(() => {
+>>>>>>> 5058012d81008eb092031d7983fdd92503d86ad7
         try {
             updateMarkers();
             if (window.gamificationEngine) {
@@ -1537,6 +1596,11 @@ window.syncState = function () {
             updateStatsUI();
         } catch (e) {
             console.error("B.A.R.K. Sync Error:", e);
+<<<<<<< HEAD
+=======
+        } finally {
+            isSyncing = false;
+>>>>>>> 5058012d81008eb092031d7983fdd92503d86ad7
         }
     });
 };
@@ -2542,8 +2606,22 @@ function updateMarkers() {
 
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
+<<<<<<< HEAD
         const cachedSearch = _searchResultCache;
         let matchesSearch = !activeSearchQuery || (cachedSearch.matchedIds?.has(item.id) ?? true);
+=======
+        const queryNorm = normalizeText(activeSearchQuery);
+        const nameNorm = item._cachedNormalizedName;
+        let matchesSearch = !queryNorm || nameNorm.includes(queryNorm);
+
+        if (!matchesSearch && queryNorm.length > 2) {
+            let minDist = levenshtein(queryNorm, nameNorm);
+            for (const word of nameNorm.split(' ')) {
+                minDist = Math.min(minDist, levenshtein(queryNorm, word));
+            }
+            if (minDist <= 2) matchesSearch = true;
+        }
+>>>>>>> 5058012d81008eb092031d7983fdd92503d86ad7
 
         const matchesType = activeTypeFilter === 'all' || item.category === activeTypeFilter;
         let matchesVisited = true;
@@ -2633,12 +2711,16 @@ searchInput.addEventListener('input', (e) => {
 
     searchTimeout = setTimeout(() => {
         const queryNorm = normalizeText(activeSearchQuery);
+<<<<<<< HEAD
         const matchedIds = new Set();
+=======
+>>>>>>> 5058012d81008eb092031d7983fdd92503d86ad7
         let matches = [];
 
         allPoints.forEach(item => {
             const nameNorm = item._cachedNormalizedName;
             let score = 999;
+<<<<<<< HEAD
             if (nameNorm.includes(queryNorm)) {
                 score = 0;
             } else if (queryNorm.length > 2) {
@@ -2654,6 +2736,27 @@ searchInput.addEventListener('input', (e) => {
             }
         });
         _searchResultCache = { query: queryNorm, matchedIds };
+=======
+
+            if (nameNorm.includes(queryNorm)) {
+                score = 0;
+            } else {
+                let minDist = levenshtein(queryNorm, nameNorm);
+                const tokens = nameNorm.split(' ');
+                for (const word of tokens) {
+                    if (queryNorm.length > 2) {
+                        const dist = levenshtein(queryNorm, word);
+                        minDist = Math.min(minDist, dist);
+                    }
+                }
+                if (minDist <= 2) score = minDist;
+            }
+
+            if (score <= 2) {
+                matches.push({ item: item, score: score });
+            }
+        });
+>>>>>>> 5058012d81008eb092031d7983fdd92503d86ad7
 
         matches.sort((a, b) => a.score - b.score);
         const topMatches = matches.slice(0, 10);
@@ -3049,6 +3152,7 @@ if (typeof firebase !== 'undefined') {
                         // ☁️ LOAD SETTINGS FROM FIREBASE (Guarded & Force-Hydrated)
                         if (data.settings && !window._cloudSettingsLoaded) {
                             if (!doc.metadata.fromCache) {
+<<<<<<< HEAD
                                 window._cloudSettingsLoaded = true;
                             }
                             
@@ -3069,6 +3173,21 @@ if (typeof firebase !== 'undefined') {
                                     }
                                     return val;
                                 };
+=======
+                                window._cloudSettingsLoaded = true; 
+                            }
+                            const s = data.settings;
+
+                            // 1. Strict State Injection Tool (Updates memory AND forces physical CSS classes)
+                            const applySetting = (key, val, bodyClass = null) => {
+                                localStorage.setItem(key, val ? 'true' : 'false');
+                                if (bodyClass) {
+                                    if (val) document.body.classList.add(bodyClass);
+                                    else document.body.classList.remove(bodyClass);
+                                }
+                                return val;
+                            };
+>>>>>>> 5058012d81008eb092031d7983fdd92503d86ad7
 
                             // 2. Hydrate Variables & Apply Core CSS Overrides
                             window.allowUncheck = applySetting('barkAllowUncheck', s.allowUncheck || false);
@@ -3147,18 +3266,29 @@ if (typeof firebase !== 'undefined') {
                                 window.syncState(); // Actually redraws the pins
                             }
 
+<<<<<<< HEAD
                                 if (window.startNationalView && typeof map !== 'undefined') {
                                     map.setView([39.8283, -98.5795], 4, { animate: false });
                                 }
 
                                 console.log("☁️ Cloud settings loaded and injected perfectly!");
                             }
+=======
+                            if (window.startNationalView && typeof map !== 'undefined') {
+                                map.setView([39.8283, -98.5795], 4, { animate: false });
+                            }
+
+                            console.log("☁️ Cloud settings loaded and injected perfectly!");
+>>>>>>> 5058012d81008eb092031d7983fdd92503d86ad7
                         }
 
                         const placeList = data.visitedPlaces || [];
 
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 5058012d81008eb092031d7983fdd92503d86ad7
                         // Admin Dashboard Reveal
                         const adminContainer = document.getElementById('admin-controls-container');
                         window.isAdmin = data.isAdmin === true;
