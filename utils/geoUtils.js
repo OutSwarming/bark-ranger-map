@@ -27,3 +27,7 @@ function sanitizeWalkPoints(raw) {
 window.BARK.generatePinId = generatePinId;
 window.BARK.haversineDistance = haversineDistance;
 window.BARK.sanitizeWalkPoints = sanitizeWalkPoints;
+
+window.BARK.utils = window.BARK.utils || {};
+window.BARK.utils.geo = window.BARK.utils.geo || {};
+window.BARK.utils.geo.haversine = haversineDistance;

@@ -271,7 +271,7 @@ const markerClusterGroup = L.markerClusterGroup({
         const childCount = cluster.getChildCount();
         const markerHtml = `
             <div class="cluster-enamel-wrapper">
-                <img src="bark-logo.jpeg" alt="B.A.R.K. Cluster" loading="lazy" />
+                <img src="assets/images/bark-logo.jpeg" alt="B.A.R.K. Cluster" loading="lazy" />
                 <div class="cluster-count-badge">${childCount}</div>
             </div>
         `;

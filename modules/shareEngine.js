@@ -158,7 +158,7 @@ function initWatermarkTool() {
     if (!wmUpload) return;
 
     currentLogoImg = new Image();
-    currentLogoImg.src = 'WatermarkBARK.PNG';
+    currentLogoImg.src = 'assets/images/WatermarkBARK.PNG';
 
     function drawWatermark(logoScalePercent) {
         if (!currentPhotoImg || !currentLogoImg) return;

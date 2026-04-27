@@ -13,7 +13,7 @@ class MapMarkerConfig {
     static createCustomMarker(parkData, isVisited) {
         // Decide which base JPEG to use depending on category
         const isNational = (parkData.parkCategory === 'National');
-        const iconUrl = isNational ? 'bark-logo.jpeg' : 'bark-tag.jpeg';
+        const iconUrl = isNational ? 'assets/images/bark-logo.jpeg' : 'assets/images/bark-tag.jpeg';
 
         // Always create markers in neutral state — visited styling is applied dynamically
         // by updateMarkers() via the 'visited-pin' class to prevent recycling bugs

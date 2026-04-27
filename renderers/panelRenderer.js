@@ -159,6 +159,7 @@ function renderMarkerClickPanel(context) {
     const markVisitedText = document.getElementById('mark-visited-text');
     const verifyBtn = document.getElementById('verify-checkin-btn');
     const verifyBtnText = document.getElementById('verify-checkin-text');
+    const checkinService = window.BARK.services && window.BARK.services.checkin;
 
     if (visitedSection && markVisitedBtn && markVisitedText && verifyBtn) {
         if (firebaseService && firebaseService.getCurrentUser()) {
@@ -220,13 +221,17 @@ function renderMarkerClickPanel(context) {
 
             verifyBtn.onclick = () => {
                 if (!navigator.geolocation) { alert("Geolocation is not supported by your browser."); return; }
+                if (!checkinService || typeof checkinService.verifyAndProcessCheckin !== 'function') {
+                    alert("Check-in service is unavailable. Try again later.");
+                    return;
+                }
                 verifyBtnText.textContent = 'Locating...';
 
                 navigator.geolocation.getCurrentPosition((position) => {
-                    const dist = window.BARK.haversineDistance(position.coords.latitude, position.coords.longitude, d.lat, d.lng);
-                    if (dist <= 25) {
+                    const checkinResult = checkinService.verifyAndProcessCheckin(d, position.coords, userVisitedPlaces);
+                    if (checkinResult.success) {
                         alert(`Check-in Verified! You earned 2 points.`);
-                        const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: true, ts: Date.now() };
+                        const newObj = checkinResult.visitRecord;
 
                         userVisitedPlaces.set(d.id, newObj);
                         const updatedArray = Array.from(userVisitedPlaces.values());
@@ -248,7 +253,12 @@ function renderMarkerClickPanel(context) {
                         window.BARK.updateStatsUI();
                         window.attemptDailyStreakIncrement();
                     } else {
-                        alert(`Out of Range! You are ${dist.toFixed(1)} km away. You must be within 25 km to verify.`);
+                        const radiusKm = window.BARK.config && window.BARK.config.CHECKIN_RADIUS_KM;
+                        if (checkinResult.error === 'OUT_OF_RANGE' && Number.isFinite(checkinResult.distance)) {
+                            alert(`Out of Range! You are ${checkinResult.distance.toFixed(1)} km away. You must be within ${radiusKm} km to verify.`);
+                        } else {
+                            alert("Check-in could not be verified. Try again later.");
+                        }
                         verifyBtnText.textContent = '🐾 Verified Check-In';
                     }
                 }, (error) => {

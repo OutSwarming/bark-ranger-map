@@ -74,54 +74,69 @@ window.BARK.renderManagePortal = renderManagePortal;
 
 // ====== LEADERBOARD SYNC ======
 let cachedLeaderboardData = [];
+let _leaderboardSyncInProgress = false;
+let _lastLeaderboardSyncTime = 0;
+const LEADERBOARD_SYNC_DEBOUNCE_MS = 10000;
 
 async function syncScoreToLeaderboard() {
-    const user = firebase.auth().currentUser;
-    if (!user) return;
+    if (_leaderboardSyncInProgress) return;
 
-    const userVisitedPlaces = window.BARK.userVisitedPlaces;
-    const scoreSummary = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints);
-    const totalScore = scoreSummary.totalScore;
+    _leaderboardSyncInProgress = true;
+    try {
+        const now = Date.now();
+        if (now - _lastLeaderboardSyncTime < LEADERBOARD_SYNC_DEBOUNCE_MS) return;
 
-    if (totalScore === window._lastSyncedScore) return;
+        const user = firebase.auth().currentUser;
+        if (!user) return;
 
-    const db = firebase.firestore();
-    window.BARK.incrementRequestCount();
+        const userVisitedPlaces = window.BARK.userVisitedPlaces;
+        const scoreSummary = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints);
+        const totalScore = scoreSummary.totalScore;
 
-    await db.collection('users').doc(user.uid).set({
-        totalPoints: totalScore,
-        totalVisited: userVisitedPlaces.size,
-        displayName: user.displayName || 'Bark Ranger',
-        hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified)
-    }, { merge: true });
+        if (totalScore === window._lastSyncedScore) return;
 
-    await db.collection('leaderboard').doc(user.uid).set({
-        displayName: user.displayName || 'Bark Ranger',
-        photoURL: user.photoURL || '',
-        totalPoints: totalScore,
-        totalVisited: userVisitedPlaces.size,
-        hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified),
-        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
+        _lastLeaderboardSyncTime = now;
 
-    window._lastSyncedScore = totalScore;
+        const db = firebase.firestore();
+        window.BARK.incrementRequestCount();
 
-    if (cachedLeaderboardData.length > 0) {
-        const me = cachedLeaderboardData.find(u => u.uid === user.uid);
-        if (me) {
-            me.totalPoints = totalScore;
-            me.totalVisited = userVisitedPlaces.size;
-        } else {
-            cachedLeaderboardData.push({
-                uid: user.uid,
-                displayName: user.displayName || 'Bark Ranger',
-                totalPoints: totalScore,
-                totalVisited: userVisitedPlaces.size,
-                hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified)
-            });
+        await db.collection('users').doc(user.uid).set({
+            totalPoints: totalScore,
+            totalVisited: userVisitedPlaces.size,
+            displayName: user.displayName || 'Bark Ranger',
+            hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified)
+        }, { merge: true });
+
+        await db.collection('leaderboard').doc(user.uid).set({
+            displayName: user.displayName || 'Bark Ranger',
+            photoURL: user.photoURL || '',
+            totalPoints: totalScore,
+            totalVisited: userVisitedPlaces.size,
+            hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified),
+            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        window._lastSyncedScore = totalScore;
+
+        if (cachedLeaderboardData.length > 0) {
+            const me = cachedLeaderboardData.find(u => u.uid === user.uid);
+            if (me) {
+                me.totalPoints = totalScore;
+                me.totalVisited = userVisitedPlaces.size;
+            } else {
+                cachedLeaderboardData.push({
+                    uid: user.uid,
+                    displayName: user.displayName || 'Bark Ranger',
+                    totalPoints: totalScore,
+                    totalVisited: userVisitedPlaces.size,
+                    hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified)
+                });
+            }
+            cachedLeaderboardData.sort((a, b) => b.totalPoints - a.totalPoints);
+            renderLeaderboard(cachedLeaderboardData);
         }
-        cachedLeaderboardData.sort((a, b) => b.totalPoints - a.totalPoints);
-        renderLeaderboard(cachedLeaderboardData);
+    } finally {
+        _leaderboardSyncInProgress = false;
     }
 }
 

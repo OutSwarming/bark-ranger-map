@@ -49,20 +49,20 @@ let fuse;
 // 1. Auth Bouncer
 auth.onAuthStateChanged(async (user) => {
     if (!user) {
-        window.location.replace('index.html');
+        window.location.replace('../index.html');
         return;
     }
     
     const doc = await db.collection('users').doc(user.uid).get();
     if (!doc.exists || doc.data().isAdmin !== true) {
-        window.location.replace('index.html');
+        window.location.replace('../index.html');
     }
 });
 
 // 2. Fetch and Parse BARK Master List.csv
 async function loadMasterCSV() {
     try {
-        const response = await fetch('BARK Master List.csv');
+        const response = await fetch('../BARK Master List.csv');
         const csvText = await response.text();
         
         Papa.parse(csvText, {
