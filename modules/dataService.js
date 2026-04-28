@@ -402,6 +402,8 @@ function loadData() {
         parseCSVString(cachedCsv);
     }
 
+    safeDataPoll();
+
     if (!navigator.onLine) {
         const isPremium = localStorage.getItem('premiumLoggedIn') === 'true';
         if (!isPremium && !cachedCsv) {

@@ -51,10 +51,9 @@
             console.error('[B.A.R.K. Boot] "initFirebase" failed — auth and cloud sync unavailable.', err);
         }
 
-        // 4. Data loading — grouped because loadData and safeDataPoll are coupled
+        // 4. Data loading — loadData handles cache hydration, immediate fetch, and polling schedule
         try {
             if (typeof window.BARK.loadData === 'function') window.BARK.loadData();
-            if (typeof window.BARK.safeDataPoll === 'function') window.BARK.safeDataPoll();
         } catch (err) {
             _bootErrors.push('loadData');
             console.error('[B.A.R.K. Boot] "loadData" failed — map may be empty.', err);

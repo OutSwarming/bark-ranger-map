@@ -41,13 +41,13 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 
 - [x] **#5 — Request kill switch fires after ~75 minutes** (`modules/barkState.js`, `modules/dataService.js`) ✅
 
-- [ ] **#6 — `evaluateAchievements()` mutates live visit records** (`modules/profileEngine.js:152-155`): `visit.state = mapPoint.state` mutates objects inside `userVisitedPlaces` Map in place. Creates unpredictable side-effects across the app. Fix: work on a shallow copy — `const visit = { ...rawVisit }`.
+- [x] **#6 — `evaluateAchievements()` mutates live visit records** (`modules/profileEngine.js`) ✅
 
-- [ ] **#7 — Streak date uses UTC instead of local date** (`services/firebaseService.js:23`): `new Date().toISOString().split('T')[0]` returns UTC date. US evening users get tomorrow's date. Fix: use `new Date().toLocaleDateString('en-CA')` which gives YYYY-MM-DD in local time.
+- [x] **#7 — Streak date uses UTC instead of local date** (`services/firebaseService.js`) ✅
 
-- [ ] **#8 — `evaluateAchievements()` fires on every `syncState()` heartbeat** (`modules/renderEngine.js:175`): Achievement eval (Firestore batch read + conditional write) is triggered inside the RAF loop on every state change. The boolean lock prevents concurrency but not constant re-queuing. Fix: debounce with a 3-second trailing debounce, not a boolean lock.
+- [x] **#8 — `evaluateAchievements()` fires on every `syncState()` heartbeat** (`modules/renderEngine.js`) ✅
 
-- [x] **#9 — CSV polling at 10s will get throttled at scale** (`modules/dataService.js:getPollInterval`) ✅ Absorbed into Fix #5. `loadData()` owns the immediate fetch; `safeDataPoll()` now starts the 5-minute loop, so the `app.js` call is intentional rather than redundant.
+- [x] **#9 — CSV polling at 10s will get throttled at scale** (`modules/dataService.js`, `core/app.js`) ✅
 
 - [ ] **#10 — `getMarkerVisibilityStateKey()` sorts visited IDs on every RAF** (`modules/renderEngine.js:117`): `Array.from(userVisitedPlaces.keys()).sort().join(',')` runs on every heartbeat. Cache this string as `window.BARK._visitedIdsCacheKey`, invalidate it only inside `handleVisitedPlacesSync()` in `authService.js` and inside the `markAsVisited` flow in `checkinService.js`.
 
@@ -68,7 +68,7 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 - [ ] **#18 — User-visible degraded state when `initMap` fails**: When the map fails (Leaflet CDN down, DOM node missing, etc.), the user sees nothing — no error, no message, just a broken blank screen. Add a visible in-page message ("Map unavailable — try refreshing") that appears if `initMap` is not in `_bootErrors` within N seconds, or if `window.map` is still undefined after boot. This is distinct from Fix #2 (loader stuck) — the loader dismisses, but the user still has no signal that something is wrong.
 
 ## Current Work
-Fix #5 complete. Start with Fix #6 next session.
+Fix #9 complete. Start with Fix #10 next session.
 
 ---
 
@@ -85,7 +85,7 @@ Fix #5 complete. Start with Fix #6 next session.
 - `callInit()` now wraps every module init in try/catch. On failure it: logs `[B.A.R.K. Boot] "initX" failed — this feature will be unavailable.` with the actual error, pushes the name to `_bootErrors[]`, and continues to the next init.
 - All inits now go through `callInit()` — the old inconsistent mix of raw `if` checks and `callInit()` calls is unified into a single pattern.
 - Firebase init has its own try/catch with a clearer message (`auth and cloud sync unavailable`) because its failure has broader impact than one feature.
-- Data loading (`loadData` + `safeDataPoll`) is grouped in its own try/catch with the message `map may be empty`.
+- Data loading (`loadData`) is grouped in its own try/catch with the message `map may be empty`.
 - The deferred `safePoll` and `updateTripUI` setTimeout calls are also wrapped.
 - Boot ends with a clear console summary: `✅ Complete` or `⚠️ Complete with N error(s): [initX, initY]`.
 
@@ -271,6 +271,159 @@ A user planning a long multi-day route can leave the app open for hours without 
 **How much better:**
 - Before: 10-second CSV polling + 600 cap = safety shutdown risk after roughly 75 minutes.
 - After: 5-minute CSV polling + 2,000 cap = far lower background traffic, better long-session stability, and fewer false kill-switch trips.
+
+### Fix #6 — Achievement Evaluation Mutated Live Visit Records
+**File:** `modules/profileEngine.js`
+**Date:** 2026-04-28
+
+**What was wrong:**
+`evaluateAchievements()` built `visitedArray` directly from `userVisitedPlaces.values()`, then filled missing `visit.state` fields by writing `visit.state = mapPoint.state`. Those `visit` objects were the same objects stored in the live `window.BARK.userVisitedPlaces` Map. A read-only achievement calculation was quietly changing canonical visit records in memory.
+
+**The fix:**
+- Changed `visitedArray` construction to create a shallow copy for each visit record.
+- Added missing state only to the copied object passed into `gamificationEngine`.
+- Left the original `userVisitedPlaces` Map and its visit objects untouched.
+- Guarded the `window.parkLookup.get()` path so achievement evaluation stays safe if the lookup is unavailable.
+
+**Why this matters:**
+Achievement evaluation runs from the render heartbeat and should be pure from the app-state perspective. Mutating live visit records during a derived calculation makes bugs difficult to reason about: a badge render can change data that other systems treat as source-of-truth. Keeping enrichment local to the achievement input makes the data flow cleaner and easier to debug.
+
+**Pros of this approach:**
+- Keeps state badge calculations working even when cloud visit records are missing `state`.
+- Removes the hidden side effect from the render/achievement path.
+- Very small performance cost: one shallow object copy per visited place during achievement evaluation.
+- No schema migration and no cloud write behavior change.
+- Makes future debugging cleaner because `userVisitedPlaces` remains exactly what auth/check-in sync put there.
+- The null/type guard at the start of the `.map()` callback (`if (!rawVisit || typeof rawVisit !== 'object')`) means the function cannot crash on malformed Firestore entries — hand-edited or migrated documents with unexpected shapes are passed through safely rather than throwing on `{ ...rawVisit }`.
+
+**Cons / tradeoffs:**
+- The copy is shallow, not a deep clone. That is intentional because the fix only enriches top-level `state`, but nested object mutation would still need separate care if added later.
+- Other code paths that read `userVisitedPlaces` directly still will not see inferred `state` unless they join against `allPoints` or `parkLookup` themselves.
+- Achievement evaluation still runs often from `syncState()`; that performance concern remains Fix #8.
+
+**User-visible difference:**
+A user with older cloud visit records that do not include `state` can still earn state badges correctly, but opening the profile/vault no longer mutates those saved visit objects behind the scenes. That reduces weird downstream behavior where a profile render could make visit records look different from the original synced data.
+
+**How much better:**
+- Before: achievement render = badge calculation plus hidden mutation of live visit objects.
+- After: achievement render = badge calculation with copied/enriched inputs only; canonical visit records remain stable.
+
+### Fix #7 — Daily Streak Uses Local Calendar Date
+**File:** `services/firebaseService.js`
+**Date:** 2026-04-28
+
+**What was wrong:**
+`attemptDailyStreakIncrement()` used `new Date().toISOString().split('T')[0]` for both today and yesterday. `toISOString()` always formats in UTC. For US evening users, the UTC date can already be tomorrow, so a check-in at 9:30 PM local time could be stored as the next day and break the daily streak logic.
+
+**The fix:**
+- Added `getLocalDateKey(date = new Date())`.
+- It formats dates as `YYYY-MM-DD` using local `getFullYear()`, `getMonth()`, and `getDate()`.
+- Replaced the UTC `today` key with `getLocalDateKey()`.
+- Replaced the UTC `yesterdayStr` key with `getLocalDateKey(yesterday)`.
+- Kept the Firestore/localStorage schema unchanged: streak dates are still stored as `YYYY-MM-DD` strings.
+
+**Why this matters:**
+Streaks are a user-facing calendar feature. Users think in local days, not UTC days. The app should reward a visit made on Tuesday evening as Tuesday, not Wednesday just because UTC crossed midnight. This keeps streak behavior aligned with the user's lived day and avoids confusing missed/duplicated streak outcomes.
+
+**Pros of this approach:**
+- Fixes the US evening/tomorrow-date bug.
+- Handles yesterday using the same local date-key logic as today.
+- Avoids locale-output ambiguity by manually formatting the local date instead of relying on browser locale string behavior.
+- No data migration needed because the stored format stays `YYYY-MM-DD`.
+- Very fast: three local date reads and two `padStart()` calls per streak attempt.
+- `getLocalDateKey(date = new Date())` accepts an optional `date` parameter — this is what makes the smoke test work (pass a mocked date directly) and keeps future unit tests straightforward without patching the global `Date` constructor.
+- `yesterday.setDate(yesterday.getDate() - 1)` uses calendar arithmetic, not millisecond subtraction. `setDate(0)` on the first of a month correctly rolls back to the last day of the previous month, and DST transitions do not cause date drift the way `Date.now() - 86400000` would.
+
+**Cons / tradeoffs:**
+- The date is based on the device/browser local timezone. If a user travels across timezones in the same day, streaks follow the device's current local day.
+- Existing streak records that were already saved with a UTC-shifted date are not automatically repaired.
+- This fixes date-key generation only; it does not add server-side anti-abuse validation for streaks.
+
+**User-visible difference:**
+A user checking in during the evening in the US no longer has that check-in counted as tomorrow. Their daily streak should increment or continue based on the actual local calendar day they are using the app.
+
+**How much better:**
+- Before: local evening check-in could be stored as tomorrow because the app used UTC.
+- After: daily streak dates are generated from the user's local calendar day.
+
+### Fix #8 — Achievement Evaluation Debounced Outside the Render Heartbeat
+**File:** `modules/renderEngine.js`
+**Date:** 2026-04-28
+
+**What was wrong:**
+`syncState()` called `evaluateAchievements()` from inside the RAF heartbeat. The old `window._evalInProgress` boolean prevented overlapping achievement evaluations, but it did not prevent constant re-queuing: any state change after the previous evaluation finished could immediately trigger another profile/vault render and possible Firestore achievement work.
+
+**The fix:**
+- Added a 3-second trailing debounce for achievement evaluation.
+- `syncState()` still updates markers and stats immediately.
+- Replaced the global `window._evalInProgress` gate with a local scheduler in `renderEngine.js`.
+- Added a local in-progress guard only to prevent concurrency if an evaluation is still running when the debounce fires.
+- If a new evaluation request arrives during an active evaluation, one trailing follow-up evaluation is scheduled after the active run finishes.
+- Added error handling around the scheduled evaluation so unexpected rejections are logged by `renderEngine`.
+
+**Why this matters:**
+Achievement evaluation is heavier than marker/stat refresh because it renders the vault/dossiers and can touch Firestore through the gamification engine. It should respond to meaningful settled state, not every heartbeat. A trailing debounce keeps the UI responsive while preventing state churn from turning into repeated achievement work.
+
+**Pros of this approach:**
+- Collapses bursts of `syncState()` calls into one achievement evaluation.
+- Reduces repeated vault rendering and Firestore achievement checks.
+- Keeps immediate marker and stat updates intact.
+- The scheduler is local to `renderEngine.js`; no new global flags are introduced.
+- Handles long-running evaluations safely without overlapping calls.
+- `runAchievementEvaluation()` uses `try/catch/finally` — the `finally` block is critical: it guarantees `achievementEvalInProgress` is always reset even if `evaluateAchievements()` throws. Without `finally`, a single error would permanently deadlock all future achievement evaluation for the session.
+- `achievementEvalRequestedDuringRun` is a boolean, not a counter or queue — one concurrent state change or one thousand during an active evaluation both collapse to exactly one follow-up evaluation. The flag is idempotent by design.
+
+**Cons / tradeoffs:**
+- Profile/vault achievement UI can lag up to 3 seconds after the last relevant state change.
+- If state keeps changing continuously, achievement evaluation waits until the app quiets down.
+- A long-running evaluation followed by another state change can intentionally produce one follow-up evaluation, so it is debounced, not permanently suppressed.
+- `scheduleAchievementEvaluation()` is called unconditionally on every RAF frame, even for state changes that don't affect achievements (map pans, non-data interactions). The debounce absorbs this correctly, but unlike the marker path which short-circuits via `markerVisibilityStateKey`, there is no pre-debounce gate for achievement-specific state changes.
+
+**User-visible difference:**
+When a user rapidly filters, checks in, syncs cloud data, or moves through UI states, the app should feel less jittery and do less background achievement work. Badge/rank updates may appear a few seconds after the state settles instead of trying to recompute during every render heartbeat.
+
+**How much better:**
+- Before: every settled `syncState()` heartbeat could launch achievement evaluation as soon as the previous run finished.
+- After: heartbeat bursts schedule one trailing achievement evaluation after 3 seconds of quiet, with concurrency protection for long runs.
+
+### Fix #9 — CSV Polling Scale Hardening
+**Files:** `modules/dataService.js`, `core/app.js`
+**Date:** 2026-04-28
+
+**What was wrong:**
+CSV polling originally ran every 10 seconds. At scale, that is excessive for a Google Sheets CSV source and creates unnecessary background traffic. The boot path also called both `loadData()` and `safeDataPoll()` directly, which made the data service lifecycle harder to reason about.
+
+**The fix:**
+- The 5-minute polling interval and tab-refocus refresh were implemented as part of Fix #5.
+- Finished the remaining Fix #9 cleanup by moving the polling scheduler start into `loadData()`.
+- Removed the direct `safeDataPoll()` call from `core/app.js`.
+- `core/app.js` now has one data entry point: `window.BARK.loadData()`.
+- `loadData()` now handles cache hydration, starts the background scheduler, and performs the immediate online fetch.
+
+**Why this matters:**
+The app should not ask every active tab to hit the CSV source every 10 seconds. It also should not require the boot orchestrator to know the internals of the data service. One entry point keeps startup simpler, while the data service owns its own immediate-load and background-refresh lifecycle.
+
+**Pros of this approach:**
+- Keeps CSV polling at 5 minutes instead of 10 seconds.
+- Preserves immediate fetch on app open.
+- Preserves refresh-on-return via `visibilitychange`.
+- Removes a data-service implementation detail from `core/app.js`.
+- Avoids duplicate immediate fetches because `safeDataPoll()` only schedules the next background poll.
+- `safeDataPoll()` is called before the `navigator.onLine` check, so the 5-minute timer and refocus listener are bound even when the device starts offline. When the user reconnects and tab-switches, the `visibilitychange` handler already exists and correctly triggers a fetch attempt.
+- `window.BARK.safeDataPoll` is still exported but becomes a no-op after `loadData()` runs (because `dataPollLoopStarted = true`). External code cannot accidentally start a second polling loop.
+
+**Cons / tradeoffs:**
+- `loadData()` now starts the polling scheduler as a side effect, so callers should not treat it as cache-only.
+- CSV updates can still take up to 5 minutes to appear during continuous active use.
+- The 1-minute refocus throttle means very rapid tab switching will not fetch every time.
+- The 5-minute timer starts from when `safeDataPoll()` is called, not from when the immediate `runDataPollCycle()` fetch completes. On a slow boot network the first scheduled poll and the boot fetch could arrive closer together than expected — at most a few seconds' drift. Not a real problem, but the timer is not strictly "5 minutes after first fetch."
+
+**User-visible difference:**
+A user still gets park data immediately on load, and if they return to the tab later the app checks for fresher data. Behind the scenes, the app is far gentler on the CSV source and less likely to contribute to throttling as usage grows.
+
+**How much better:**
+- Before: 10-second CSV polling and boot orchestration that knew about both immediate load and polling internals.
+- After: 5-minute CSV polling, refocus refresh, and one clean app boot call into the data service.
 
 ---
 

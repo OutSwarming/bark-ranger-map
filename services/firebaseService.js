@@ -10,12 +10,19 @@ function getCurrentUser() {
     return firebase.auth().currentUser;
 }
 
+function getLocalDateKey(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 async function attemptDailyStreakIncrement() {
     try {
         const user = getCurrentUser();
         if (!user) return { success: false, message: "Not logged in" };
 
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDateKey();
         const docRef = firebase.firestore().collection('users').doc(user.uid);
         const doc = await docRef.get();
         const data = doc.exists ? doc.data() : {};
@@ -25,7 +32,7 @@ async function attemptDailyStreakIncrement() {
 
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        const yesterdayStr = getLocalDateKey(yesterday);
 
         let currentStreak = parseInt(data.streakCount || localStorage.getItem('streakCount') || 0);
 

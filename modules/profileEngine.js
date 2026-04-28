@@ -144,16 +144,18 @@ window.BARK.syncScoreToLeaderboard = syncScoreToLeaderboard;
 // ====== EVALUATE ACHIEVEMENTS ======
 async function evaluateAchievements(visitedPlacesMap) {
     try {
-    const visitedArray = Array.from(visitedPlacesMap.values());
+    const visitedArray = Array.from(visitedPlacesMap.values()).map(rawVisit => {
+        if (!rawVisit || typeof rawVisit !== 'object') return rawVisit;
+
+        const visit = { ...rawVisit };
+        if (!visit.state && window.parkLookup && typeof window.parkLookup.get === 'function') {
+            const mapPoint = window.parkLookup.get(visit.id);
+            if (mapPoint && mapPoint.state) visit.state = mapPoint.state;
+        }
+        return visit;
+    });
     const userLocationMarker = window.BARK.getUserLocationMarker();
     const allPoints = window.BARK.allPoints;
-
-    visitedArray.forEach(visit => {
-        if (!visit.state) {
-            const mapPoint = window.parkLookup.get(visit.id);
-            if (mapPoint) visit.state = mapPoint.state;
-        }
-    });
 
     let userId = null;
     if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {

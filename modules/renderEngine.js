@@ -74,6 +74,10 @@ window.BARK.safeUpdateHTML = safeUpdateHTML;
  */
 let syncScheduled = false;
 let lastMarkerVisibilityStateKey = null;
+const ACHIEVEMENT_EVAL_DEBOUNCE_MS = 3000;
+let achievementEvalTimer = null;
+let achievementEvalInProgress = false;
+let achievementEvalRequestedDuringRun = false;
 
 function serializeSet(set) {
     return Array.from(set || []).sort().join(',');
@@ -150,6 +154,36 @@ window.BARK.invalidateMarkerVisibility = function () {
 };
 window.BARK.isMapViewActive = isMapViewActive;
 
+function scheduleAchievementEvaluation() {
+    if (typeof window.BARK.evaluateAchievements !== 'function') return;
+
+    clearTimeout(achievementEvalTimer);
+    achievementEvalTimer = setTimeout(runAchievementEvaluation, ACHIEVEMENT_EVAL_DEBOUNCE_MS);
+}
+
+async function runAchievementEvaluation() {
+    achievementEvalTimer = null;
+    if (typeof window.BARK.evaluateAchievements !== 'function') return;
+
+    if (achievementEvalInProgress) {
+        achievementEvalRequestedDuringRun = true;
+        return;
+    }
+
+    achievementEvalInProgress = true;
+    try {
+        await window.BARK.evaluateAchievements(window.BARK.userVisitedPlaces);
+    } catch (error) {
+        console.error('[renderEngine] achievement evaluation failed:', error);
+    } finally {
+        achievementEvalInProgress = false;
+        if (achievementEvalRequestedDuringRun) {
+            achievementEvalRequestedDuringRun = false;
+            scheduleAchievementEvaluation();
+        }
+    }
+}
+
 window.syncState = function () {
     if (syncScheduled) return;
     syncScheduled = true;
@@ -171,13 +205,7 @@ window.syncState = function () {
         if (typeof window.BARK.updateStatsUI === 'function') {
             window.BARK.updateStatsUI();
         }
-        // 🏆 Evaluate achievements (renders vault, dossiers, leaderboard)
-        if (typeof window.BARK.evaluateAchievements === 'function' && !window._evalInProgress) {
-            window._evalInProgress = true;
-            window.BARK.evaluateAchievements(window.BARK.userVisitedPlaces).finally(() => {
-                window._evalInProgress = false;
-            });
-        }
+        scheduleAchievementEvaluation();
     });
 };
 
