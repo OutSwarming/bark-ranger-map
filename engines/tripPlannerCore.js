@@ -479,6 +479,12 @@ function initTripPlanner() {
     let currentRouteLayers = [];
     let routeRenderGeneration = 0;
 
+    function setPlannerActionButtonLabel(button, label, icon = '') {
+        if (!button) return;
+        const iconMarkup = icon ? `<span class="planner-action-icon">${icon}</span>` : '';
+        button.innerHTML = `${iconMarkup}<span>${label}</span>`;
+    }
+
     function resetTripPlannerRuntime(options = {}) {
         const resetName = options.resetName !== false;
 
@@ -529,9 +535,11 @@ function initTripPlanner() {
 
     if (saveRouteBtn) {
         saveRouteBtn.onclick = async () => {
-            saveRouteBtn.textContent = 'Saving...'; saveRouteBtn.disabled = true;
+            setPlannerActionButtonLabel(saveRouteBtn, 'Saving...');
+            saveRouteBtn.disabled = true;
             const saved = await saveCurrentTrip();
-            saveRouteBtn.textContent = '💾 Save'; saveRouteBtn.disabled = false;
+            setPlannerActionButtonLabel(saveRouteBtn, 'Save', '💾');
+            saveRouteBtn.disabled = false;
             if (saved) alert('✅ Trip saved! Check Profile → Saved Routes.');
         };
     }
@@ -573,7 +581,10 @@ function initTripPlanner() {
         currentRouteLayers.forEach(removeTripMapLayer); currentRouteLayers = [];
         draftTripLines.forEach(removeTripMapLayer); draftTripLines = [];
 
-        if (startRouteBtn) { startRouteBtn.textContent = 'Calculating...'; startRouteBtn.disabled = true; }
+        if (startRouteBtn) {
+            setPlannerActionButtonLabel(startRouteBtn, 'Calculating...');
+            startRouteBtn.disabled = true;
+        }
 
         const allBounds = [];
         let anySucceeded = false, totalDistMeters = 0, totalDurSeconds = 0;
@@ -613,7 +624,10 @@ function initTripPlanner() {
         }
 
         if (anySucceeded) document.querySelector('[data-target="map-view"]')?.click();
-        if (startRouteBtn) { startRouteBtn.textContent = 'Generate Route'; startRouteBtn.disabled = false; }
+        if (startRouteBtn) {
+            setPlannerActionButtonLabel(startRouteBtn, 'Generate Route');
+            startRouteBtn.disabled = false;
+        }
     }
 }
 

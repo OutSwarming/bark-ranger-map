@@ -701,6 +701,105 @@ textarea,
     color: white;
 }
 
+.planner-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.planner-actions-grid {
+    display: grid;
+    gap: 10px;
+}
+
+.planner-actions-grid-secondary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.planner-actions-grid-main {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: stretch;
+}
+
+.planner-action-btn {
+    min-height: 48px;
+    padding: 11px 12px;
+    border: 1px solid #d8e0ea;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #334155;
+    box-shadow: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 850;
+    line-height: 1.1;
+    text-align: center;
+    white-space: normal;
+    transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.planner-action-btn:hover,
+.planner-action-btn:active {
+    transform: translateY(-1px);
+}
+
+.planner-action-icon {
+    flex: 0 0 auto;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.planner-action-purple {
+    background: #fdf4ff;
+    border-color: #f0abfc;
+    color: #a21caf;
+}
+
+.planner-action-violet {
+    background: #faf5ff;
+    border-color: #ddd6fe;
+    color: #7e22ce;
+}
+
+.planner-action-neutral {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    color: #475569;
+}
+
+.planner-action-save {
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #047857;
+}
+
+.planner-action-primary {
+    background: #43a947;
+    border-color: #43a947;
+    color: white;
+    box-shadow: 0 6px 16px rgba(67, 169, 71, 0.22);
+}
+
+.planner-action-clear {
+    background: #fff7f7;
+    border-color: #fecaca;
+    color: #dc2626;
+}
+
+@media (max-width: 430px) {
+    .planner-actions-grid-main {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .planner-action-primary {
+        grid-column: span 2;
+    }
+}
+
 .watermark-tool {
     background: rgba(255, 255, 255, 0.5);
     border-radius: 12px;
