@@ -319,16 +319,14 @@ window.editBookend = function (type) {
 
         inlineInput.addEventListener('blur', () => {
             clearTimeout(inlineSearchTimer);
-            setTimeout(() => {
-                const suggestBox = window.BARK.DOM.inlineSuggest(type);
-                if (suggestBox && suggestBox.contains(document.activeElement)) return;
+            const suggestBox = window.BARK.DOM.inlineSuggest(type);
+            if (suggestBox && suggestBox.contains(document.activeElement)) return;
 
-                if (window.BARK.hideInlinePlannerSuggestions) {
-                    window.BARK.hideInlinePlannerSuggestions(type);
-                } else if (suggestBox) {
-                    suggestBox.style.display = 'none';
-                }
-            }, 120);
+            if (window.BARK.hideInlinePlannerSuggestions) {
+                window.BARK.hideInlinePlannerSuggestions(type);
+            } else if (suggestBox) {
+                suggestBox.style.display = 'none';
+            }
         });
     }
 };

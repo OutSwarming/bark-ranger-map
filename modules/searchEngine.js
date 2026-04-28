@@ -241,7 +241,9 @@ function appendInlineGlobalSearchButton(type, query, suggestBox) {
     globalBtn.appendChild(iconSpan);
     globalBtn.appendChild(textWrap);
 
-    globalBtn.addEventListener('click', () => {
+    globalBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         if (!isPremium) {
             alert('Searching for custom towns and locations is a Premium feature. Please log in via the Profile tab.');
             return;
@@ -267,7 +269,9 @@ function renderInlinePlannerSuggestions(type, query, matches) {
         const div = document.createElement('div');
         div.className = 'suggestion-item';
         div.textContent = getSearchResultLabel(match);
-        div.addEventListener('click', () => {
+        div.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             const input = DOM.inlineInput(type);
             if (input) input.value = match.name;
             hideInlineSuggestions(type);
@@ -473,7 +477,9 @@ function initSearchEngine() {
                 const div = document.createElement('div');
                 div.className = 'suggestion-item';
                 div.textContent = match.name + (match.state ? `, ${match.state}` : '');
-                div.addEventListener('click', () => {
+                div.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     cancelSearchWork();
                     searchInput.value = match.name;
                     window.BARK.activeSearchQuery = match.name;
@@ -628,6 +634,7 @@ function initSearchEngine() {
             if (!suggestBox || suggestBox.style.display !== 'block') return;
             if (isInlinePlannerSearchTarget(e.target, type)) return;
             hideInlineSuggestions(type);
+            suppressInlinePlannerSuggestions(500);
         });
     }, true);
 
@@ -781,7 +788,9 @@ async function executeGeocode(query, targetType) {
                         div.style.cssText = 'padding: 12px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.2s;';
                         div.innerHTML = `<span style="font-weight: 700; color: #1e293b;">${f.properties.label}</span>`;
 
-                        div.onclick = () => {
+                        div.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
                             const coords = f.geometry.coordinates;
                             const node = { name: f.properties.label, lat: coords[1], lng: coords[0] };
                             if (!applyTripNodeSelection(targetType, node, { alertOnFailure: true })) {
@@ -813,7 +822,7 @@ async function executeGeocode(query, targetType) {
                             }
 
                             disambiguationContainer.style.display = 'none';
-                        };
+                        });
                         disambiguationContainer.appendChild(div);
                     });
 
