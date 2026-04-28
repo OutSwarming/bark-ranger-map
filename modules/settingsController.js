@@ -275,7 +275,6 @@ window.BARK.initSettings = function initSettings() {
         if (versionLabel) versionLabel.textContent = window.BARK.APP_VERSION;
 
         settingsGearBtn.addEventListener('click', () => {
-            if (typeof window.BARK.populateTrailWarpGrid === 'function') window.BARK.populateTrailWarpGrid();
             settingsOverlay.classList.add('active');
             lockSettingsScroll();
         });

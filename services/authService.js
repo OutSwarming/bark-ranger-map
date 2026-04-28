@@ -138,15 +138,10 @@ function handleAdminCheck(data, user) {
         if (adminContainer) {
             if (window.isAdmin) {
                 adminContainer.innerHTML = `
-                    <div style="display: flex; gap: 8px; flex-direction: column;">
-                        <button onclick="window.location.href='pages/admin.html'" class="glass-btn primary-btn" style="width: 100%; background: #10b981; color: white; border: none; padding: 14px; border-radius: 12px; font-weight: 800; display: flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"></path></svg>
-                            Enter Data Refinery
-                        </button>
-                        <button onclick="adminEditPoints()" class="glass-btn" style="width: 100%; background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; padding: 10px; border-radius: 10px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;">
-                            ⚙️ EDIT TEST POINTS (ADMIN)
-                        </button>
-                    </div>`;
+                    <button onclick="window.location.href='pages/admin.html'" class="glass-btn primary-btn" style="width: 100%; background: #10b981; color: white; border: none; padding: 14px; border-radius: 12px; font-weight: 800; display: flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"></path></svg>
+                        Enter Data Refinery
+                    </button>`;
             } else {
                 adminContainer.innerHTML = '';
             }
@@ -464,29 +459,6 @@ function initFirebase() {
             const offlineStatusContainer = document.getElementById('offline-status-container');
             const logoutBtn = document.getElementById('logout-btn');
             const profileName = document.getElementById('user-profile-name');
-
-            // --- God Mode: 3s Long-Press ---
-            let godModeTimer;
-            const triggerGodMode = () => {
-                const warpContainer = document.getElementById('dev-warp-container');
-                const settingsGear = document.getElementById('settings-gear-btn');
-                if (warpContainer && settingsGear) {
-                    warpContainer.style.display = 'block';
-                    settingsGear.click();
-                    console.log("🛠️ God Mode Unlocked: Trail Warp Grid Enabled");
-                }
-            };
-
-            ['touchstart', 'mousedown'].forEach(evt => {
-                if (profileName) profileName.addEventListener(evt, () => {
-                    godModeTimer = setTimeout(triggerGodMode, 3000);
-                });
-            });
-            ['touchend', 'mouseup', 'mouseleave', 'touchcancel'].forEach(evt => {
-                if (profileName) profileName.addEventListener(evt, () => {
-                    clearTimeout(godModeTimer);
-                });
-            });
 
             if (user) {
                 if (lastAuthenticatedUid !== user.uid) {

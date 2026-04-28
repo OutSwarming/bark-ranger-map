@@ -766,27 +766,3 @@ function initTrainingUI() {
 }
 
 window.BARK.initTrainingUI = initTrainingUI;
-
-// ====== TRAIL WARP GRID (Dev Tool) ======
-function populateTrailWarpGrid() {
-    const warpGrid = document.getElementById('dev-trail-warp-grid');
-    if (!warpGrid) return;
-    warpGrid.innerHTML = '';
-    window.BARK.TOP_10_TRAILS.forEach(trail => {
-        const btn = document.createElement('button');
-        btn.className = 'dev-warp-btn';
-        btn.textContent = trail.name;
-        btn.onclick = async () => {
-            const user = firebase.auth().currentUser;
-            if (!user) { alert("Please sign in first!"); return; }
-            console.log(`🛠️ Dev Test: Warping to ${trail.name}...`);
-            await assignTrailToUser(user.uid, trail);
-            if (typeof window.flyToActiveTrail === 'function') window.flyToActiveTrail();
-            const settingsOverlay = document.getElementById('settings-overlay');
-            if (settingsOverlay) settingsOverlay.classList.remove('active');
-        };
-        warpGrid.appendChild(btn);
-    });
-}
-
-window.BARK.populateTrailWarpGrid = populateTrailWarpGrid;
