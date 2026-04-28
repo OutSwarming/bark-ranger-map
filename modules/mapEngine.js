@@ -247,6 +247,10 @@ window.dismissBarkLoader = function () {
     }
 };
 
+// Safety fallback: if Firebase auth never resolves (SDK failure, timeout, no network),
+// the loader dismisses after 8s so the map is always usable regardless of auth state.
+setTimeout(() => window.dismissBarkLoader(), 8000);
+
 L.control.zoom({
     position: 'bottomleft'
 }).addTo(map);

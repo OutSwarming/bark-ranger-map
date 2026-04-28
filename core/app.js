@@ -5,53 +5,78 @@
 (function () {
     window.BARK = window.BARK || {};
 
+    const _bootErrors = [];
+
     function callInit(name, label) {
         if (typeof window.BARK[name] !== 'function') return;
-        window.BARK[name]();
-        if (label) console.log(`  OK ${label}`);
+        try {
+            window.BARK[name]();
+            if (label) console.log(`  ✓ ${label}`);
+        } catch (err) {
+            _bootErrors.push(name);
+            console.error(`[B.A.R.K. Boot] "${name}" failed — this feature will be unavailable.`, err);
+        }
     }
 
     document.addEventListener('DOMContentLoaded', () => {
         console.log('B.A.R.K. Boot Sequence: Initializing...');
 
-        // 1. Initialize Map (must exist before data/UI bind to it)
-        if (window.BARK.initMap) window.BARK.initMap();
+        // 1. Map must exist before data or UI bind to it
+        callInit('initMap', 'Map initialized');
 
-        // 2. Initialize Controllers/UI
-        if (window.BARK.initSettings) window.BARK.initSettings();
-        if (window.BARK.initUI) window.BARK.initUI();
+        // 2. Controllers and UI
+        callInit('initSettings', 'Settings initialized');
+        callInit('initUI', 'UI initialized');
         callInit('initSearchEngine', 'Search engine bound');
         callInit('initTrailToggles', 'Trail toggles bound');
-        callInit('initSpinWheel');
-        callInit('initManualMiles');
+        callInit('initSpinWheel', 'Spin wheel initialized');
+        callInit('initManualMiles', 'Manual miles initialized');
         callInit('initTrainingUI', 'Expedition engine initialized');
         callInit('initTripPlanner', 'Trip planner initialized');
-        callInit('initWatermarkTool');
-        callInit('initQRCode');
+        callInit('initWatermarkTool', 'Watermark tool initialized');
+        callInit('initQRCode', 'QR code initialized');
         callInit('initCSVExport', 'Share engine initialized');
 
-        // 3. Initialize Firebase & Auth (This triggers onSnapshot -> hydration -> syncState)
-        if (window.BARK.services && window.BARK.services.auth) {
-            window.BARK.services.auth.initFirebase();
+        // 3. Firebase — separate try/catch because a throw here means auth is gone,
+        //    not just one feature. Named clearly so the console error is unambiguous.
+        try {
+            if (window.BARK.services && window.BARK.services.auth) {
+                window.BARK.services.auth.initFirebase();
+                console.log('  ✓ Firebase initialized');
+            }
+        } catch (err) {
+            _bootErrors.push('initFirebase');
+            console.error('[B.A.R.K. Boot] "initFirebase" failed — auth and cloud sync unavailable.', err);
         }
 
-        // 4. Load CSV Data
-        if (window.BARK.loadData) {
-            window.BARK.loadData();
+        // 4. Data loading — grouped because loadData and safeDataPoll are coupled
+        try {
+            if (typeof window.BARK.loadData === 'function') window.BARK.loadData();
+            if (typeof window.BARK.safeDataPoll === 'function') window.BARK.safeDataPoll();
+        } catch (err) {
+            _bootErrors.push('loadData');
+            console.error('[B.A.R.K. Boot] "loadData" failed — map may be empty.', err);
         }
 
-        if (typeof window.BARK.safeDataPoll === 'function') {
-            window.BARK.safeDataPoll();
-        }
-
+        // 5. Deferred non-critical initializations
         if (typeof window.BARK.safePoll === 'function') {
-            setTimeout(() => window.BARK.safePoll(), 2000);
+            setTimeout(() => {
+                try { window.BARK.safePoll(); }
+                catch (err) { console.error('[B.A.R.K. Boot] "safePoll" failed.', err); }
+            }, 2000);
         }
 
         if (typeof window.BARK.updateTripUI === 'function') {
-            setTimeout(() => window.BARK.updateTripUI(), 500);
+            setTimeout(() => {
+                try { window.BARK.updateTripUI(); }
+                catch (err) { console.error('[B.A.R.K. Boot] "updateTripUI" failed.', err); }
+            }, 500);
         }
 
-        console.log('B.A.R.K. Boot Sequence: Complete!');
+        if (_bootErrors.length === 0) {
+            console.log('✅ B.A.R.K. Boot Sequence: Complete');
+        } else {
+            console.warn(`⚠️ B.A.R.K. Boot Sequence: Complete with ${_bootErrors.length} error(s): [${_bootErrors.join(', ')}]`);
+        }
     });
 })();
