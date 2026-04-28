@@ -120,6 +120,45 @@ function shouldCullPlainMarkers(zoom) {
     return Boolean(window.viewportCulling);
 }
 
+function getAutoFramePaddingPoint(padding) {
+    const x = Array.isArray(padding) ? Number(padding[0]) || 0 : 0;
+    const y = Array.isArray(padding) ? Number(padding[1]) || 0 : 0;
+    return L.point(x * 2, y * 2);
+}
+
+function boundsFitAtZoom(map, bounds, zoom, padding) {
+    if (!map || !bounds || !bounds.isValid()) return false;
+    if (typeof map.project !== 'function' || typeof map.getSize !== 'function') return true;
+
+    const availableSize = map.getSize().subtract(getAutoFramePaddingPoint(padding));
+    if (availableSize.x <= 0 || availableSize.y <= 0) return false;
+
+    const northWest = map.project(bounds.getNorthWest(), zoom);
+    const southEast = map.project(bounds.getSouthEast(), zoom);
+    const boundsSize = L.point(
+        Math.abs(southEast.x - northWest.x),
+        Math.abs(southEast.y - northWest.y)
+    );
+
+    return boundsSize.x <= availableSize.x + 1 && boundsSize.y <= availableSize.y + 1;
+}
+
+function canAutoFrameBounds(map, bounds, padding) {
+    if (!map || !bounds || !bounds.isValid()) return false;
+
+    const policy = window.BARK.getMarkerLayerPolicy
+        ? window.BARK.getMarkerLayerPolicy(map.getZoom())
+        : { limitZoomOut: Boolean(window.limitZoomOut), minZoom: null };
+
+    if (!policy.limitZoomOut) return true;
+
+    const minZoom = policy.minZoom === null || policy.minZoom === undefined
+        ? (typeof map.getMinZoom === 'function' ? map.getMinZoom() : 0)
+        : policy.minZoom;
+
+    return boundsFitAtZoom(map, bounds, minZoom, padding);
+}
+
 function getMarkerVisibilityStateKey() {
     const map = window.map;
     const searchCache = window.BARK._searchResultCache || {};
@@ -325,9 +364,15 @@ function updateMarkers() {
     if (window._lastFilterState !== currentFilterState) {
         window._lastFilterState = currentFilterState;
 
-        if (!window.stopAutoMovements && searchCacheComplete && (activeSwagFilters.size > 0 || hasLongSearchQuery) && visibleBounds.isValid()) {
+        const autoFramePadding = [50, 50];
+        if (
+            !window.stopAutoMovements &&
+            searchCacheComplete &&
+            (activeSwagFilters.size > 0 || hasLongSearchQuery) &&
+            canAutoFrameBounds(map, visibleBounds, autoFramePadding)
+        ) {
             map.flyToBounds(visibleBounds, {
-                padding: [50, 50],
+                padding: autoFramePadding,
                 maxZoom: 12,
                 duration: window.lowGfxEnabled ? 0 : 0.8,
                 animate: !window.lowGfxEnabled
