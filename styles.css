@@ -959,11 +959,6 @@ textarea,
         pointer-events: none;
     }
 
-    /* Reclaim nav-bar space in the active view when keyboard is open */
-    body.keyboard-open .ui-view.active {
-        padding-bottom: 16px;
-    }
-
     .nav-item {
         height: 100%;
         padding-bottom: env(safe-area-inset-bottom, 10px);

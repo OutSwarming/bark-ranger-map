@@ -12,6 +12,7 @@ const SEARCH_SUGGESTION_LIMIT = 8;
 const SEARCH_SCORE_THRESHOLD = 2;
 const SEARCH_GLOBAL_MIN_LENGTH = 3;
 const INLINE_PLANNER_SEARCH_TYPES = ['start', 'end'];
+let suppressInlinePlannerSuggestionsUntil = 0;
 
 // ====== TEXT NORMALIZATION ======
 function normalizeText(text) {
@@ -183,6 +184,11 @@ function hideAllInlineSuggestions() {
     INLINE_PLANNER_SEARCH_TYPES.forEach(hideInlineSuggestions);
 }
 
+function suppressInlinePlannerSuggestions(durationMs = 500) {
+    suppressInlinePlannerSuggestionsUntil = Date.now() + durationMs;
+    hideAllInlineSuggestions();
+}
+
 function isInlinePlannerSearchTarget(target, type) {
     const DOM = window.BARK.DOM;
     const input = DOM && DOM.inlineInput ? DOM.inlineInput(type) : null;
@@ -298,6 +304,11 @@ function runInlinePlannerSearch(type, options = {}) {
         return;
     }
 
+    if (!options.executeGlobal && Date.now() < suppressInlinePlannerSuggestionsUntil) {
+        hideInlineSuggestions(type);
+        return;
+    }
+
     const lowerQuery = query.toLowerCase();
     if (lowerQuery === 'my location' || lowerQuery === 'current location') {
         executeGeocode(query, type);
@@ -341,6 +352,7 @@ window.BARK.getLocalParkMatches = getLocalParkMatches;
 window.BARK.runInlinePlannerSearch = runInlinePlannerSearch;
 window.BARK.hideInlinePlannerSuggestions = hideInlineSuggestions;
 window.BARK.hideAllInlinePlannerSuggestions = hideAllInlineSuggestions;
+window.BARK.suppressInlinePlannerSuggestions = suppressInlinePlannerSuggestions;
 
 // ====== SEARCH UI BINDING ======
 function initSearchEngine() {

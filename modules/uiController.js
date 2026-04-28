@@ -12,6 +12,40 @@ document.addEventListener('contextmenu', function (e) {
     }
 });
 
+function isTextEntryElement(el) {
+    if (!el) return false;
+    if (el.tagName === 'TEXTAREA') return true;
+    if (el.tagName !== 'INPUT') return false;
+
+    const type = (el.getAttribute('type') || 'text').toLowerCase();
+    return ['email', 'number', 'password', 'search', 'tel', 'text', 'url'].includes(type);
+}
+
+function isAppTabActive() {
+    return Boolean(document.querySelector('.ui-view.active'));
+}
+
+function closeMapOnlySurfaces() {
+    const panel = document.getElementById('slide-panel');
+    if (panel) panel.classList.remove('open');
+}
+
+function dismissKeyboardTransientUi() {
+    const activeElement = document.activeElement;
+
+    if (typeof window.BARK.suppressInlinePlannerSuggestions === 'function') {
+        window.BARK.suppressInlinePlannerSuggestions(700);
+    } else if (typeof window.BARK.hideAllInlinePlannerSuggestions === 'function') {
+        window.BARK.hideAllInlinePlannerSuggestions();
+    }
+
+    if (isTextEntryElement(activeElement) && typeof activeElement.blur === 'function') {
+        activeElement.blur();
+    }
+
+    if (isAppTabActive()) closeMapOnlySurfaces();
+}
+
 // ====== iOS KEYBOARD LAYOUT FIX ======
 if (window.visualViewport) {
     let initialHeight = window.visualViewport.height;
@@ -21,26 +55,13 @@ if (window.visualViewport) {
         const wasKeyboardOpen = document.body.classList.contains('keyboard-open');
 
         if (!isKeyboardOpen && wasKeyboardOpen) {
-            const activeElement = document.activeElement;
-            if (
-                activeElement &&
-                activeElement.id &&
-                /^inline-(start|end)-input$/.test(activeElement.id) &&
-                typeof activeElement.blur === 'function'
-            ) {
-                activeElement.blur();
-            }
-
-            if (typeof window.BARK.hideAllInlinePlannerSuggestions === 'function') {
-                window.BARK.hideAllInlinePlannerSuggestions();
-            }
+            dismissKeyboardTransientUi();
         }
 
         document.body.classList.toggle('keyboard-open', isKeyboardOpen);
 
         if (isKeyboardOpen && window.innerWidth < 768) {
-            const panel = document.getElementById('slide-panel');
-            if (panel) panel.classList.remove('open');
+            closeMapOnlySurfaces();
         }
     });
 
@@ -56,6 +77,11 @@ const navItems = document.querySelectorAll('.nav-item');
 const uiViews = document.querySelectorAll('.ui-view');
 const filterPanel = document.getElementById('filter-panel');
 const leafletControls = document.querySelectorAll('.leaflet-control-container');
+
+document.addEventListener('focusin', (e) => {
+    if (!isTextEntryElement(e.target) || !isAppTabActive()) return;
+    closeMapOnlySurfaces();
+});
 
 function initUIEventListeners() {
     const bindClick = (id, handler) => {
