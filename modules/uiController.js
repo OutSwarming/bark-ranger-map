@@ -38,6 +38,62 @@ const uiViews = document.querySelectorAll('.ui-view');
 const filterPanel = document.getElementById('filter-panel');
 const leafletControls = document.querySelectorAll('.leaflet-control-container');
 
+function initUIEventListeners() {
+    const bindClick = (id, handler) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', handler);
+    };
+
+    // ====== STATIC INLINE HANDLER REPLACEMENTS ======
+    bindClick('auto-sort-day-btn', () => {
+        if (typeof window.autoSortDay === 'function') window.autoSortDay();
+    });
+    bindClick('planner-load-btn', () => {
+        if (typeof window.togglePlannerRoutes === 'function') window.togglePlannerRoutes();
+    });
+    bindClick('planner-routes-close-btn', () => {
+        if (typeof window.togglePlannerRoutes === 'function') window.togglePlannerRoutes();
+    });
+    bindClick('share-single-expedition-btn', () => {
+        if (typeof window.shareSingleExpedition === 'function') window.shareSingleExpedition();
+    });
+    bindClick('claim-reward-btn', () => {
+        if (typeof window.claimRewardAndReset === 'function') window.claimRewardAndReset();
+    });
+    bindClick('fly-active-trail-btn', () => {
+        if (typeof window.flyToActiveTrail === 'function') window.flyToActiveTrail();
+    });
+    bindClick('trail-brief-btn', () => {
+        const modal = document.getElementById('trail-education-modal');
+        if (modal) modal.style.display = 'flex';
+    });
+    bindClick('training-action-btn', () => {
+        if (typeof window.handleTrainingClick === 'function') window.handleTrainingClick();
+    });
+    bindClick('cancel-training-btn', () => {
+        if (typeof window.cancelTrainingWalk === 'function') window.cancelTrainingWalk();
+    });
+    bindClick('share-all-expeditions-btn', () => {
+        if (typeof window.shareAllExpeditions === 'function') window.shareAllExpeditions();
+    });
+    bindClick('share-vault-btn', () => {
+        if (typeof window.shareVaultCard === 'function') window.shareVaultCard();
+    });
+    bindClick('optimizer-modal-close-btn', () => {
+        const modal = document.getElementById('optimizer-modal');
+        if (modal) modal.style.display = 'none';
+    });
+    bindClick('execute-smart-optimization-btn', () => {
+        if (typeof window.executeSmartOptimization === 'function') window.executeSmartOptimization();
+    });
+    bindClick('trail-education-close-btn', () => {
+        const modal = document.getElementById('trail-education-modal');
+        if (modal) modal.style.display = 'none';
+    });
+}
+
+initUIEventListeners();
+
 // Stop Leaflet from stealing touches on the UI panels
 if (slidePanel) {
     L.DomEvent.disableClickPropagation(slidePanel);

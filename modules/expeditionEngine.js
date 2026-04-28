@@ -674,11 +674,11 @@ function initTrainingUI() {
     const cancelBtn = document.getElementById('cancel-training-btn');
     const descEl = document.getElementById('training-desc');
     if (!WalkTracker.watchId) {
-        if (btn) { btn.textContent = 'Start Walk'; btn.className = 'glass-btn training-btn'; btn.onclick = window.handleTrainingClick; }
+        if (btn) { btn.textContent = 'Start Walk'; btn.className = 'glass-btn training-btn'; }
         if (cancelBtn) cancelBtn.style.display = 'none';
         if (descEl) descEl.innerHTML = 'Start walking away from home. Log your turnaround point to calculate total distance and earn <strong style="color: #f59e0b;">+0.5 PTS</strong>.';
     } else {
-        if (btn) { btn.textContent = 'Tracking Active 🟢'; btn.className = 'glass-btn training-btn active'; btn.onclick = () => WalkTracker.stopAndSave(); }
+        if (btn) { btn.textContent = 'Tracking Active 🟢'; btn.className = 'glass-btn training-btn active'; }
         if (cancelBtn) cancelBtn.style.display = 'block';
         if (descEl) descEl.innerHTML = `Distance: <strong style="color: #10b981;">${WalkTracker.totalMiles.toFixed(2)} mi</strong>`;
     }
