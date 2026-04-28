@@ -264,7 +264,7 @@ window.editBookend = function (type) {
     <div style="background: ${bg}; border: 2px solid ${color}; border-radius: 12px; padding: 12px; margin-top: ${type === 'end' ? '15px' : '0'}; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
         <div style="font-size: 11px; font-weight: 900; color: ${color}; margin-bottom: 8px; text-transform: uppercase;">📍 Set Trip ${type}</div>
         <div style="display: flex; gap: 5px;">
-            <input type="text" id="inline-${type}-input" value="${currentName}" placeholder="Search town or 'My location'" style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1); font-size: 13px; outline: none; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+            <input type="text" id="inline-${type}-input" value="${currentName}" placeholder="Search park, town, or 'My location'" style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1); font-size: 13px; outline: none; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
             <button onclick="processInlineSearch('${type}')" class="glass-btn primary-btn" style="padding: 10px 15px; border-radius: 8px; font-size: 12px; font-weight: 800;">🔍</button>
             <button onclick="updateTripUI()" class="glass-btn" style="padding: 10px; border-radius: 8px; font-size: 12px; font-weight: 800; color: #666;">✕</button>
         </div>
@@ -272,8 +272,31 @@ window.editBookend = function (type) {
         ${currentName ? `<div style="text-align:right; margin-top: 8px;"><button onclick="window.trip${type === 'start' ? 'Start' : 'End'}Node=null; updateTripUI()" style="background: transparent; color: #dc2626; border: none; font-size: 11px; font-weight: 800; cursor: pointer; text-decoration: underline;">Remove ${type.toUpperCase()}</button></div>` : ''}
     </div>`;
 
-    setTimeout(() => { const input = window.BARK.DOM.inlineInput(type); if (input) { input.focus(); input.select(); } }, 50);
-    window.BARK.DOM.inlineInput(type).addEventListener('keypress', function (e) { if (e.key === 'Enter') window.processInlineSearch(type); });
+    const inlineInput = window.BARK.DOM.inlineInput(type);
+    if (inlineInput) {
+        let inlineSearchTimer = null;
+
+        setTimeout(() => {
+            inlineInput.focus();
+            inlineInput.select();
+        }, 50);
+
+        inlineInput.addEventListener('input', () => {
+            clearTimeout(inlineSearchTimer);
+            inlineSearchTimer = setTimeout(() => {
+                if (window.BARK.runInlinePlannerSearch) {
+                    window.BARK.runInlinePlannerSearch(type, { executeGlobal: false });
+                }
+            }, 250);
+        });
+
+        inlineInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                window.processInlineSearch(type);
+            }
+        });
+    }
 };
 
 function updateTripUI() {

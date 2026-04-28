@@ -79,6 +79,188 @@ function scoreSearchItem(item, queryNorm) {
     return score;
 }
 
+function isPremiumGlobalSearchUnlocked() {
+    return Boolean(
+        typeof firebase !== 'undefined' &&
+        firebase.auth &&
+        firebase.auth().currentUser
+    );
+}
+
+function getLocalParkMatches(query, limit = SEARCH_SUGGESTION_LIMIT) {
+    const queryNorm = normalizeText(query);
+    const allPoints = Array.isArray(window.BARK.allPoints) ? window.BARK.allPoints : [];
+
+    if (!queryNorm) return [];
+
+    return allPoints
+        .map((item) => ({ item, score: scoreSearchItem(item, queryNorm) }))
+        .filter(({ score }) => score <= SEARCH_SCORE_THRESHOLD)
+        .sort((a, b) => a.score - b.score || a.item.name.localeCompare(b.item.name))
+        .slice(0, limit)
+        .map(({ item }) => item);
+}
+
+function getSearchResultLabel(item) {
+    return item.name + (item.state ? `, ${item.state}` : '');
+}
+
+function makeTripNodeFromPark(item) {
+    return {
+        id: item.id,
+        name: item.name,
+        lat: item.lat,
+        lng: item.lng,
+        state: item.state,
+        category: item.category,
+        swagType: item.swagType
+    };
+}
+
+function applyPlannerSearchSelection(type, node) {
+    if (type === 'start') window.tripStartNode = node;
+    else if (type === 'end') window.tripEndNode = node;
+    else if (typeof window.addStopToTrip === 'function') window.addStopToTrip(node);
+
+    if (typeof window.BARK.updateTripUI === 'function') window.BARK.updateTripUI();
+}
+
+function hideInlineSuggestions(type) {
+    const DOM = window.BARK.DOM;
+    const suggestBox = DOM && DOM.inlineSuggest ? DOM.inlineSuggest(type) : null;
+    if (suggestBox) suggestBox.style.display = 'none';
+}
+
+function appendInlineStatus(suggestBox, text, cssText) {
+    if (!suggestBox) return;
+    const statusDiv = document.createElement('div');
+    statusDiv.className = 'suggestion-item';
+    if (cssText) statusDiv.style.cssText = cssText;
+    statusDiv.textContent = text;
+    suggestBox.appendChild(statusDiv);
+}
+
+function appendInlineGlobalSearchButton(type, query, suggestBox) {
+    if (!suggestBox || query.trim().length < SEARCH_GLOBAL_MIN_LENGTH) return;
+
+    const isPremium = isPremiumGlobalSearchUnlocked();
+    const globalBtn = document.createElement('div');
+    globalBtn.className = 'suggestion-item';
+    globalBtn.style.cssText = 'background: #f0fdf4; color: #15803d; font-weight: 700; border-top: 1px solid #bbf7d0; display: flex; align-items: center; gap: 8px; cursor: pointer; margin-top: 4px;';
+
+    const iconSpan = document.createElement('span');
+    iconSpan.textContent = isPremium ? '🌍' : '🔒';
+
+    const textWrap = document.createElement('div');
+    const label = document.createElement('div');
+    const hint = document.createElement('span');
+    hint.style.cssText = 'font-size:10px; font-weight:normal;';
+
+    if (isPremium) {
+        label.textContent = `Search towns & cities for "${query}"`;
+        hint.style.color = '#166534';
+        hint.textContent = 'Query global database';
+    } else {
+        globalBtn.style.opacity = '0.7';
+        label.style.color = '#64748b';
+        label.textContent = `Search global towns for "${query}"`;
+        hint.textContent = 'Sign in to unlock global routing';
+    }
+
+    textWrap.appendChild(label);
+    textWrap.appendChild(hint);
+    globalBtn.appendChild(iconSpan);
+    globalBtn.appendChild(textWrap);
+
+    globalBtn.addEventListener('click', () => {
+        if (!isPremium) {
+            alert('Searching for custom towns and locations is a Premium feature. Please log in via the Profile tab.');
+            return;
+        }
+
+        const input = window.BARK.DOM.inlineInput(type);
+        if (input) input.value = `Searching for "${query}"...`;
+        suggestBox.style.display = 'none';
+        executeGeocode(query, type);
+    });
+
+    suggestBox.appendChild(globalBtn);
+}
+
+function renderInlinePlannerSuggestions(type, query, matches) {
+    const DOM = window.BARK.DOM;
+    const suggestBox = DOM && DOM.inlineSuggest ? DOM.inlineSuggest(type) : null;
+    if (!suggestBox) return;
+
+    suggestBox.innerHTML = '';
+
+    matches.forEach((match) => {
+        const div = document.createElement('div');
+        div.className = 'suggestion-item';
+        div.textContent = getSearchResultLabel(match);
+        div.addEventListener('click', () => {
+            const input = DOM.inlineInput(type);
+            if (input) input.value = match.name;
+            hideInlineSuggestions(type);
+            applyPlannerSearchSelection(type, makeTripNodeFromPark(match));
+        });
+        suggestBox.appendChild(div);
+    });
+
+    if (matches.length === 0 && query.trim().length >= SEARCH_GLOBAL_MIN_LENGTH) {
+        appendInlineStatus(
+            suggestBox,
+            `No local B.A.R.K. matches for "${query}".`,
+            'background: #f8fafc; color: #475569; font-weight: 700; border-top: 1px solid #e2e8f0;'
+        );
+    }
+
+    appendInlineGlobalSearchButton(type, query, suggestBox);
+
+    suggestBox.style.display = suggestBox.innerHTML !== '' ? 'block' : 'none';
+}
+
+function runInlinePlannerSearch(type, options = {}) {
+    const DOM = window.BARK.DOM;
+    const input = DOM && DOM.inlineInput ? DOM.inlineInput(type) : null;
+    const query = input ? input.value.trim() : '';
+
+    if (!query) {
+        hideInlineSuggestions(type);
+        return;
+    }
+
+    const lowerQuery = query.toLowerCase();
+    if (lowerQuery === 'my location' || lowerQuery === 'current location') {
+        executeGeocode(query, type);
+        return;
+    }
+
+    const matches = getLocalParkMatches(query);
+    renderInlinePlannerSuggestions(type, query, matches);
+
+    if (!options.executeGlobal || matches.length > 0 || query.length < SEARCH_GLOBAL_MIN_LENGTH) return;
+
+    if (!isPremiumGlobalSearchUnlocked()) {
+        alert('Searching for custom towns and locations is a Premium feature. Please log in via the Profile tab.');
+        return;
+    }
+
+    if (input) input.value = `Searching for "${query}"...`;
+    hideInlineSuggestions(type);
+    executeGeocode(query, type);
+}
+
+function shouldMoveMapForSearchResult(targetType) {
+    return targetType === 'stop' &&
+        typeof map !== 'undefined' &&
+        !window.stopAutoMovements &&
+        (typeof window.BARK.isMapViewActive !== 'function' || window.BARK.isMapViewActive());
+}
+
+window.BARK.getLocalParkMatches = getLocalParkMatches;
+window.BARK.runInlinePlannerSearch = runInlinePlannerSearch;
+
 // ====== SEARCH UI BINDING ======
 function initSearchEngine() {
     const DOM = window.BARK.DOM;
@@ -234,7 +416,7 @@ function initSearchEngine() {
                     'background: #f8fafc; color: #475569; font-weight: 700; border-top: 1px solid #e2e8f0;'
                 );
             } else {
-                const isPremium = (typeof firebase !== 'undefined' && firebase.auth().currentUser !== null);
+                const isPremium = isPremiumGlobalSearchUnlocked();
 
                 if (topMatches.length === 0 && isPremium) {
                     appendSearchStatus(
@@ -458,14 +640,21 @@ async function executeGeocode(query, targetType) {
 
                 const mainSearch = DOM.parkSearch();
                 const clearBtn = DOM.clearSearchBtn();
+                const inlineInput = targetType !== 'stop' ? DOM.inlineInput(targetType) : null;
+                const inlineSuggest = targetType !== 'stop' ? DOM.inlineSuggest(targetType) : null;
 
-                if (mainSearch) mainSearch.value = '';
-                if (typeof window.BARK.activeSearchQuery !== 'undefined') window.BARK.activeSearchQuery = '';
-                if (clearBtn) clearBtn.style.display = 'none';
+                if (targetType === 'stop') {
+                    if (mainSearch) mainSearch.value = '';
+                    if (typeof window.BARK.activeSearchQuery !== 'undefined') window.BARK.activeSearchQuery = '';
+                    if (clearBtn) clearBtn.style.display = 'none';
+                } else {
+                    if (inlineInput) inlineInput.value = node.name;
+                    if (inlineSuggest) inlineSuggest.style.display = 'none';
+                }
 
                 window.syncState();
 
-                if (typeof map !== 'undefined' && !window.stopAutoMovements) {
+                if (shouldMoveMapForSearchResult(targetType)) {
                     map.setView([node.lat, node.lng], 10, {
                         animate: !window.instantNav,
                         duration: window.instantNav ? 0 : 0.4
@@ -496,14 +685,19 @@ async function executeGeocode(query, targetType) {
 
                             const mainSearch = DOM.parkSearch();
                             const clearBtn = DOM.clearSearchBtn();
+                            const inlineInput = targetType !== 'stop' ? DOM.inlineInput(targetType) : null;
 
-                            if (mainSearch) mainSearch.value = '';
-                            if (typeof window.BARK.activeSearchQuery !== 'undefined') window.BARK.activeSearchQuery = '';
-                            if (clearBtn) clearBtn.style.display = 'none';
+                            if (targetType === 'stop') {
+                                if (mainSearch) mainSearch.value = '';
+                                if (typeof window.BARK.activeSearchQuery !== 'undefined') window.BARK.activeSearchQuery = '';
+                                if (clearBtn) clearBtn.style.display = 'none';
+                            } else if (inlineInput) {
+                                inlineInput.value = node.name;
+                            }
 
                             window.syncState();
 
-                            if (typeof map !== 'undefined' && !window.stopAutoMovements) {
+                            if (shouldMoveMapForSearchResult(targetType)) {
                                 map.setView([node.lat, node.lng], 10, {
                                     animate: !window.lowGfxEnabled,
                                     duration: window.lowGfxEnabled ? 0 : 1.5
@@ -522,6 +716,7 @@ async function executeGeocode(query, targetType) {
         } else {
             if (disambiguationContainer) {
                 disambiguationContainer.innerHTML = `<p style="padding: 10px; font-size: 12px; color: #dc2626; text-align: center; font-weight: bold;">Location not found.</p>`;
+                disambiguationContainer.style.display = 'block';
             }
         }
     } catch (err) {
@@ -533,14 +728,5 @@ async function executeGeocode(query, targetType) {
 window.BARK.executeGeocode = executeGeocode;
 // Also expose on window for inline HTML handlers
 window.processInlineSearch = function (type) {
-    const DOM = window.BARK.DOM;
-    const input = DOM.inlineInput(type);
-    if (input && input.value.trim() !== '') {
-        const suggestBox = DOM.inlineSuggest(type);
-        if (suggestBox) {
-            suggestBox.style.display = 'block';
-            suggestBox.innerHTML = '<p style="padding: 10px; font-size: 12px; color: #666; text-align: center;">Searching...</p>';
-        }
-        executeGeocode(input.value.trim(), type);
-    }
+    runInlinePlannerSearch(type, { executeGlobal: true });
 };
