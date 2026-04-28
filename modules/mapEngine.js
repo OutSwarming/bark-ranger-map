@@ -79,16 +79,20 @@ const mapOptions = window.ultraLowEnabled ? {
 window.map = L.map('map', mapOptions);
 const defaultMinZoom = window.map.options.minZoom ?? 0;
 
-window.BARK.applyMapPerformancePolicy = function applyMapPerformancePolicy() {
-    if (!window.map) return;
+function getActiveMinZoom() {
     const policy = window.BARK.getMarkerLayerPolicy
         ? window.BARK.getMarkerLayerPolicy(window.map.getZoom())
         : { minZoom: null };
-    const nextMinZoom = policy.minZoom === null ? defaultMinZoom : policy.minZoom;
+    return policy.minZoom === null ? defaultMinZoom : policy.minZoom;
+}
+
+window.BARK.applyMapPerformancePolicy = function applyMapPerformancePolicy() {
+    if (!window.map) return;
+    const nextMinZoom = getActiveMinZoom();
 
     window.map.setMinZoom(nextMinZoom);
     if (window.map.getZoom() < nextMinZoom) {
-        window.map.setZoom(nextMinZoom, { animate: false });
+        window.map.setView(window.map.getCenter(), nextMinZoom, { animate: false });
     }
 };
 window.BARK.applyMapPerformancePolicy();
@@ -119,6 +123,15 @@ map.on('dblclick', (e) => {
     if (window.disableDoubleTap) return;
     map.setZoomAround(e.containerPoint, map.getZoom() + 1);
 });
+
+map.getContainer().addEventListener('wheel', (event) => {
+    if (event.deltaY <= 0) return;
+    const minZoom = getActiveMinZoom();
+    if (map.getZoom() > minZoom + 0.001) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+}, { passive: false, capture: true });
 
 // 🚀 MAP POSITION SAVER
 map.on('moveend', () => {
@@ -165,9 +178,15 @@ let trackpadZoomTimeout = null;
 let zoomSyncTimeout = null;
 let lastZoomLayerType = getEffectiveMarkerLayerTypeForZoom(map.getZoom());
 let zoomLayerChangePending = false;
+let zoomFloorGuardCenter = null;
+let zoomFloorGuardZoom = null;
 
 map.on('zoomstart', () => {
     window.BARK._isZooming = true;
+    const minZoom = getActiveMinZoom();
+    zoomFloorGuardZoom = map.getZoom();
+    zoomFloorGuardCenter = zoomFloorGuardZoom <= minZoom + 0.001 ? map.getCenter() : null;
+
     if (window.BARK.getMarkerLayerPolicy && window.BARK.getMarkerLayerPolicy(map.getZoom()).useReducedVisualsDuringMotion) {
         document.body.classList.add('map-is-moving');
     }
@@ -177,6 +196,16 @@ map.on('zoomstart', () => {
 });
 
 map.on('zoomend', () => {
+    const minZoom = getActiveMinZoom();
+    if (zoomFloorGuardCenter && zoomFloorGuardZoom <= minZoom + 0.001 && map.getZoom() <= minZoom + 0.001) {
+        const currentCenter = map.getCenter();
+        if (currentCenter.distanceTo(zoomFloorGuardCenter) > 1) {
+            map.setView(zoomFloorGuardCenter, minZoom, { animate: false });
+        }
+    }
+    zoomFloorGuardCenter = null;
+    zoomFloorGuardZoom = null;
+
     const nextLayerType = getEffectiveMarkerLayerTypeForZoom(map.getZoom());
     const layerTypeChanged = nextLayerType !== lastZoomLayerType;
     lastZoomLayerType = nextLayerType;
@@ -435,7 +464,7 @@ if ('ontouchstart' in window) {
         e.preventDefault();
         const currentY = e.touches[0].clientY;
         const deltaY = currentY - zoomStartY;
-        const targetZoom = Math.min(19, Math.max(2, initialZoom + deltaY / 150));
+        const targetZoom = Math.min(19, Math.max(getActiveMinZoom(), initialZoom + deltaY / 150));
 
         if (!zoomRAF) {
             if (window.stopResizing) {
