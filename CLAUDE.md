@@ -21,7 +21,7 @@ PWA for the US B.A.R.K. Rangers program. Dog owners visit national/state parks a
 - Firebase `onSnapshot` on `users/{uid}` is the primary data hydration path for logged-in users.
 - `window.BARK.DOM` in `config/domRefs.js` is the centralized DOM lookup registry (functions, not values).
 - CSV rollback guard in `dataService.js:processParsedResults` refuses updates that drop existing canonical park IDs — keep this.
-- `window.BARK.incrementRequestCount()` has a 600-request session kill switch — currently fires too fast (see fix #5).
+- `window.BARK.incrementRequestCount()` has a 2,000-request session kill switch. CSV polling is intentionally slow; keep background request loops conservative.
 - `gamificationLogic.js` exposes `class GamificationEngine` — pure logic, no DOM.
 - `services/checkinService.js` owns GPS check-in validation — clean, well-structured.
 - `modules/markerLayerPolicy.js` is the single source of truth for which marker layer mode is active.
@@ -39,7 +39,7 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 
 - [x] **#4 — `expeditionEngine.js` calls `L.featureGroup()` at module scope** (`modules/expeditionEngine.js`) ✅
 
-- [ ] **#5 — Request kill switch fires after ~75 minutes** (`modules/barkState.js`, `modules/dataService.js`): 600 req cap + 10s CSV poll (6/min) + 30s version poll (2/min) = kill switch at 75 min. Fix: raise cap to 2000 AND slow CSV poll to 5 minutes (fetch immediately on load + on tab re-focus, then every 5 min).
+- [x] **#5 — Request kill switch fires after ~75 minutes** (`modules/barkState.js`, `modules/dataService.js`) ✅
 
 - [ ] **#6 — `evaluateAchievements()` mutates live visit records** (`modules/profileEngine.js:152-155`): `visit.state = mapPoint.state` mutates objects inside `userVisitedPlaces` Map in place. Creates unpredictable side-effects across the app. Fix: work on a shallow copy — `const visit = { ...rawVisit }`.
 
@@ -47,7 +47,7 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 
 - [ ] **#8 — `evaluateAchievements()` fires on every `syncState()` heartbeat** (`modules/renderEngine.js:175`): Achievement eval (Firestore batch read + conditional write) is triggered inside the RAF loop on every state change. The boolean lock prevents concurrency but not constant re-queuing. Fix: debounce with a 3-second trailing debounce, not a boolean lock.
 
-- [ ] **#9 — CSV polling at 10s will get throttled at scale** (`modules/dataService.js:getPollInterval`): Change base interval from 10s to 300s (5 min). Add a `document.addEventListener('visibilitychange')` trigger that fires an immediate poll when tab becomes visible again. Remove the redundant `safeDataPoll()` call in `app.js` (loadData already triggers the first poll).
+- [x] **#9 — CSV polling at 10s will get throttled at scale** (`modules/dataService.js:getPollInterval`) ✅ Absorbed into Fix #5. `loadData()` owns the immediate fetch; `safeDataPoll()` now starts the 5-minute loop, so the `app.js` call is intentional rather than redundant.
 
 - [ ] **#10 — `getMarkerVisibilityStateKey()` sorts visited IDs on every RAF** (`modules/renderEngine.js:117`): `Array.from(userVisitedPlaces.keys()).sort().join(',')` runs on every heartbeat. Cache this string as `window.BARK._visitedIdsCacheKey`, invalidate it only inside `handleVisitedPlacesSync()` in `authService.js` and inside the `markAsVisited` flow in `checkinService.js`.
 
@@ -68,7 +68,7 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 - [ ] **#18 — User-visible degraded state when `initMap` fails**: When the map fails (Leaflet CDN down, DOM node missing, etc.), the user sees nothing — no error, no message, just a broken blank screen. Add a visible in-page message ("Map unavailable — try refreshing") that appears if `initMap` is not in `_bootErrors` within N seconds, or if `window.map` is still undefined after boot. This is distinct from Fix #2 (loader stuck) — the loader dismisses, but the user still has no signal that something is wrong.
 
 ## Current Work
-Fix #4 complete. Start with Fix #5 next session.
+Fix #5 complete. Start with Fix #6 next session.
 
 ---
 
@@ -229,6 +229,48 @@ A user opening the app on bad campground Wi-Fi where Leaflet fails to load shoul
 **How much better:**
 - Before: Leaflet missing = expedition module parse crash before boot error handling can see it.
 - After: Leaflet missing = expedition module loads, boot continues, trail overlays initialize lazily when possible, and map-dependent trail actions are guarded.
+
+### Fix #5 — Background Request Cadence & Session Kill Switch
+**Files:** `modules/barkState.js`, `modules/dataService.js`
+**Date:** 2026-04-28
+
+**What was wrong:**
+The session kill switch capped all counted requests at 600, while CSV polling ran every 10 seconds and the version check ran every 30 seconds. Even before normal user actions, the app could consume roughly 8 counted background requests per minute and hit the safety shutdown around 75 minutes. That is bad for long park-planning sessions, bad for trust, and noisy at scale.
+
+**The fix:**
+- Raised `SESSION_MAX_REQUESTS` from 600 to 2,000.
+- Mirrored the live request count into `window._SESSION_REQUEST_COUNT` for easier console debugging.
+- Changed CSV polling from every 10 seconds to every 5 minutes.
+- Kept `loadData()` as the immediate fetch path on boot.
+- Changed `safeDataPoll()` into the long-running scheduler instead of another immediate fetch.
+- Added a `visibilitychange` refresh when the tab becomes visible again, throttled to avoid repeated tab-switch spam.
+- Made CSV poll errors back off to 10 minutes after repeated failures.
+- Made `pollForUpdates()` return its fetch promise so the scheduler can count failures accurately.
+
+**Why this matters:**
+Fresh CSV data does not need a 10-second heartbeat. For this app, the right long-term posture is cache-first, immediate fetch on open, then conservative polling with a quick refresh when the user returns. That keeps the map fresh enough for real use while dramatically reducing background request pressure.
+
+**Pros of this approach:**
+- Background CSV traffic drops from about 360 requests/hour to about 12 requests/hour per active tab.
+- The 2,000-request cap is still a real runaway guard, but normal sessions should not trip it quickly.
+- `loadData()` and `safeDataPoll()` now have clearer responsibilities: immediate load vs. scheduled loop.
+- Refocus refresh keeps the app feeling current without constant polling while the user is away.
+- The live request counter is visible as `window._SESSION_REQUEST_COUNT`, which helps remote debugging.
+- `bindDataPollVisibilityRefresh()` uses a static property flag (`bound`) — the `visibilitychange` listener cannot be double-bound even if `safeDataPoll()` is called more than once.
+- The `visibilitychange` handler gates on `dataPollStopped` — after the session kill switch fires, tab-focus events no longer trigger wasteful re-poll attempts.
+
+**Cons / tradeoffs:**
+- CSV changes may take up to 5 minutes to appear if the user stays continuously active on the tab.
+- Version checks still run every 30 seconds, so this fix reduces the biggest background load but does not fully redesign all polling.
+- Refocus refresh is throttled to one request per minute; very rapid tab switching will not fetch every time.
+- `loadData()` calls `runDataPollCycle()` fire-and-forget without `await` (the function is not async). `runDataPollCycle()` has its own try-catch covering all expected errors, but a truly unexpected rejection inside `pollForUpdates()` would be unhandled and invisible to the boot error reporting in `app.js`.
+
+**User-visible difference:**
+A user planning a long multi-day route can leave the app open for hours without the CSV poll chewing through the session safety limit. If they switch away and come back later, the app checks for fresh park data right away instead of waiting for the next 5-minute tick.
+
+**How much better:**
+- Before: 10-second CSV polling + 600 cap = safety shutdown risk after roughly 75 minutes.
+- After: 5-minute CSV polling + 2,000 cap = far lower background traffic, better long-session stability, and fewer false kill-switch trips.
 
 ---
 

@@ -262,32 +262,39 @@ function quickHash(str) {
 let lastDataHash = null;
 let pollInFlight = false;
 let seenHashes = new Map();
+const DATA_POLL_INTERVAL_MS = 5 * 60 * 1000;
+const DATA_POLL_RETRY_INTERVAL_MS = 10 * 60 * 1000;
+const DATA_REFOCUS_MIN_INTERVAL_MS = 60 * 1000;
+let dataPollTimer = null;
+let dataPollLoopStarted = false;
+let dataPollStopped = false;
+let lastDataPollStartedAt = 0;
 
 function pollForUpdates() {
-    if (!navigator.onLine || pollInFlight) return Promise.resolve();
+    if (!navigator.onLine || pollInFlight) return Promise.resolve(false);
 
     try { window.BARK.incrementRequestCount(); }
     catch (e) { return Promise.reject(e); }
 
     pollInFlight = true;
+    lastDataPollStartedAt = Date.now();
 
     const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRMM2ZRU5lmT-ncrsil4W3qhrbo8NBxnQ-xC877TNkhLYOpTlnCocYA9gNg-dPRyaQr_8e0CWZ0WB2F/pub?output=csv';
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-    fetch(csvUrl + '&t=' + Date.now() + '&r=' + Math.random(), {
+    return fetch(csvUrl + '&t=' + Date.now() + '&r=' + Math.random(), {
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' },
         signal: controller.signal
     })
         .then(res => {
-            clearTimeout(timeoutId);
             if (!res.ok) throw new Error('Network response was not ok');
             return res.text().then(text => ({ newCsv: text, url: res.url }));
         })
         .then(({ newCsv, url }) => {
-            if (!newCsv || newCsv.trim().length < 10) return;
+            if (!newCsv || newCsv.trim().length < 10) return false;
             const newHash = quickHash(newCsv);
 
             if (!seenHashes.has(newHash)) {
@@ -301,49 +308,84 @@ function pollForUpdates() {
                 const newHashTime = seenHashes.get(newHash);
                 const currentHashTime = lastDataHash && seenHashes.has(lastDataHash) ? seenHashes.get(lastDataHash) : 0;
 
-                if (lastDataHash !== null && newHashTime < currentHashTime) return;
+                if (lastDataHash !== null && newHashTime < currentHashTime) return false;
 
                 parseCSVString(newCsv, {
                     cacheTime: newHashTime,
                     onAccepted: () => { lastDataHash = newHash; }
                 });
             }
+            return true;
         })
-        .catch(err => {
-            if (err.name === 'AbortError') {
-                console.warn('Poll request timed out after 6s. Retry next cycle.');
-            } else {
-                console.error('Poll Error:', err);
-            }
-        })
-        .finally(() => { pollInFlight = false; });
+        .finally(() => {
+            clearTimeout(timeoutId);
+            pollInFlight = false;
+        });
 }
 
 let dataPollErrorCount = 0;
 
 function getPollInterval() {
-    if (document.hidden) return 60000;
-    return dataPollErrorCount > 5 ? 60000 : 10000;
+    return dataPollErrorCount > 5 ? DATA_POLL_RETRY_INTERVAL_MS : DATA_POLL_INTERVAL_MS;
 }
 
-async function safeDataPoll() {
+async function runDataPollCycle() {
     if (window.ultraLowEnabled) {
         console.log("Ultra Low Mode: Background polling disabled.");
-        return;
+        return false;
     }
 
     try {
         await pollForUpdates();
         dataPollErrorCount = 0;
+        return true;
     } catch (err) {
         if (err.message && err.message.includes("Safety Shutdown")) {
             console.error("KILL SWITCH: Terminating Data Poll.");
-            return;
+            dataPollStopped = true;
+            clearTimeout(dataPollTimer);
+            dataPollTimer = null;
+            return false;
         }
         dataPollErrorCount++;
-        console.error("Data poll failed, backing off...");
+        if (err.name === 'AbortError') {
+            console.warn('Data poll timed out after 6s; backing off...');
+        } else {
+            console.error("Data poll failed, backing off...", err);
+        }
+        return false;
     }
-    setTimeout(safeDataPoll, getPollInterval());
+}
+
+function scheduleNextDataPoll(delay = getPollInterval()) {
+    if (window.ultraLowEnabled || dataPollStopped) return;
+    clearTimeout(dataPollTimer);
+    dataPollTimer = setTimeout(runScheduledDataPoll, delay);
+}
+
+async function runScheduledDataPoll() {
+    if (dataPollTimer) clearTimeout(dataPollTimer);
+    dataPollTimer = null;
+    await runDataPollCycle();
+    scheduleNextDataPoll();
+}
+
+function bindDataPollVisibilityRefresh() {
+    if (bindDataPollVisibilityRefresh.bound) return;
+    bindDataPollVisibilityRefresh.bound = true;
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden || dataPollStopped || window.ultraLowEnabled) return;
+        if (Date.now() - lastDataPollStartedAt < DATA_REFOCUS_MIN_INTERVAL_MS) return;
+        runScheduledDataPoll();
+    });
+}
+
+function safeDataPoll() {
+    if (dataPollLoopStarted) return;
+    dataPollLoopStarted = true;
+    bindDataPollVisibilityRefresh();
+    scheduleNextDataPoll();
 }
 
 function loadData() {
@@ -369,7 +411,7 @@ function loadData() {
         return;
     }
 
-    pollForUpdates();
+    runDataPollCycle();
 }
 
 window.BARK.loadData = loadData;

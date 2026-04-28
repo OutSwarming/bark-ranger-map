@@ -78,14 +78,15 @@ window.parkLookup = new Map();
 
 // ====== SAFETY & COST CONTROLS ======
 let globalRequestCounter = 0;
-window.SESSION_MAX_REQUESTS = 600;
+window.SESSION_MAX_REQUESTS = 2000;
 window._SESSION_REQUEST_COUNT = 0;
 window._cloudSettingsLoaded = false;
 
 function incrementRequestCount() {
     globalRequestCounter++;
+    window._SESSION_REQUEST_COUNT = globalRequestCounter;
     if (globalRequestCounter > window.SESSION_MAX_REQUESTS) {
-        console.error("CRITICAL: Session request limit reached. Background sync disabled.");
+        console.error(`CRITICAL: Session request limit reached (${globalRequestCounter}/${window.SESSION_MAX_REQUESTS}). Background sync disabled.`);
         throw new Error("Safety Shutdown: API limit reached for this session.");
     }
 }
