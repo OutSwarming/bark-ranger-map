@@ -17,6 +17,37 @@ window.BARK.initSettings = function initSettings() {
     const rememberMapToggle = document.getElementById('remember-map-toggle');
     const motionToggle = document.getElementById('reduce-motion-toggle');
     const ultraLowToggle = document.getElementById('ultra-low-toggle');
+    const settingsStore = window.BARK.settings;
+
+    const syncClusterToggles = () => {
+        if (standardToggle) standardToggle.checked = window.standardClusteringEnabled;
+        if (premiumToggle) premiumToggle.checked = window.premiumClusteringEnabled;
+    };
+    let clusterRefreshScheduled = false;
+    const scheduleClusterRefresh = () => {
+        if (clusterRefreshScheduled) return;
+        clusterRefreshScheduled = true;
+        requestAnimationFrame(() => {
+            clusterRefreshScheduled = false;
+            if (typeof window.BARK.rebuildMarkerLayer === 'function') window.BARK.rebuildMarkerLayer();
+            if (typeof window.syncState === 'function') window.syncState();
+        });
+    };
+
+    if (settingsStore && typeof settingsStore.onChange === 'function') {
+        settingsStore.onChange('clusteringEnabled', () => {
+            syncClusterToggles();
+            scheduleClusterRefresh();
+        });
+        settingsStore.onChange('standardClusteringEnabled', () => {
+            syncClusterToggles();
+            scheduleClusterRefresh();
+        });
+        settingsStore.onChange('premiumClusteringEnabled', () => {
+            syncClusterToggles();
+            scheduleClusterRefresh();
+        });
+    }
 
     if (settingsGearBtn && settingsOverlay) {
         // Sync visuals to state
@@ -57,34 +88,26 @@ window.BARK.initSettings = function initSettings() {
         if (standardToggle) {
             standardToggle.checked = window.standardClusteringEnabled;
             standardToggle.addEventListener('change', (e) => {
-                window.standardClusteringEnabled = e.target.checked;
-                localStorage.setItem('barkStandardClustering', window.standardClusteringEnabled);
-                if (window.standardClusteringEnabled && premiumToggle) {
-                    window.premiumClusteringEnabled = false;
-                    premiumToggle.checked = false;
-                    localStorage.setItem('barkPremiumClustering', false);
+                if (settingsStore && typeof settingsStore.set === 'function') {
+                    settingsStore.set('standardClusteringEnabled', e.target.checked);
+                } else {
+                    window.standardClusteringEnabled = e.target.checked;
+                    if (typeof window.BARK.rebuildMarkerLayer === 'function') window.BARK.rebuildMarkerLayer();
+                    if (typeof window.syncState === 'function') window.syncState();
                 }
-                window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
-                // 🐛 BUBBLE MODE FIX: Rebuild marker layer before sync
-                window.BARK.rebuildMarkerLayer();
-                window.syncState();
             });
         }
 
         if (premiumToggle) {
             premiumToggle.checked = window.premiumClusteringEnabled;
             premiumToggle.addEventListener('change', (e) => {
-                window.premiumClusteringEnabled = e.target.checked;
-                localStorage.setItem('barkPremiumClustering', window.premiumClusteringEnabled);
-                if (window.premiumClusteringEnabled && standardToggle) {
-                    window.standardClusteringEnabled = false;
-                    standardToggle.checked = false;
-                    localStorage.setItem('barkStandardClustering', false);
+                if (settingsStore && typeof settingsStore.set === 'function') {
+                    settingsStore.set('premiumClusteringEnabled', e.target.checked);
+                } else {
+                    window.premiumClusteringEnabled = e.target.checked;
+                    if (typeof window.BARK.rebuildMarkerLayer === 'function') window.BARK.rebuildMarkerLayer();
+                    if (typeof window.syncState === 'function') window.syncState();
                 }
-                window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
-                // 🐛 BUBBLE MODE FIX: Rebuild marker layer before sync
-                window.BARK.rebuildMarkerLayer();
-                window.syncState();
             });
         }
 

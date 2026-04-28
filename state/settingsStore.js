@@ -1,6 +1,6 @@
 /**
  * settingsStore.js - Mirrored persistent settings store.
- * Loaded after legacy hydration so it can preserve current boot timing.
+ * Reads persistent settings directly so boot order cannot corrupt saved preferences.
  */
 (function () {
     window.BARK = window.BARK || {};
@@ -28,13 +28,49 @@
 
     const SETTING_KEYS = Object.keys(STORAGE_KEYS);
     const DERIVED_KEYS = new Set(['clusteringEnabled']);
+    const CLUSTER_SETTING_KEYS = new Set(['standardClusteringEnabled', 'premiumClusteringEnabled']);
+    const DEFAULT_VALUES = {
+        allowUncheck: false,
+        standardClusteringEnabled: true,
+        premiumClusteringEnabled: false,
+        simplifyTrails: false,
+        instantNav: false,
+        rememberMapPosition: false,
+        startNationalView: false,
+        stopAutoMovements: false,
+        reducePinMotion: false,
+        removeShadows: false,
+        stopResizing: false,
+        viewportCulling: false,
+        ultraLowEnabled: false,
+        lockMapPanning: false,
+        disable1fingerZoom: false,
+        disableDoubleTap: false,
+        disablePinchZoom: false
+    };
     const values = {};
     const listeners = new Map();
 
     function normalizeBoolean(value) {
         if (value === 'true') return true;
         if (value === 'false') return false;
+        if (value === undefined || value === null) return false;
         return Boolean(value);
+    }
+
+    function getDefaultValue(key) {
+        if (key === 'lowGfxEnabled') {
+            const deviceRAM = navigator.deviceMemory || 4;
+            return deviceRAM < 4;
+        }
+        return DEFAULT_VALUES[key] === true;
+    }
+
+    function readStoredSetting(key) {
+        const storageKey = STORAGE_KEYS[key];
+        const storedValue = localStorage.getItem(storageKey);
+        if (storedValue === null) return getDefaultValue(key);
+        return normalizeBoolean(storedValue);
     }
 
     function assertKnownKey(key) {
@@ -103,9 +139,15 @@
         const previousClusterState = get('clusteringEnabled');
         applyValue(key, value);
 
+        if (CLUSTER_SETTING_KEYS.has(key) && values[key]) {
+            const otherKey = key === 'standardClusteringEnabled' ? 'premiumClusteringEnabled' : 'standardClusteringEnabled';
+            applyValue(otherKey, false);
+        }
+
         if (key === 'ultraLowEnabled' && values.ultraLowEnabled) {
             applyValue('lowGfxEnabled', true);
             applyValue('standardClusteringEnabled', true);
+            applyValue('premiumClusteringEnabled', false);
             applyValue('instantNav', true);
             applyValue('simplifyTrails', true);
         }
@@ -131,14 +173,15 @@
         };
     }
 
-    function hydrateFromLegacyGlobals() {
+    function hydrateFromLocalStorage() {
         SETTING_KEYS.forEach((key) => {
-            values[key] = normalizeBoolean(window[key]);
+            values[key] = readStoredSetting(key);
         });
 
         if (values.ultraLowEnabled) {
             values.lowGfxEnabled = true;
             values.standardClusteringEnabled = true;
+            values.premiumClusteringEnabled = false;
             values.instantNav = true;
             values.simplifyTrails = true;
         }
@@ -170,7 +213,7 @@
         });
     }
 
-    hydrateFromLegacyGlobals();
+    hydrateFromLocalStorage();
     installLegacyWindowMirrors();
 
     window.BARK.settings = {

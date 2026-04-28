@@ -29,8 +29,10 @@ function handleCloudSettingsHydration(data, metadata = {}) {
             window.rememberMapPosition = applySetting('remember-map-toggle', s.rememberMapPosition || false);
             window.startNationalView = applySetting('barkNationalView', s.startNationalView || false);
             window.instantNav = applySetting('barkInstantNav', s.instantNav || false);
-            window.premiumClusteringEnabled = applySetting('barkPremiumClustering', s.premiumClustering || false);
-            window.standardClusteringEnabled = applySetting('barkStandardClustering', s.standardClustering !== false);
+            const cloudPremiumClustering = s.premiumClustering || false;
+            const cloudStandardClustering = s.standardClustering === undefined ? !cloudPremiumClustering : s.standardClustering !== false;
+            window.standardClusteringEnabled = applySetting('barkStandardClustering', cloudStandardClustering);
+            window.premiumClusteringEnabled = applySetting('barkPremiumClustering', cloudPremiumClustering);
             window.simplifyTrails = applySetting('barkSimplifyTrails', s.simplifyTrails || false);
             window.stopAutoMovements = applySetting('barkStopAutoMove', s.stopAutoMovements || false);
             window.lowGfxEnabled = applySetting('barkLowGfxEnabled', s.lowGfxEnabled || false);
