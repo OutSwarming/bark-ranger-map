@@ -490,6 +490,42 @@ window.BARK.updateStatsUI = updateStatsUI;
 window._lastLeaderboardDoc = null;
 let isFetchingMoreLeaderboard = false;
 
+function getSafeLeaderboardRank(rank) {
+    const parsed = Number(rank);
+    if (!Number.isFinite(parsed) || parsed < 1) return null;
+    return Math.trunc(parsed);
+}
+
+function formatLeaderboardRank(rank) {
+    const safeRank = getSafeLeaderboardRank(rank);
+    if (!safeRank) return '--';
+    return safeRank > 1000 ? safeRank.toLocaleString() : String(safeRank);
+}
+
+function parseLeaderboardRankCount(countData) {
+    const rawCount = countData &&
+        countData[0] &&
+        countData[0].result &&
+        countData[0].result.aggregateFields &&
+        countData[0].result.aggregateFields.rankCount &&
+        countData[0].result.aggregateFields.rankCount.integerValue;
+    const parsedCount = Number.parseInt(rawCount, 10);
+    if (!Number.isFinite(parsedCount) || parsedCount < 0) return null;
+    return parsedCount;
+}
+
+function buildPersonalLeaderboardFallback(user, userVisitedPlaces, localScore, exactRank = null) {
+    return {
+        uid: user.uid,
+        displayName: user.displayName || 'Bark Ranger',
+        totalPoints: localScore,
+        totalVisited: userVisitedPlaces.size,
+        hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified),
+        isPersonalFallback: true,
+        exactRank: getSafeLeaderboardRank(exactRank)
+    };
+}
+
 function renderLeaderboard(topUsers) {
     if (topUsers) cachedLeaderboardData = topUsers;
     const data = cachedLeaderboardData;
@@ -506,22 +542,24 @@ function renderLeaderboard(topUsers) {
 
     data.forEach((user, index) => {
         let rank = index + 1;
-        if (user.isPersonalFallback && user.exactRank) rank = user.exactRank;
+        if (user.isPersonalFallback) rank = getSafeLeaderboardRank(user.exactRank);
         if (user.uid === uid) { personalRank = rank; personalUserObj = user; }
     });
 
-    if (rankEl) rankEl.textContent = 'Rank: ' + (personalRank > 1000 ? personalRank.toLocaleString() : personalRank);
+    if (rankEl) rankEl.textContent = 'Rank: ' + formatLeaderboardRank(personalRank);
 
     const createRow = (user, rank, isPinnedSelf = false) => {
         const isMe = user.uid === uid;
         const li = document.createElement('li');
+        const safeRank = getSafeLeaderboardRank(rank);
+        const displayRank = formatLeaderboardRank(safeRank);
 
-        let bg = 'white', border = '1px solid rgba(0,0,0,0.05)', shadow = '0 2px 4px rgba(0,0,0,0.05)', textColor = '#444', rankIcon = `#${rank}`;
+        let bg = 'white', border = '1px solid rgba(0,0,0,0.05)', shadow = '0 2px 4px rgba(0,0,0,0.05)', textColor = '#444', rankIcon = `#${displayRank}`;
 
         if (isPinnedSelf) { bg = 'rgba(59, 130, 246, 0.08)'; border = '2px dashed #3b82f6'; shadow = '0 4px 10px rgba(59, 130, 246, 0.2)'; textColor = '#1e3a8a'; li.style.marginTop = '15px'; }
-        else if (rank === 1) { bg = 'linear-gradient(135deg, #fde68a, #f59e0b, #d97706)'; border = '2px solid #b45309'; shadow = '0 4px 12px rgba(217, 119, 6, 0.3)'; textColor = '#451a03'; rankIcon = '👑'; }
-        else if (rank === 2) { bg = 'linear-gradient(135deg, #f1f5f9, #94a3b8, #475569)'; border = '2px solid #334155'; shadow = '0 4px 10px rgba(71, 85, 105, 0.2)'; textColor = '#0f172a'; }
-        else if (rank === 3) { bg = 'linear-gradient(135deg, #ffedd5, #d97706, #92400e)'; border = '2px solid #78350f'; shadow = '0 4px 10px rgba(146, 64, 14, 0.2)'; textColor = '#431407'; }
+        else if (safeRank === 1) { bg = 'linear-gradient(135deg, #fde68a, #f59e0b, #d97706)'; border = '2px solid #b45309'; shadow = '0 4px 12px rgba(217, 119, 6, 0.3)'; textColor = '#451a03'; rankIcon = '👑'; }
+        else if (safeRank === 2) { bg = 'linear-gradient(135deg, #f1f5f9, #94a3b8, #475569)'; border = '2px solid #334155'; shadow = '0 4px 10px rgba(71, 85, 105, 0.2)'; textColor = '#0f172a'; }
+        else if (safeRank === 3) { bg = 'linear-gradient(135deg, #ffedd5, #d97706, #92400e)'; border = '2px solid #78350f'; shadow = '0 4px 10px rgba(146, 64, 14, 0.2)'; textColor = '#431407'; }
         else if (isMe) { bg = 'rgba(59, 130, 246, 0.08)'; border = '2px solid #3b82f6'; textColor = '#1e3a8a'; }
 
         li.style.cssText = `display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; margin-bottom: 10px; border-radius: 14px; background: ${bg}; border: ${border}; box-shadow: ${shadow}; transition: all 0.3s ease;`;
@@ -538,7 +576,7 @@ function renderLeaderboard(topUsers) {
         nameSpan.textContent = `${isPinnedSelf ? 'You' : user.displayName} ${user.hasVerified ? '🐾' : ''}`;
         nameInfo.appendChild(nameSpan);
 
-        if (isMe && rank === 1) {
+        if (isMe && safeRank === 1) {
             const alphaBadge = document.createElement('span');
             alphaBadge.textContent = '🐺 ALPHA DOG';
             alphaBadge.style.cssText = 'font-size: 9px; font-weight: 900; color: #fff; background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; margin-top: 2px; width: fit-content; letter-spacing: 0.5px;';
@@ -551,13 +589,13 @@ function renderLeaderboard(topUsers) {
         const rightSide = document.createElement('div');
         rightSide.style.cssText = 'display: flex; flex-direction: column; align-items: flex-end; gap: 4px;';
         const scorePill = document.createElement('span');
-        scorePill.style.cssText = `background: ${rank <= 3 ? 'rgba(255,255,255,0.3)' : 'rgba(76, 175, 80, 0.1)'}; color: ${rank <= 3 ? textColor : '#2E7D32'}; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 800;`;
+        scorePill.style.cssText = `background: ${safeRank && safeRank <= 3 ? 'rgba(255,255,255,0.3)' : 'rgba(76, 175, 80, 0.1)'}; color: ${safeRank && safeRank <= 3 ? textColor : '#2E7D32'}; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 800;`;
         const displayScore = user.totalPoints !== undefined ? user.totalPoints : (user.totalVisited || 0);
         scorePill.textContent = `${displayScore} PTS`;
         rightSide.appendChild(scorePill);
 
-        if (isMe && rank > 1 && data[rank - 2]) {
-            const competitorScore = data[rank - 2].totalPoints !== undefined ? data[rank - 2].totalPoints : (data[rank - 2].totalVisited || 0);
+        if (isMe && safeRank > 1 && data[safeRank - 2]) {
+            const competitorScore = data[safeRank - 2].totalPoints !== undefined ? data[safeRank - 2].totalPoints : (data[safeRank - 2].totalVisited || 0);
             const myScore = user.totalPoints !== undefined ? user.totalPoints : (user.totalVisited || 0);
             const pointsToOvertake = parseFloat((competitorScore - myScore + 0.1).toFixed(1));
             if (pointsToOvertake > 0) {
@@ -580,7 +618,7 @@ function renderLeaderboard(topUsers) {
     });
 
     if (personalUserObj && personalUserObj.isPersonalFallback) {
-        listEl.appendChild(createRow(personalUserObj, personalUserObj.exactRank, true));
+        listEl.appendChild(createRow(personalUserObj, getSafeLeaderboardRank(personalUserObj.exactRank), true));
     }
 
     if (data.length === 0) {
@@ -628,11 +666,11 @@ async function loadLeaderboard() {
                     body: JSON.stringify({ structuredAggregationQuery: { structuredQuery: { from: [{ collectionId: 'leaderboard' }], where: { fieldFilter: { field: { fieldPath: 'totalPoints' }, op: 'GREATER_THAN', value: Number.isInteger(localScore) ? { integerValue: localScore } : { doubleValue: localScore } } } }, aggregations: [{ alias: 'rankCount', count: {} }] } })
                 });
                 const countData = await response.json();
-                const countMatched = parseInt(countData[0].result.aggregateFields.rankCount.integerValue);
-                exactRank = countMatched + 1;
+                const countMatched = parseLeaderboardRankCount(countData);
+                if (countMatched !== null) exactRank = countMatched + 1;
             } catch (e) { console.warn('REST API aggregate rank lookup failed.', e); }
 
-            topUsers.push({ uid: user.uid, displayName: user.displayName || 'Bark Ranger', totalPoints: localScore, totalVisited: userVisitedPlaces.size, hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified), isPersonalFallback: true, exactRank: exactRank });
+            topUsers.push(buildPersonalLeaderboardFallback(user, userVisitedPlaces, localScore, exactRank));
         }
 
         cachedLeaderboardData = topUsers;
@@ -664,6 +702,7 @@ async function loadMoreLeaderboard() {
         if (user && !cachedLeaderboardData.find(u => u.uid === user.uid)) {
             const userVisitedPlaces = window.BARK.userVisitedPlaces;
             const localScore = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints).totalScore;
+            let exactRank = null;
 
             try {
                 const projectId = firebase.app().options.projectId;
@@ -675,9 +714,11 @@ async function loadMoreLeaderboard() {
                     body: JSON.stringify({ structuredAggregationQuery: { structuredQuery: { from: [{ collectionId: 'leaderboard' }], where: { fieldFilter: { field: { fieldPath: 'totalPoints' }, op: 'GREATER_THAN', value: Number.isInteger(localScore) ? { integerValue: localScore } : { doubleValue: localScore } } } }, aggregations: [{ alias: 'rankCount', count: {} }] } })
                 });
                 const countData = await response.json();
-                const countMatched = parseInt(countData[0].result.aggregateFields.rankCount.integerValue);
-                cachedLeaderboardData.push({ uid: user.uid, displayName: user.displayName || 'Bark Ranger', totalPoints: localScore, totalVisited: userVisitedPlaces.size, hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified), isPersonalFallback: true, exactRank: countMatched + 1 });
+                const countMatched = parseLeaderboardRankCount(countData);
+                if (countMatched !== null) exactRank = countMatched + 1;
             } catch (e) { console.warn('REST API aggregate rank lookup failed in loadMore', e); }
+
+            cachedLeaderboardData.push(buildPersonalLeaderboardFallback(user, userVisitedPlaces, localScore, exactRank));
         }
 
         renderLeaderboard(cachedLeaderboardData);

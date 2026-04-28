@@ -43,7 +43,7 @@ This is the working tracker for the 17 reported logic bugs. Keep this file curre
 | 7 | High | Fixed with shared pending visited-place reconciliation | Done | Fixed |
 | 8 | High | Fixed by reusing the Leaflet map readiness helper in search | Done | Fixed |
 | 9 | High | Fixed with defensive Firebase/auth/Firestore guards in leaderboard sync | Done | Fixed |
-| 10 | High | Partially confirmed; pinned row can show `#NaN`, personal label likely cannot | P2 | Partially confirmed |
+| 10 | High | Fixed with safe leaderboard rank parsing and rendering | Done | Fixed |
 | 11 | Medium | Mostly not confirmed; settings store mirrors change behavior | P3 | Partially confirmed |
 | 12 | Medium | Confirmed | P2 | Confirmed |
 | 13 | Medium | Not a current bug; design risk | P3 | Design risk |
@@ -579,17 +579,40 @@ Verification:
 
 ## Bug 10: Leaderboard Rank Can Become NaN
 
-Status: Partially confirmed
+Status: Fixed
 
 Files:
-- `modules/profileEngine.js:460`
-- `modules/profileEngine.js:462`
-- `modules/profileEngine.js:466`
-- `modules/profileEngine.js:536`
-- `modules/profileEngine.js:584`
-- `modules/profileEngine.js:631`
+- `modules/profileEngine.js:493`
+- `modules/profileEngine.js:499`
+- `modules/profileEngine.js:505`
+- `modules/profileEngine.js:529`
+- `modules/profileEngine.js:669`
+- `modules/profileEngine.js:717`
 
-Evidence:
+How a user can trigger it:
+- The user is signed in and opens the leaderboard.
+- The user is not in the first five leaderboard rows, so the app asks Firestore REST aggregation for their exact rank.
+- The REST request succeeds, but the response shape is malformed, empty, or missing `aggregateFields.rankCount.integerValue`.
+- Before the fix, `parseInt(undefined)` produced `NaN`, then `exactRank` could become `NaN`.
+- The same parsing path existed in initial leaderboard load and in "Show More".
+
+What the user saw before:
+- The personal rank label usually avoided literal `Rank: NaN` because `NaN` is falsy in the earlier label calculation.
+- The pinned personal row could still render `#NaN` because it passed `personalUserObj.exactRank` directly into `createRow(...)`.
+- In the "Show More" path, malformed rank parsing could prevent the fallback personal row from being added at all.
+
+Expected user result:
+- A malformed or unavailable exact-rank response should never leak `NaN` into the UI.
+- If exact rank is known, show the real rank.
+- If exact rank is unknown, show a safe placeholder such as `Rank: --` and `#--` in the pinned row.
+- Top-five rows should keep using their visible list rank.
+
+What the user sees now:
+- Exact rank displays normally when Firestore REST returns a valid count.
+- Malformed aggregation responses render `Rank: --` and `#--`.
+- The personal fallback row is still shown after initial load or "Show More", even if exact rank parsing fails.
+
+Original evidence:
 - `parseInt(undefined)` can produce `NaN` if the aggregation response has `rankCount` but no `integerValue`.
 - That can set `exactRank` to `NaN`.
 
@@ -597,13 +620,39 @@ Correction to report:
 - The personal rank label probably will not display `Rank: NaN` because `if (user.isPersonalFallback && user.exactRank)` treats `NaN` as falsy and falls back to the array index.
 - The pinned personal row can still be rendered with `createRow(personalUserObj, personalUserObj.exactRank, true)`, which can show `#NaN`.
 
-Likely fix:
-- Parse with `Number.parseInt(value, 10)` and require `Number.isFinite(countMatched)`.
-- Only assign/push `exactRank` when finite.
-- In render, derive a safe display rank once and use it consistently for both label and row.
+Fix options and tradeoffs:
+
+Option A: Guard only the REST parse
+- Approach: Parse with `Number.parseInt(value, 10)` and assign `exactRank` only if the result is finite.
+- Pros: Small patch; prevents `exactRank = NaN` at the source.
+- Cons: Rendering still accepts unsafe rank values from cached data or future callers; pinned rows can still display `#null` or odd values if data was already polluted.
+
+Option B: Safe parse plus safe render contract
+- Approach: Add helpers to normalize ranks, format ranks, parse REST counts, and build personal fallback rows.
+- Pros: Prevents NaN at input and output; fixes initial load and "Show More"; gives leaderboard rendering one clear rank contract; keeps the UI fallback consistent.
+- Cons: Slightly more code; still leaves the Firestore REST aggregation approach in place.
+
+Option C: Remove exact-rank REST lookup
+- Approach: Only show visible-list rank and stop trying to calculate exact rank for users outside the loaded page.
+- Pros: Simplest UI/data flow; no REST aggregation fragility.
+- Cons: Loses a useful user-facing feature; users outside the top page would no longer know their real rank.
+
+Chosen strategy:
+- Use Option B.
+- Keep exact rank when it is available, but treat malformed rank data as unknown instead of numeric.
+
+Fix applied:
+- Added `getSafeLeaderboardRank(rank)` in `modules/profileEngine.js`.
+- Added `formatLeaderboardRank(rank)` so unknown ranks display as `--`.
+- Added `parseLeaderboardRankCount(countData)` to validate REST aggregation responses.
+- Added `buildPersonalLeaderboardFallback(...)` so initial load and "Show More" build the same safe fallback row.
+- `renderLeaderboard()` now uses the same safe rank for the personal rank label, pinned row badge, top-three styling, and rivalry calculation.
+- Initial load and "Show More" now push the personal fallback row even when exact rank parsing fails.
 
 Verification:
 - Malformed aggregation responses produce `Rank: --` or fallback rank, never `NaN`/`#NaN`.
+- `node --check modules/profileEngine.js` passes.
+- Stubbed malformed aggregation smoke test confirms no `NaN` leaks into the leaderboard label or pinned row.
 
 ## Bug 11: Ultra Low Toggle Bypasses Settings Store
 
