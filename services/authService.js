@@ -377,6 +377,42 @@ function resetMapViewToGuestDefault() {
     mapRef.setView([39.8283, -98.5795], 4, { animate: false });
 }
 
+function restoreGuestMarkerLayer() {
+    const points = Array.isArray(window.BARK.allPoints) ? window.BARK.allPoints : [];
+    if (!points.length) return;
+
+    points.forEach(point => {
+        if (!point || !point.marker) return;
+        point.marker._barkIsVisible = true;
+        if (point.marker._icon) {
+            point.marker._icon.classList.remove('marker-filter-hidden');
+            point.marker._icon.classList.remove('visited-pin');
+        }
+    });
+
+    if (window.BARK.markerManager && typeof window.BARK.markerManager.sync === 'function') {
+        window.BARK.markerManager.sync(points);
+    }
+
+    if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
+        window.BARK.invalidateMarkerVisibility();
+    }
+
+    const mapViewActive = typeof window.BARK.isMapViewActive !== 'function' || window.BARK.isMapViewActive();
+    if (mapViewActive && !window.BARK._isZooming && typeof window.BARK.updateMarkers === 'function') {
+        window.BARK.updateMarkers();
+    } else if (typeof window.syncState === 'function') {
+        window.BARK._pendingMarkerSync = true;
+        window.syncState();
+    }
+}
+
+function scheduleGuestMarkerRestore() {
+    restoreGuestMarkerLayer();
+    requestAnimationFrame(restoreGuestMarkerLayer);
+    setTimeout(restoreGuestMarkerLayer, 250);
+}
+
 function resetLoggedOutRuntimeState() {
     window._cloudSettingsLoaded = false;
     window._leaderboardLoadedOnce = false;
@@ -399,8 +435,7 @@ function resetLoggedOutRuntimeState() {
     resetSavedRouteLists();
     resetMapViewToGuestDefault();
 
-    if (typeof window.BARK.invalidateMarkerVisibility === 'function') window.BARK.invalidateMarkerVisibility();
-    if (typeof window.syncState === 'function') window.syncState();
+    scheduleGuestMarkerRestore();
     if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
 }
 
