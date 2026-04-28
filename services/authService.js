@@ -294,6 +294,7 @@ function resetGuestSettingsToDefaults() {
 
     setGuestDefaultSetting('rememberMapPosition', false);
     setGuestDefaultSetting('startNationalView', true);
+    setGuestDefaultSetting('limitZoomOut', true);
 
     if (typeof window.BARK.syncSettingsControls === 'function') window.BARK.syncSettingsControls();
     if (typeof window.BARK.applyGlobalStyles === 'function') window.BARK.applyGlobalStyles();
@@ -304,6 +305,12 @@ function resetGuestSettingsToDefaults() {
         if (mapRef.dragging && typeof mapRef.dragging.enable === 'function') mapRef.dragging.enable();
         if (mapRef.touchZoom && typeof mapRef.touchZoom.enable === 'function') mapRef.touchZoom.enable();
     }
+}
+
+function applyGuestZoomLimitDefault() {
+    setGuestDefaultSetting('limitZoomOut', true);
+    if (typeof window.BARK.syncSettingsControls === 'function') window.BARK.syncSettingsControls();
+    if (typeof window.BARK.applyMapPerformancePolicy === 'function') window.BARK.applyMapPerformancePolicy();
 }
 
 function resetMapStyleToDefault() {
@@ -603,6 +610,7 @@ function initFirebase() {
                     if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
                         window.BARK.invalidateVisitedIdsCache();
                     }
+                    applyGuestZoomLimitDefault();
                     window.syncState();
                     if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
                 }
