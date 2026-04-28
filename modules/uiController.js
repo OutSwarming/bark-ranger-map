@@ -112,6 +112,25 @@ function initUIEventListeners() {
 
 initUIEventListeners();
 
+// ====== PLANNER SCROLL: DISMISS INLINE SUGGESTIONS ======
+// When the user scrolls the planner view without selecting a suggestion,
+// hide the dropdown. This prevents the dropdown from extending the scroll
+// height while the keyboard is open, which causes Safari's position:fixed
+// nav bar to glitch.
+const plannerViewEl = document.getElementById('planner-view');
+if (plannerViewEl) {
+    let dismissTimer = null;
+    plannerViewEl.addEventListener('scroll', () => {
+        clearTimeout(dismissTimer);
+        dismissTimer = setTimeout(() => {
+            ['start', 'end'].forEach(type => {
+                const suggestBox = document.getElementById(`inline-suggest-${type}`);
+                if (suggestBox) suggestBox.style.display = 'none';
+            });
+        }, 80);
+    }, { passive: true });
+}
+
 // Stop Leaflet from stealing touches on the UI panels
 if (slidePanel) {
     L.DomEvent.disableClickPropagation(slidePanel);

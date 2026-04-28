@@ -878,6 +878,8 @@ textarea,
     display: flex;
     justify-content: space-around;
     align-items: center;
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
 }
 
 .nav-item {
@@ -946,7 +948,7 @@ textarea,
     /* Hide nav and slide panel when iOS keyboard is open */
     body.keyboard-open .glass-nav,
     body.keyboard-open #slide-panel {
-        transform: translateY(110%) !important;
+        transform: translate3d(0, 110%, 0) !important;
         pointer-events: none;
     }
 
