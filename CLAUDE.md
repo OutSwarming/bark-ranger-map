@@ -65,10 +65,10 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 
 - [x] **#17 — iOS settings overlay scroll leak** (`modules/settingsController.js`) ✅
 
-- [ ] **#18 — User-visible degraded state when `initMap` fails**: When the map fails (Leaflet CDN down, DOM node missing, etc.), the user sees nothing — no error, no message, just a broken blank screen. Add a visible in-page message ("Map unavailable — try refreshing") that appears if `initMap` is not in `_bootErrors` within N seconds, or if `window.map` is still undefined after boot. This is distinct from Fix #2 (loader stuck) — the loader dismisses, but the user still has no signal that something is wrong.
+- [x] **#18 — User-visible degraded state when `initMap` fails** (`core/app.js`, `index.html`, `styles.css`) ✅
 
 ## Current Work
-Fix #17 complete. Start with Fix #18 next session.
+Fix #18 complete. Primary queue #1-#18 complete.
 
 ---
 
@@ -98,7 +98,7 @@ Fix #17 complete. Start with Fix #18 next session.
 
 **Cons / tradeoffs:**
 - We now treat `initMap` failure the same as `initWatermarkTool` failure — both are caught and execution continues. If the map fails, everything after it that depends on `window.map` will also fail, producing multiple errors rather than one clean fatal. The tradeoff is accepted: knowing all the failures is better than stopping at the first one.
-- Errors are console-only. There is no user-visible fallback state when a module fails. That is Fix #18's job.
+- At the time of Fix #1, errors were console-only. The map-specific user-visible fallback was later completed in Fix #18.
 
 **Code review correction applied (same session):**
 Original `callInit()` used synchronous `try/catch`. If an init returned a rejected Promise, it slipped through — `callInit()` reported success and execution continued with the failure uncaught. Fixed: `callInit()` is now `async` and uses `await window.BARK[name]()`. The `DOMContentLoaded` handler is also `async` with `await` on each `callInit()` call to preserve boot order.
@@ -174,7 +174,7 @@ A code review raised three points. All three were valid. Here's the verdict and 
 
 **Point 3 — App needs a user-visible degraded state when `initMap` fails**
 - Valid. After Fix #1 the console shows everything, but the user sees a blank screen with no indication of what's wrong.
-- Action: Added as **Fix #18** in the queue. Not implemented yet — it belongs in its own slot so it can be tested properly.
+- Action: Completed later as **Fix #18** with an in-page "Map unavailable" state and Refresh action.
 
 ### Fix #3 — Cloud Settings Bypass the Settings Store
 **File:** `services/authService.js` — `handleCloudSettingsHydration()`
@@ -245,7 +245,7 @@ This moves a CDN-dependent operation out of parse time and into controlled runti
 
 **Cons / tradeoffs:**
 - Trail overlay functions now have a small guard path that silently returns after a console warning when Leaflet is unavailable.
-- If the map itself fails, expedition trail overlays still cannot render. This fix prevents a boot-time crash; it does not create the user-facing map failure message. That remains Fix #18.
+- If the map itself fails, expedition trail overlays still cannot render. This fix prevents a boot-time crash; the user-facing map failure message is handled later by Fix #18.
 - `initTrailToggles()` still binds before `initTrainingUI()` in `core/app.js`; the click handlers are safe because they call `ensureTrailLayerGroups()`, but the actual layer creation still happens at `initTrainingUI()` during normal boot.
 - `turf.*` calls inside both render functions (`turf.length`, `turf.lineSliceAlong`, `turf.along`, `turf.pointOnFeature`) have no `typeof turf` guard. A failed turf CDN would not crash the parse (calls are inside try-catch), but it is the same category of CDN-dependency risk that was just fixed for Leaflet.
 - `flyToActiveTrail()` shows `"Trail map data is unavailable. Please refresh and try again."` when `ensureTrailLayerGroups()` returns false. The real cause is Leaflet missing, not trail data — the message is slightly misleading for that failure mode.
@@ -2041,6 +2041,289 @@ The Settings modal should feel steadier on iPhone and iPad. A concrete example: 
 | Reliability | 9 | Locks both body and the app's real active view scroll container, with exact restoration |
 | Mobile UX | 9 | Directly addresses iOS Safari scroll leak/rubber-band behavior for Settings |
 | Debuggability | 9 | Scroll lock state is captured in one object and restored from explicit snapshots |
+
+### Fix #18 — User-Visible Map Failure State
+**Files:** `core/app.js`, `index.html`, `styles.css`
+**Date:** 2026-04-28
+
+**What was wrong:**
+Fix #1 made boot errors visible in the console and allowed the rest of the app to continue initializing. Fix #2 made sure the loader eventually dismisses even if Firebase never resolves. But there was still a user-facing hole:
+
+If the map itself failed, the user could end up looking at an empty or broken map surface with no explanation.
+
+Examples:
+
+- Leaflet CDN blocked or unavailable.
+- Leaflet script fails to load before `initMap()`.
+- `#map` DOM node missing or malformed.
+- `L.map('map', ...)` throws.
+- `initMap()` returns without creating `window.map`.
+
+In those cases, a developer might see a console error, but a normal user sees a broken screen. That is not acceptable for a production launch. A graceful failure needs a visible in-page state with a recovery action.
+
+**The fix:**
+Added a real degraded-state UI and boot-level detection.
+
+**1. Added static fallback markup in `index.html`:**
+
+```html
+<div id="map-unavailable-message" class="map-unavailable-notice" role="alert" aria-live="assertive" hidden>
+    <div class="map-unavailable-card">
+        <div class="map-unavailable-kicker">Map Status</div>
+        <h2>Map unavailable</h2>
+        <p>Try refreshing. If this keeps happening, the map library may be blocked or the network may be offline.</p>
+        <p id="map-unavailable-detail" class="map-unavailable-detail">The app could not start the map.</p>
+        <button id="map-unavailable-refresh" class="map-unavailable-action" type="button">Refresh</button>
+    </div>
+</div>
+```
+
+This is intentionally static HTML rather than a dynamically-created string. If boot reaches `core/app.js`, the element is already present and only needs to be shown. That makes the fallback easier to test and less dependent on the same boot path that just failed.
+
+**2. Added CSS for the fallback panel in `styles.css`:**
+- Hidden by default via `[hidden]`.
+- Fixed over the map surface.
+- `z-index: 1800`, above map/filter UI but below `.ui-view` screens and the main nav.
+- Centered, readable card.
+- Refresh button styled as a clear recovery action.
+
+The z-index choice is intentional. The message should cover the broken map, but it should not permanently trap users away from other app screens if the bottom nav/profile UI remains usable.
+
+**3. Added boot-owned map availability checks in `core/app.js`:**
+- Exposes boot errors for debugging:
+
+```js
+window.BARK._bootErrors = _bootErrors;
+window.BARK.getBootErrors = function getBootErrors() {
+    return _bootErrors.slice();
+};
+```
+
+- Adds:
+  - `bindMapUnavailableActions()`
+  - `dismissLoaderForMapFailure()`
+  - `getMapUnavailableDetail(reason)`
+  - `showMapUnavailable(reason)`
+  - `hideMapUnavailable()`
+  - `checkMapAvailability(reason)`
+
+- Starts a 5-second map-ready timeout:
+
+```js
+const mapReadyTimeout = setTimeout(() => {
+    if (!window.map) checkMapAvailability('map-timeout');
+}, MAP_READY_TIMEOUT_MS);
+```
+
+- Checks immediately after `initMap` runs:
+
+```js
+await callInit('initMap', 'Map initialized');
+if (!window.map) {
+    if (!_bootErrors.includes('initMap') && !_bootErrors.includes('initMapNoMap')) {
+        _bootErrors.push('initMapNoMap');
+        console.error('[B.A.R.K. Boot] "initMap" completed but window.map is unavailable — map feature unavailable.');
+    }
+    checkMapAvailability('boot-complete');
+}
+```
+
+- Checks again after the boot sequence completes:
+
+```js
+clearTimeout(mapReadyTimeout);
+checkMapAvailability('boot-complete');
+```
+
+- Dismisses the loader when the map fallback appears, so the user can actually see the degraded state instead of waiting behind a spinner.
+
+**4. Bumped static asset query params in `index.html`:**
+- `styles.css?v=25` -> `styles.css?v=26`
+- `core/app.js?v=26` -> `core/app.js?v=27`
+
+This matters because the fallback depends on both the new CSS and the new boot script. A stale cached stylesheet or boot file would make the failure state less reliable after deploy.
+
+**Why this belongs in `core/app.js`:**
+The failure condition is a boot outcome, not normal map behavior. `mapEngine.js` owns creating the map. `core/app.js` owns deciding whether boot produced a usable map and whether the user needs a degraded-state message.
+
+Keeping the fallback decision in boot gives one clear place to answer:
+
+- Did `initMap` throw?
+- Did `initMap` silently fail to create `window.map`?
+- Did the app finish booting without a map?
+- Did the map fail to appear within the boot timeout?
+
+That is better than having `mapEngine.js`, `authService.js`, and UI controllers all guess at the same condition.
+
+**Why this matters:**
+A blank map is not just ugly. It is a trust problem. Users cannot know whether:
+
+- the app is still loading,
+- their phone is offline,
+- the site is broken,
+- they should wait,
+- they should refresh,
+- or the map feature is unavailable.
+
+The fallback turns a silent failure into a clear recovery moment. It also gives support/debugging a concrete state: if a user says they saw "Map unavailable", we know boot reached `core/app.js` but did not produce `window.map`.
+
+**Pros of this approach:**
+- Gives users a visible, understandable error state.
+- Provides a clear Refresh action.
+- Handles synchronous `initMap()` throws.
+- Handles rejected async `initMap()` failures through existing `callInit()`.
+- Handles the weird case where `initMap()` returns but `window.map` is still missing.
+- Handles delayed/hung map readiness through the 5-second timeout.
+- Dismisses the loader when map failure is known.
+- Keeps degraded-state ownership in the boot orchestrator.
+- Exposes boot errors through `window.BARK.getBootErrors()` for easier debugging.
+- Uses static markup, so testing and styling are stable.
+- Adds no runtime cost after boot beyond one cleared timeout.
+
+**Cons / tradeoffs:**
+- This does not detect every possible map problem. If Leaflet creates `window.map` successfully but map tiles fail later, the fallback will not show. That is a different "tile layer unavailable" degraded state.
+- The message is intentionally broad. It does not tell the user whether the exact cause was CDN failure, DOM failure, browser extension blocking, or offline network.
+- It adds a small amount of boot UI code to `core/app.js`.
+- It adds another public `window.BARK` debugging surface (`getBootErrors`, `checkMapAvailability`, `showMapUnavailable`).
+- The fallback relies on `core/app.js` running. If all JavaScript is blocked, no JavaScript-driven degraded state can appear.
+
+**Alternative solution A — Use `alert("Map unavailable")`:**
+
+**Pros:**
+- Very small code change.
+- Impossible for the user to miss.
+- No CSS or HTML needed.
+
+**Cons:**
+- Jarring and browser-native.
+- Blocks the main thread.
+- Looks unpolished.
+- Easy to trigger repeatedly if boot retries later.
+- Gives no styled recovery surface.
+
+**Verdict:**
+Rejected. Production degraded states should be in-page and controlled by the app.
+
+**Alternative solution B — Dynamically create the fallback entirely in `core/app.js`:**
+
+**Pros:**
+- No HTML edit.
+- The fallback exists only when needed.
+- Could keep all fallback text in one JS file.
+
+**Cons:**
+- More string-built DOM code.
+- Harder to style and test.
+- If the boot script has a partial failure, the fallback creation path is more fragile.
+- Separates the user-visible surface from normal markup review.
+
+**Verdict:**
+Rejected. Static markup with JS toggling is cleaner here.
+
+**Alternative solution C — Put the fallback inside `mapEngine.js`:**
+
+**Pros:**
+- Map-specific code stays with map-specific feature code.
+- `initMap()` could catch its own failures and show the message directly.
+
+**Cons:**
+- `initMap()` is exactly the thing that can fail early.
+- A failure before the fallback setup would still leave the user blind.
+- Boot already knows whether `initMap` failed and whether `window.map` exists after boot.
+- Map engine should create the map, not own global degraded-state policy.
+
+**Verdict:**
+Rejected. Boot is the right level for this specific failure.
+
+**Alternative solution D — CSS-only fallback behind the map:**
+
+**Pros:**
+- No boot code needed.
+- Could show text if map never paints.
+
+**Cons:**
+- Cannot know whether `window.map` exists.
+- Cannot distinguish slow loading from failure.
+- Cannot bind a refresh action cleanly.
+- Would risk showing behind/through a working map or never showing when needed.
+
+**Verdict:**
+Not reliable enough.
+
+**Alternative solution E — Bundle/vendor Leaflet locally as a true CDN fallback:**
+
+**Pros:**
+- Better long-term resilience to CDN outages.
+- Could prevent the failure instead of only explaining it.
+- Stronger offline/PWA story.
+
+**Cons:**
+- Larger deployment and cache strategy change.
+- Requires local asset management for Leaflet JS/CSS and markercluster.
+- Needs careful versioning and CSP/cache testing.
+- Does not solve DOM container failures.
+
+**Verdict:**
+Good future reliability work, but not a substitute for a user-visible degraded state.
+
+**Use cases and what the user sees:**
+
+**Use case 1 — Leaflet CDN is blocked:**
+Before this fix, `L` was undefined, `initMap()` threw, boot logged an error, and the user could see a blank map after the loader dismissed. After this fix, the user sees a centered "Map unavailable" message with a Refresh button.
+
+**Use case 2 — `#map` element is missing:**
+Before this fix, `L.map('map', ...)` could throw and the page gave no visible explanation. After this fix, boot catches the failure and shows the fallback.
+
+**Use case 3 — `initMap()` returns without creating `window.map`:**
+Before this fix, boot could say "Map initialized" even though no map existed. After this fix, boot records `initMapNoMap`, shows the fallback, and the boot summary reports an error.
+
+**Use case 4 — Map readiness hangs beyond 5 seconds:**
+Before this fix, the user could wait behind a blank/broken surface. After this fix, the 5-second timeout checks `window.map` and shows the fallback if the map still is not ready.
+
+**Use case 5 — Normal successful map boot:**
+The fallback remains hidden. `checkMapAvailability()` sees `window.map`, hides the fallback if it was ever shown, and boot proceeds normally.
+
+**Use case 6 — User taps Refresh:**
+The fallback button calls `window.location.reload()`, which retries loading the map libraries and boot sequence.
+
+**User-visible difference:**
+The user now gets a real message instead of silence. A concrete app instance: if a hotel Wi-Fi network blocks `unpkg.com`, Leaflet fails to load. Instead of staring at a blank map after the loader disappears, the user sees "Map unavailable" with a short explanation and a Refresh button.
+
+**How much better:**
+- Before: map boot failure = console error plus blank/broken UI.
+- After: map boot failure = console error, boot error summary, loader dismissal, visible degraded state, and refresh action.
+
+**Verification:**
+- `node --check core/app.js`
+- `node --check modules/mapEngine.js`
+- `node --check modules/settingsController.js`
+- VM boot smoke test with mocked DOM:
+  - `initMap()` throws:
+    - fallback becomes visible.
+    - reason is `initMap-error`.
+    - detail text describes startup failure.
+    - loader is dismissed.
+    - `getBootErrors()` includes `initMap`.
+    - Refresh button calls `window.location.reload()`.
+  - `initMap()` creates `window.map`:
+    - fallback remains hidden.
+    - body does not keep `map-unavailable`.
+  - `initMap()` returns without creating `window.map`:
+    - fallback becomes visible.
+    - reason is `boot-complete`.
+    - `getBootErrors()` includes `initMapNoMap`.
+- Did not run a physical blocked-CDN browser test.
+
+**Rating: 9 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 8 | Strong boot-level degraded state; true CDN fallback/vendor strategy is a separate future improvement |
+| Speed | 10 | One 5-second timeout and O(1) checks during boot only |
+| Code efficiency | 9 | Small static UI plus focused boot helpers; no global event loops |
+| Reliability | 9 | Catches throws, missing map instances, no-map completion, and timeout readiness failure |
+| User experience | 9 | Replaces a blank/broken map with a clear message and recovery action |
+| Debuggability | 10 | Boot errors are now inspectable and `initMapNoMap` distinguishes silent map creation failures |
 
 ---
 

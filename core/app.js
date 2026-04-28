@@ -6,6 +6,80 @@
     window.BARK = window.BARK || {};
 
     const _bootErrors = [];
+    const MAP_READY_TIMEOUT_MS = 5000;
+
+    window.BARK._bootErrors = _bootErrors;
+    window.BARK.getBootErrors = function getBootErrors() {
+        return _bootErrors.slice();
+    };
+
+    function bindMapUnavailableActions() {
+        const refreshButton = document.getElementById('map-unavailable-refresh');
+        if (!refreshButton || refreshButton.dataset.bound === 'true') return;
+
+        refreshButton.dataset.bound = 'true';
+        refreshButton.addEventListener('click', () => window.location.reload());
+    }
+
+    function dismissLoaderForMapFailure() {
+        if (typeof window.dismissBarkLoader === 'function') {
+            window.dismissBarkLoader();
+            return;
+        }
+
+        const loader = document.getElementById('bark-loader');
+        if (loader) loader.remove();
+    }
+
+    function getMapUnavailableDetail(reason) {
+        if (reason === 'initMap-error') {
+            return 'The map failed during startup. This is usually a blocked map library, CDN issue, or browser/network problem.';
+        }
+        if (reason === 'map-timeout') {
+            return 'The map did not become ready in time. Refreshing usually retries the missing map resources.';
+        }
+        if (reason === 'boot-complete') {
+            return 'The app finished booting, but no map instance was created.';
+        }
+        return 'The app could not start the map.';
+    }
+
+    function showMapUnavailable(reason) {
+        const message = document.getElementById('map-unavailable-message');
+        if (!message) return;
+
+        bindMapUnavailableActions();
+
+        const detail = document.getElementById('map-unavailable-detail');
+        if (detail) detail.textContent = getMapUnavailableDetail(reason);
+
+        message.hidden = false;
+        message.dataset.reason = reason || 'unknown';
+        document.body.classList.add('map-unavailable');
+        dismissLoaderForMapFailure();
+    }
+
+    function hideMapUnavailable() {
+        const message = document.getElementById('map-unavailable-message');
+        if (message) {
+            message.hidden = true;
+            delete message.dataset.reason;
+        }
+        document.body.classList.remove('map-unavailable');
+    }
+
+    function checkMapAvailability(reason) {
+        if (window.map) {
+            hideMapUnavailable();
+            return true;
+        }
+
+        showMapUnavailable(_bootErrors.includes('initMap') ? 'initMap-error' : reason);
+        return false;
+    }
+
+    window.BARK.showMapUnavailable = showMapUnavailable;
+    window.BARK.checkMapAvailability = checkMapAvailability;
 
     // async so it catches both synchronous throws and rejected Promises from init functions.
     async function callInit(name, label) {
@@ -22,9 +96,21 @@
     // async so we can await each callInit and preserve boot order even for future async inits.
     document.addEventListener('DOMContentLoaded', async () => {
         console.log('B.A.R.K. Boot Sequence: Initializing...');
+        bindMapUnavailableActions();
+
+        const mapReadyTimeout = setTimeout(() => {
+            if (!window.map) checkMapAvailability('map-timeout');
+        }, MAP_READY_TIMEOUT_MS);
 
         // 1. Map must exist before data or UI bind to it
         await callInit('initMap', 'Map initialized');
+        if (!window.map) {
+            if (!_bootErrors.includes('initMap') && !_bootErrors.includes('initMapNoMap')) {
+                _bootErrors.push('initMapNoMap');
+                console.error('[B.A.R.K. Boot] "initMap" completed but window.map is unavailable — map feature unavailable.');
+            }
+            checkMapAvailability('boot-complete');
+        }
 
         // 2. Controllers and UI
         await callInit('initSettings', 'Settings initialized');
@@ -73,6 +159,9 @@
                 catch (err) { console.error('[B.A.R.K. Boot] "updateTripUI" failed.', err); }
             }, 500);
         }
+
+        clearTimeout(mapReadyTimeout);
+        checkMapAvailability('boot-complete');
 
         if (_bootErrors.length === 0) {
             console.log('✅ B.A.R.K. Boot Sequence: Complete');

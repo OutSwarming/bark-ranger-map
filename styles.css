@@ -96,6 +96,82 @@ textarea,
     touch-action: none;
 }
 
+.map-unavailable-notice[hidden] {
+    display: none !important;
+}
+
+.map-unavailable-notice {
+    position: fixed;
+    inset: 0;
+    z-index: 1800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.62), rgba(15, 23, 42, 0.32)),
+        rgba(229, 229, 229, 0.86);
+    pointer-events: auto;
+}
+
+.map-unavailable-card {
+    width: min(100%, 380px);
+    padding: 24px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.22);
+    text-align: center;
+    color: #1e293b;
+}
+
+.map-unavailable-kicker {
+    margin-bottom: 8px;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.map-unavailable-card h2 {
+    margin: 0 0 10px 0;
+    font-size: 24px;
+    font-weight: 900;
+    color: #0f172a;
+}
+
+.map-unavailable-card p {
+    margin: 0;
+    color: #475569;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.map-unavailable-detail {
+    margin-top: 12px !important;
+    color: #64748b !important;
+    font-size: 12px !important;
+    font-weight: 700;
+}
+
+.map-unavailable-action {
+    width: 100%;
+    margin-top: 18px;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 8px;
+    background: #2563eb;
+    color: white;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.28);
+}
+
+.map-unavailable-action:active {
+    transform: translateY(1px);
+}
+
 /* Glassmorphism Utilities */
 .glass-panel {
     background: var(--bg-glass);

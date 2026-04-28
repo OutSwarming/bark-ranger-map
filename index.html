@@ -17,7 +17,7 @@
 
     <!-- QRCode JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css?v=25">
+    <link rel="stylesheet" href="styles.css?v=26">
     <link rel="stylesheet" href="styles/mapStyles.css?v=2">
     <link rel="stylesheet" href="styles/trophyCase.css">
 
@@ -41,6 +41,15 @@
         <p>US BARK Rangers Loading...</p>
     </div>
     <div id="map"></div>
+    <div id="map-unavailable-message" class="map-unavailable-notice" role="alert" aria-live="assertive" hidden>
+        <div class="map-unavailable-card">
+            <div class="map-unavailable-kicker">Map Status</div>
+            <h2>Map unavailable</h2>
+            <p>Try refreshing. If this keeps happening, the map library may be blocked or the network may be offline.</p>
+            <p id="map-unavailable-detail" class="map-unavailable-detail">The app could not start the map.</p>
+            <button id="map-unavailable-refresh" class="map-unavailable-action" type="button">Refresh</button>
+        </div>
+    </div>
 
     <div id="filter-panel" class="glass-panel collapsed">
         <div class="panel-header" id="panel-header" style="text-align: center; width: 100%; cursor: default;">
@@ -1244,7 +1253,7 @@
     <script src="modules/uiController.js?v=1" defer></script>
 
     <!-- ENTRY POINT: Bootstrap Orchestrator (must load LAST) -->
-    <script src="core/app.js?v=26" defer></script>
+    <script src="core/app.js?v=27" defer></script>
     <!-- SCORING PROTOCOL MODAL -->
     <div id="scoring-modal" class="scoring-modal-overlay">
         <div class="scoring-modal-card">
