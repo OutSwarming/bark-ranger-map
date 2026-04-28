@@ -179,8 +179,8 @@ class MarkerLayerManager {
         });
 
         if (targetLayerType === 'cluster') {
-            if (markersToAdd.length) this.clusterLayer.addLayers(markersToAdd);
             if (!this.map.hasLayer(this.clusterLayer)) this.map.addLayer(this.clusterLayer);
+            if (markersToAdd.length) this.clusterLayer.addLayers(markersToAdd);
             if (this.map.hasLayer(this.plainLayer)) this.map.removeLayer(this.plainLayer);
         } else {
             markersToAdd.forEach(marker => this.plainLayer.addLayer(marker));
