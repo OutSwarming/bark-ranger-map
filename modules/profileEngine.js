@@ -56,8 +56,15 @@ function renderManagePortal() {
         updateBtn.onclick = async () => {
             if (dateInput.value) {
                 const newTs = new Date(dateInput.value + 'T12:00:00').getTime();
-                await window.BARK.updateVisitDate(place.id, newTs);
-                alert(`${place.name} date updated!`);
+                updateBtn.disabled = true;
+                try {
+                    await window.BARK.updateVisitDate(place.id, newTs);
+                    alert(`${place.name} date updated!`);
+                } catch (error) {
+                    alert(`Could not update ${place.name}. Please try again.`);
+                } finally {
+                    updateBtn.disabled = false;
+                }
             }
         };
 

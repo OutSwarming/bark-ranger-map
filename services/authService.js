@@ -204,15 +204,26 @@ function handleExpeditionSync(data) {
     }
 }
 
-function handleVisitedPlacesSync(placeList) {
+function handleVisitedPlacesSync(placeList, metadata = {}) {
     try {
         if (Array.isArray(placeList)) {
-            window.BARK.userVisitedPlaces = new Map();
-            placeList.forEach(obj => {
-                if (obj && obj.id) window.BARK.userVisitedPlaces.set(obj.id, obj);
-            });
-            if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-                window.BARK.invalidateVisitedIdsCache();
+            const firebaseService = window.BARK.services && window.BARK.services.firebase;
+            if (
+                firebaseService &&
+                typeof firebaseService.reconcileVisitedPlacesSnapshot === 'function' &&
+                typeof firebaseService.replaceLocalVisitedPlaces === 'function'
+            ) {
+                firebaseService.replaceLocalVisitedPlaces(
+                    firebaseService.reconcileVisitedPlacesSnapshot(placeList, metadata)
+                );
+            } else {
+                window.BARK.userVisitedPlaces = new Map();
+                placeList.forEach(obj => {
+                    if (obj && obj.id) window.BARK.userVisitedPlaces.set(obj.id, obj);
+                });
+                if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+                    window.BARK.invalidateVisitedIdsCache();
+                }
             }
         }
     } catch (error) {
@@ -329,6 +340,11 @@ function resetSearchAndFilterState() {
 }
 
 function resetVisitedAndPanelState() {
+    const firebaseService = window.BARK.services && window.BARK.services.firebase;
+    if (firebaseService && typeof firebaseService.clearVisitedPlacePendingMutations === 'function') {
+        firebaseService.clearVisitedPlacePendingMutations();
+    }
+
     window.BARK.userVisitedPlaces = new Map();
 
     if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
@@ -517,9 +533,9 @@ function initFirebase() {
                                 window.currentWalkPoints = Math.round(walkVal * 100) / 100;
 
                                 handleExpeditionSync(data);
-                                handleVisitedPlacesSync(placeList);
+                                handleVisitedPlacesSync(placeList, doc.metadata);
                             } else {
-                                handleVisitedPlacesSync([]);
+                                handleVisitedPlacesSync([], doc.metadata);
                             }
                             window.syncState();
                             if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();

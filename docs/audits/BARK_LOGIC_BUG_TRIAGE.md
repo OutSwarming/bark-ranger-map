@@ -26,22 +26,21 @@ This is the working tracker for the 17 reported logic bugs. Keep this file curre
 2. Bug 4: guard `window.addStopToTrip` in geocode/GPS paths.
 3. Bug 5: handle missing user documents in mileage logging.
 4. Bug 6: guard missing marker layers in offline/no-cache handling.
-5. Bug 7 and Bug 2 together: make visited-place local/server sync resilient to stale Firestore snapshots and local writes.
-6. Bug 9 and Bug 10: harden leaderboard sync/rank parsing.
-7. Bug 12, Bug 14, Bug 15, Bug 17: lower-blast-radius cleanup.
-8. Bug 11, Bug 13, Bug 16: maintenance notes unless they become user-visible.
+5. Bug 9 and Bug 10: harden leaderboard sync/rank parsing.
+6. Bug 12, Bug 14, Bug 15, Bug 17: lower-blast-radius cleanup.
+7. Bug 11, Bug 13, Bug 16: maintenance notes unless they become user-visible.
 
 ## Summary
 
 | ID | Reported Severity | Verification | Current Priority | Status |
 | --- | --- | --- | --- | --- |
 | 1 | Critical | Fixed by removing main-app God Mode and moving dev tools to admin page | Done | Fixed |
-| 2 | Critical | Partially confirmed; exact data-loss sequence is not proven | P1 | Partially confirmed |
+| 2 | Critical | Fixed with explicit date writes plus pending visited-place reconciliation | Done | Fixed |
 | 3 | Critical | Confirmed | P0 | Confirmed |
 | 4 | Critical | Confirmed | P0 | Confirmed |
 | 5 | Critical | Confirmed | P0 | Confirmed |
 | 6 | High | Confirmed, but alert order in report is wrong | P0 | Confirmed |
-| 7 | High | Confirmed as timing-dependent stale snapshot risk | P1 | Partially confirmed |
+| 7 | High | Fixed with shared pending visited-place reconciliation | Done | Fixed |
 | 8 | High | Confirmed | P0 | Confirmed |
 | 9 | High | Partially confirmed; direct function lacks guard, reported achievement path is guarded | P2 | Partially confirmed |
 | 10 | High | Partially confirmed; pinned row can show `#NaN`, personal label likely cannot | P2 | Partially confirmed |
@@ -95,7 +94,7 @@ Follow-up cleanup:
 
 ## Bug 2: Visit Date Update Can Be Overwritten By Snapshot Replacement
 
-Status: Partially confirmed
+Status: Fixed
 
 Files:
 - `services/firebaseService.js:72`
@@ -104,8 +103,10 @@ Files:
 - `services/firebaseService.js:109`
 - `services/authService.js:212`
 - `services/authService.js:215`
+- `services/checkinService.js`
+- `modules/profileEngine.js`
 
-Evidence:
+Original evidence:
 - `updateVisitDate()` mutates the object stored in `window.BARK.userVisitedPlaces`.
 - `handleVisitedPlacesSync()` replaces the entire Map on every snapshot.
 - This creates a real stale-snapshot risk for local UI state.
@@ -114,17 +115,50 @@ Correction to report:
 - The exact sequence "snapshot replaces the Map while `syncUserProgress()` is awaiting, then `syncUserProgress()` writes the old timestamp" is not supported by the current control flow.
 - `syncUserProgress()` constructs `visitedArray` synchronously at `services/firebaseService.js:80` before the Firestore `await`, so the write payload is captured before another event can replace `window.BARK.userVisitedPlaces`.
 
-Remaining risk:
+Original remaining risk:
 - A stale snapshot can still repaint the local Map/UI with old data before a newer server snapshot arrives.
 - Other writes after a stale replacement could persist old state.
 
-Likely fix:
+Chosen strategy:
 - Make `updateVisitDate()` produce a fresh array from the intended post-update Map and write that explicit array.
 - Track local pending visited-place mutations by id/timestamp and ignore or merge older cache snapshots.
 - Consider replacing full Map snapshots with a merge that preserves newer local pending records.
 
+Fix options and tradeoffs:
+
+Option A: Narrow explicit-write fix in `updateVisitDate()`
+- Approach: Clone the current Map, clone the target place with the new `ts`, write that explicit array through `updateCurrentUserVisitedPlaces()`, then update local state/render after the write succeeds.
+- Pros: Smallest code change; directly addresses date-update rollback risk; easy to test in Manage Portal; low chance of breaking check-in or marker rendering.
+- Cons: Does not solve the broader stale-snapshot replacement pattern; GPS optimistic check-in flicker from Bug 7 can still happen; future visited-place writes may repeat the same race if they call `syncUserProgress()` from mutable global state.
+
+Option B: Pending-local-mutations guard for `visitedPlaces`
+- Approach: Record pending local writes by place id and mutation timestamp/version. In `handleVisitedPlacesSync()`, merge or preserve pending local records when a cache/stale snapshot arrives, and clear the pending entry once a server snapshot confirms it.
+- Pros: Fixes Bug 2 and materially helps Bug 7; creates a reusable sync pattern for update, remove, manual mark, and GPS check-in; better user experience on slow/offline-ish connections.
+- Cons: More moving parts; requires careful handling for deletes as well as updates; needs tests/manual scenarios for cache snapshot, server snapshot, failed write, and logout/user switch.
+
+Option C: Transaction/server-authoritative update for date edits
+- Approach: Update only the matching `visitedPlaces` entry using a Firestore transaction or a read-modify-write against the server doc, then let the snapshot hydrate local state.
+- Pros: Strongest server consistency for date edits; avoids writing from a potentially stale global Map; clean ownership model where Firestore snapshot remains authoritative.
+- Cons: Firestore arrays are awkward for targeted element updates, so the transaction still rewrites the array; UI may feel less responsive unless paired with optimistic local state; does not by itself prevent cache snapshots from briefly repainting old data.
+
+Recommended path:
+- Start with Option A for a tight Bug 2 fix.
+- Immediately follow with the shared pending-mutation layer from Option B when tackling Bug 7, because both bugs come from the same full-Map snapshot replacement pattern.
+- Avoid Option C unless we decide visited-place writes need transaction-level conflict handling across tabs/devices.
+
+Fix applied:
+- Added a small pending visited-place mutation layer in `services/firebaseService.js`.
+- `updateVisitDate()` now clones the Map, clones the target place with the new `ts`, updates local state through `replaceLocalVisitedPlaces()`, and writes an explicit visited-place array through `updateCurrentUserVisitedPlaces()`.
+- `handleVisitedPlacesSync()` now reconciles Firestore snapshots through `reconcileVisitedPlacesSnapshot(placeList, doc.metadata)` instead of blindly replacing the Map.
+- Pending local upserts/deletes are preserved through cache snapshots and snapshots with `metadata.hasPendingWrites`.
+- Authoritative server snapshots clear matching pending mutations once they confirm the local write.
+- Failed date/remove writes clear the pending mutation and restore the previous local Map.
+- Manage Portal date update button now disables during the write and shows a failure alert instead of firing the success alert after a rejected update.
+
 Verification:
 - Updating a visit date remains stable through cache snapshots, server snapshots, and portal re-render.
+- While a date update is pending, a stale snapshot does not permanently overwrite the chosen date.
+- Failed writes leave the UI in a clear recoverable state instead of silently claiming success.
 
 ## Bug 3: `updateMarkers()` Crashes When `window.map` Is Missing
 
@@ -229,7 +263,7 @@ Verification:
 
 ## Bug 7: Optimistic Check-In Can Be Replaced By Cached Firestore Snapshot
 
-Status: Partially confirmed
+Status: Fixed
 
 Files:
 - `services/checkinService.js:134`
@@ -238,8 +272,9 @@ Files:
 - `services/authService.js:212`
 - `services/authService.js:215`
 - `services/authService.js:548`
+- `services/firebaseService.js`
 
-Evidence:
+Original evidence:
 - GPS check-in mutates the local Map optimistically before awaiting Firestore.
 - Firestore snapshot handling replaces the entire Map from `data.visitedPlaces`.
 - The snapshot handler does not distinguish cache snapshots, server snapshots, or local pending writes for visited places.
@@ -247,13 +282,21 @@ Evidence:
 Caveat:
 - Whether the user sees a flash depends on Firestore event ordering and cache state. The full-replacement pattern is real, but the exact flicker timing is environment-dependent.
 
-Likely fix:
+Chosen strategy:
 - Preserve local pending check-ins until a server snapshot confirms or rejects them.
 - Ignore stale cache snapshots for `visitedPlaces` after a local mutation, or merge by id using newest timestamp.
 - Use `doc.metadata.fromCache` and `doc.metadata.hasPendingWrites` deliberately.
 
+Fix applied:
+- `verifyGpsCheckin()` stages the optimistic visit as a pending upsert before writing to Firestore.
+- Manual mark-as-visited stages pending upserts, and removals stage pending deletes.
+- `handleVisitedPlacesSync()` preserves pending local records when stale cache or local-write snapshots arrive.
+- Check-in and manual visit write failures clear the pending mutation and restore the previous local Map.
+- Pending mutations are cleared on logout/runtime reset to prevent user-switch leakage.
+
 Verification:
 - Slow/offline/cached snapshots do not visually remove an optimistic GPS check-in that is still pending.
+- A failed check-in write rolls the local Map back instead of leaving a false visited pin.
 
 ## Bug 8: `typeof map !== 'undefined'` Does Not Prove A Usable Map
 

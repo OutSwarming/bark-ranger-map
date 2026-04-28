@@ -25,6 +25,110 @@ function readCompletedExpeditionsFromUserData(data) {
     return [];
 }
 
+const pendingVisitedPlaceMutations = new Map();
+
+function cloneVisitedPlace(place) {
+    return place && typeof place === 'object' ? { ...place } : place;
+}
+
+function hasVisitedPlaceId(place) {
+    return place && typeof place === 'object' && place.id !== undefined && place.id !== null;
+}
+
+function makeVisitedPlaceMap(placeList) {
+    const visitedMap = new Map();
+    if (!Array.isArray(placeList)) return visitedMap;
+
+    placeList.forEach(place => {
+        if (hasVisitedPlaceId(place)) visitedMap.set(place.id, cloneVisitedPlace(place));
+    });
+    return visitedMap;
+}
+
+function getVisitedPlacesArray() {
+    return Array.from((window.BARK.userVisitedPlaces || new Map()).values()).map(cloneVisitedPlace);
+}
+
+function stringifyVisitValue(value) {
+    if (value && typeof value === 'object') {
+        const sorted = {};
+        Object.keys(value).sort().forEach(key => { sorted[key] = value[key]; });
+        return JSON.stringify(sorted);
+    }
+    return JSON.stringify(value);
+}
+
+function visitedPlaceRecordsMatch(left, right) {
+    if (!left || !right) return false;
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    for (const key of keys) {
+        if (stringifyVisitValue(left[key]) !== stringifyVisitValue(right[key])) return false;
+    }
+    return true;
+}
+
+function isAuthoritativeSnapshot(metadata = {}) {
+    return metadata.fromCache !== true && metadata.hasPendingWrites !== true;
+}
+
+function stageVisitedPlaceUpsert(place) {
+    if (!hasVisitedPlaceId(place)) return;
+    pendingVisitedPlaceMutations.set(place.id, {
+        type: 'upsert',
+        place: cloneVisitedPlace(place),
+        startedAt: Date.now()
+    });
+}
+
+function stageVisitedPlaceDelete(placeId) {
+    if (placeId === undefined || placeId === null) return;
+    pendingVisitedPlaceMutations.set(placeId, {
+        type: 'delete',
+        startedAt: Date.now()
+    });
+}
+
+function clearVisitedPlacePendingMutation(placeId) {
+    if (placeId !== undefined && placeId !== null) pendingVisitedPlaceMutations.delete(placeId);
+}
+
+function clearVisitedPlacePendingMutations() {
+    pendingVisitedPlaceMutations.clear();
+}
+
+function reconcileVisitedPlacesSnapshot(placeList, metadata = {}) {
+    const nextMap = makeVisitedPlaceMap(placeList);
+    const snapshotCanConfirm = isAuthoritativeSnapshot(metadata);
+
+    pendingVisitedPlaceMutations.forEach((mutation, placeId) => {
+        if (mutation.type === 'delete') {
+            if (snapshotCanConfirm && !nextMap.has(placeId)) {
+                pendingVisitedPlaceMutations.delete(placeId);
+                return;
+            }
+            nextMap.delete(placeId);
+            return;
+        }
+
+        const snapshotPlace = nextMap.get(placeId);
+        if (snapshotCanConfirm && visitedPlaceRecordsMatch(snapshotPlace, mutation.place)) {
+            pendingVisitedPlaceMutations.delete(placeId);
+            return;
+        }
+
+        nextMap.set(placeId, cloneVisitedPlace(mutation.place));
+    });
+
+    return nextMap;
+}
+
+function replaceLocalVisitedPlaces(visitedMap) {
+    window.BARK.userVisitedPlaces = visitedMap instanceof Map ? visitedMap : new Map();
+    if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+        window.BARK.invalidateVisitedIdsCache();
+    }
+}
+
 async function attemptDailyStreakIncrement() {
     try {
         const user = getCurrentUser();
@@ -70,6 +174,7 @@ async function attemptDailyStreakIncrement() {
 }
 
 async function syncUserProgress() {
+    let visitedArray = [];
     try {
         const user = getCurrentUser();
         if (!user) return;
@@ -77,49 +182,66 @@ async function syncUserProgress() {
         const db = firebase.firestore();
         window.BARK.incrementRequestCount();
 
-        const visitedArray = Array.from(window.BARK.userVisitedPlaces.values());
+        visitedArray = getVisitedPlacesArray();
+        visitedArray.forEach(stageVisitedPlaceUpsert);
         await db.collection('users').doc(user.uid).set({
             visitedPlaces: visitedArray
         }, { merge: true });
 
         window.syncState();
     } catch (error) {
+        visitedArray.forEach(place => clearVisitedPlacePendingMutation(place && place.id));
         console.error("[firebaseService] syncUserProgress failed:", error);
         throw error;
     }
 }
 
 async function updateCurrentUserVisitedPlaces(visitedArray) {
+    let nextVisitedArray = [];
     try {
         const user = getCurrentUser();
         if (!user) return;
 
+        nextVisitedArray = Array.isArray(visitedArray) ? visitedArray.map(cloneVisitedPlace) : [];
+        nextVisitedArray.forEach(stageVisitedPlaceUpsert);
         window.BARK.incrementRequestCount();
-        await firebase.firestore().collection('users').doc(user.uid).update({ visitedPlaces: visitedArray });
+        await firebase.firestore().collection('users').doc(user.uid).update({ visitedPlaces: nextVisitedArray });
     } catch (error) {
+        nextVisitedArray.forEach(place => clearVisitedPlacePendingMutation(place && place.id));
         console.error("[firebaseService] updateCurrentUserVisitedPlaces failed:", error);
         throw error;
     }
 }
 
 async function updateVisitDate(parkId, newTs) {
+    const previousVisitedPlaces = new Map(window.BARK.userVisitedPlaces || new Map());
     try {
         if (window.BARK.userVisitedPlaces.has(parkId)) {
-            const place = window.BARK.userVisitedPlaces.get(parkId);
-            place.ts = newTs;
-            await syncUserProgress();
+            const nextVisitedPlaces = new Map(window.BARK.userVisitedPlaces);
+            const updatedPlace = {
+                ...nextVisitedPlaces.get(parkId),
+                ts: newTs
+            };
+            nextVisitedPlaces.set(parkId, updatedPlace);
+            replaceLocalVisitedPlaces(nextVisitedPlaces);
+            stageVisitedPlaceUpsert(updatedPlace);
+            await updateCurrentUserVisitedPlaces(getVisitedPlacesArray());
             window.BARK.renderManagePortal();
         }
     } catch (error) {
+        clearVisitedPlacePendingMutation(parkId);
+        replaceLocalVisitedPlaces(previousVisitedPlaces);
         console.error("[firebaseService] updateVisitDate failed:", error);
         throw error;
     }
 }
 
 async function removeVisitedPlace(place) {
+    const previousVisitedPlaces = new Map(window.BARK.userVisitedPlaces || new Map());
     try {
         if (window.confirm(`Remove ${place.name}?`)) {
             window.BARK.userVisitedPlaces.delete(place.id);
+            stageVisitedPlaceDelete(place.id);
             if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
                 window.BARK.invalidateVisitedIdsCache();
             }
@@ -128,6 +250,8 @@ async function removeVisitedPlace(place) {
             window.BARK.renderManagePortal();
         }
     } catch (error) {
+        clearVisitedPlacePendingMutation(place && place.id);
+        replaceLocalVisitedPlaces(previousVisitedPlaces);
         console.error("[firebaseService] removeVisitedPlace failed:", error);
         throw error;
     }
@@ -240,6 +364,12 @@ const firebaseService = {
     updateCurrentUserVisitedPlaces,
     updateVisitDate,
     removeVisitedPlace,
+    reconcileVisitedPlacesSnapshot,
+    replaceLocalVisitedPlaces,
+    stageVisitedPlaceUpsert,
+    stageVisitedPlaceDelete,
+    clearVisitedPlacePendingMutation,
+    clearVisitedPlacePendingMutations,
     loadSavedRoutes,
     loadSavedRoute,
     deleteSavedRoute,
