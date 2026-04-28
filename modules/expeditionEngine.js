@@ -38,6 +38,20 @@ function removeTrailLayerGroup(layerGroup) {
     }
 }
 
+function isExpeditionPremiumUnlocked() {
+    return Boolean(
+        typeof firebase !== 'undefined' &&
+        firebase.auth &&
+        firebase.auth().currentUser
+    );
+}
+
+function blockLoggedOutTrailToggle(button) {
+    if (button) button.classList.remove('active');
+    removeTrailLayerGroup(virtualTrailLayerGroup);
+    removeTrailLayerGroup(completedTrailsLayerGroup);
+}
+
 function resetExpeditionRuntimeState() {
     removeTrailLayerGroup(virtualTrailLayerGroup);
     removeTrailLayerGroup(completedTrailsLayerGroup);
@@ -185,6 +199,11 @@ function initTrailToggles() {
     const toggleVirtualBtn = document.getElementById('toggle-virtual-trail');
     if (toggleVirtualBtn) {
         toggleVirtualBtn.addEventListener('click', function () {
+            if (!isExpeditionPremiumUnlocked()) {
+                blockLoggedOutTrailToggle(this);
+                return;
+            }
+
             if (!ensureTrailLayerGroups()) return;
             const mapRef = getMapRef();
             if (!mapRef) return;
@@ -206,6 +225,11 @@ function initTrailToggles() {
     const toggleCompletedBtn = document.getElementById('toggle-completed-trails');
     if (toggleCompletedBtn) {
         toggleCompletedBtn.addEventListener('click', function () {
+            if (!isExpeditionPremiumUnlocked()) {
+                blockLoggedOutTrailToggle(this);
+                return;
+            }
+
             if (!ensureTrailLayerGroups()) return;
             const mapRef = getMapRef();
             if (!mapRef) return;

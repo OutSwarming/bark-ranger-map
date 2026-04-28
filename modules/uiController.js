@@ -189,6 +189,17 @@ function initUIEventListeners() {
         const modal = document.getElementById('trail-education-modal');
         if (modal) modal.style.display = 'none';
     });
+    bindClick('premium-login-jump', () => {
+        const profileTab = document.querySelector('.nav-item[data-target="profile-view"]');
+        if (profileTab) profileTab.click();
+
+        setTimeout(() => {
+            const loginContainer = document.getElementById('login-container');
+            const googleBtn = document.getElementById('google-login-btn');
+            if (loginContainer) loginContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            if (googleBtn) googleBtn.focus({ preventScroll: true });
+        }, 120);
+    });
 }
 
 initUIEventListeners();
