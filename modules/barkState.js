@@ -45,6 +45,8 @@ window.removeShadows = localStorage.getItem('barkRemoveShadows') === 'true';
 window.stopResizing = localStorage.getItem('barkStopResizing') === 'true';
 window.viewportCulling = localStorage.getItem('barkViewportCulling') === 'true';
 window.forcePlainMarkers = localStorage.getItem('barkForcePlainMarkers') === 'true';
+window.limitZoomOut = localStorage.getItem('barkLimitZoomOut') === 'true';
+window.simplifyPinsWhileMoving = localStorage.getItem('barkSimplifyPinsWhileMoving') === 'true';
 
 // 🔨 ULTRA-LOW SLEDGEHAMMER STATE
 window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
@@ -66,6 +68,8 @@ if (window.ultraLowEnabled) {
     window.simplifyTrails = true;
     window.clusteringEnabled = true;
     window.forcePlainMarkers = false;
+    window.limitZoomOut = true;
+    window.simplifyPinsWhileMoving = true;
 }
 
 // ====== GLOBAL LOOKUP ENGINE (v25 Performance) ======

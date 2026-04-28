@@ -22,6 +22,15 @@ function handleCloudSettingsHydration(data, metadata = {}) {
                 localStorage.setItem(key, val ? 'true' : 'false');
                 return val;
             };
+            const applyRegistrySetting = (settingKey, value) => {
+                const setting = window.BARK.SETTINGS_REGISTRY && window.BARK.SETTINGS_REGISTRY[settingKey];
+                if (!setting) return;
+                if (window.BARK.settings && typeof window.BARK.settings.set === 'function') {
+                    window.BARK.settings.set(settingKey, value);
+                } else {
+                    window[settingKey] = applySetting(setting.storageKey, value);
+                }
+            };
             const mapRef = (typeof map !== 'undefined') ? map : window.map;
             window._cloudSettingsLoaded = true;
 
@@ -40,6 +49,16 @@ function handleCloudSettingsHydration(data, metadata = {}) {
             window.stopResizing = applySetting('barkStopResizing', s.stopResizing || false);
             window.viewportCulling = applySetting('barkViewportCulling', s.viewportCulling || false);
             window.forcePlainMarkers = applySetting('barkForcePlainMarkers', s.forcePlainMarkers || false);
+            window.limitZoomOut = applySetting('barkLimitZoomOut', s.limitZoomOut || false);
+            window.simplifyPinsWhileMoving = applySetting('barkSimplifyPinsWhileMoving', s.simplifyPinsWhileMoving || false);
+            Object.entries(window.BARK.SETTINGS_REGISTRY || {}).forEach(([settingKey, setting]) => {
+                if (setting.cloudKey && Object.prototype.hasOwnProperty.call(s, setting.cloudKey) && settingKey !== 'lowGfxEnabled') {
+                    applyRegistrySetting(settingKey, s[setting.cloudKey] === true);
+                }
+            });
+            if (Object.prototype.hasOwnProperty.call(s, 'lowGfxEnabled')) {
+                applyRegistrySetting('lowGfxEnabled', s.lowGfxEnabled === true);
+            }
             window.ultraLowEnabled = applySetting('barkUltraLowEnabled', s.ultraLowEnabled || false);
             window.lockMapPanning = applySetting('barkLockMapPanning', s.lockMapPanning || false);
             if (mapRef) {
@@ -68,6 +87,8 @@ function handleCloudSettingsHydration(data, metadata = {}) {
                 'toggle-stop-resizing': window.stopResizing,
                 'toggle-viewport-culling': window.viewportCulling,
                 'toggle-force-plain-markers': window.forcePlainMarkers,
+                'toggle-limit-zoom-out': window.limitZoomOut,
+                'toggle-simplify-pins-moving': window.simplifyPinsWhileMoving,
                 'ultra-low-toggle': window.ultraLowEnabled,
                 'toggle-lock-map-panning': window.lockMapPanning,
                 'toggle-disable-pinch': window.disablePinchZoom,
@@ -93,6 +114,8 @@ function handleCloudSettingsHydration(data, metadata = {}) {
             }
 
             window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
+            if (typeof window.BARK.syncSettingsControls === 'function') window.BARK.syncSettingsControls();
+            if (typeof window.BARK.applyMapPerformancePolicy === 'function') window.BARK.applyMapPerformancePolicy();
 
             if (typeof window.syncState === 'function' && window.parkLookup && window.parkLookup.size > 0) {
                 window.syncState();

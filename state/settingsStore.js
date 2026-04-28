@@ -20,6 +20,8 @@
         stopResizing: 'barkStopResizing',
         viewportCulling: 'barkViewportCulling',
         forcePlainMarkers: 'barkForcePlainMarkers',
+        limitZoomOut: 'barkLimitZoomOut',
+        simplifyPinsWhileMoving: 'barkSimplifyPinsWhileMoving',
         ultraLowEnabled: 'barkUltraLowEnabled',
         lockMapPanning: 'barkLockMapPanning',
         disable1fingerZoom: 'barkDisable1Finger',
@@ -27,7 +29,6 @@
         disablePinchZoom: 'barkDisablePinchZoom'
     };
 
-    const SETTING_KEYS = Object.keys(STORAGE_KEYS);
     const DERIVED_KEYS = new Set(['clusteringEnabled']);
     const CLUSTER_SETTING_KEYS = new Set(['standardClusteringEnabled', 'premiumClusteringEnabled']);
     const DEFAULT_VALUES = {
@@ -44,12 +45,19 @@
         stopResizing: false,
         viewportCulling: false,
         forcePlainMarkers: false,
+        limitZoomOut: false,
+        simplifyPinsWhileMoving: false,
         ultraLowEnabled: false,
         lockMapPanning: false,
         disable1fingerZoom: false,
         disableDoubleTap: false,
         disablePinchZoom: false
     };
+    Object.entries(window.BARK.SETTINGS_REGISTRY || {}).forEach(([key, setting]) => {
+        if (setting.storageKey) STORAGE_KEYS[key] = setting.storageKey;
+        if (setting.defaultValue !== undefined) DEFAULT_VALUES[key] = setting.defaultValue;
+    });
+    const SETTING_KEYS = Object.keys(STORAGE_KEYS);
     const values = {};
     const listeners = new Map();
 
@@ -138,6 +146,11 @@
             throw new Error(`BARK setting "${key}" is derived and cannot be set directly.`);
         }
 
+        const lowGraphicsPreset = window.BARK.LOW_GRAPHICS_PRESET || {};
+        if (key !== 'lowGfxEnabled' && values.lowGfxEnabled && Object.prototype.hasOwnProperty.call(lowGraphicsPreset, key)) {
+            value = lowGraphicsPreset[key];
+        }
+
         const previousClusterState = get('clusteringEnabled');
         applyValue(key, value);
 
@@ -153,6 +166,16 @@
             applyValue('instantNav', true);
             applyValue('simplifyTrails', true);
             applyValue('forcePlainMarkers', false);
+            applyValue('limitZoomOut', true);
+            applyValue('simplifyPinsWhileMoving', true);
+        }
+
+        if (key === 'lowGfxEnabled' && values.lowGfxEnabled) {
+            Object.entries(window.BARK.LOW_GRAPHICS_PRESET || {}).forEach(([presetKey, presetValue]) => {
+                if (Object.prototype.hasOwnProperty.call(STORAGE_KEYS, presetKey)) {
+                    applyValue(presetKey, presetValue);
+                }
+            });
         }
 
         const nextClusterState = get('clusteringEnabled');
@@ -188,6 +211,16 @@
             values.instantNav = true;
             values.simplifyTrails = true;
             values.forcePlainMarkers = false;
+            values.limitZoomOut = true;
+            values.simplifyPinsWhileMoving = true;
+        }
+
+        if (values.lowGfxEnabled) {
+            Object.entries(window.BARK.LOW_GRAPHICS_PRESET || {}).forEach(([presetKey, presetValue]) => {
+                if (Object.prototype.hasOwnProperty.call(STORAGE_KEYS, presetKey)) {
+                    values[presetKey] = presetValue;
+                }
+            });
         }
     }
 

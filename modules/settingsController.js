@@ -18,6 +18,119 @@ window.BARK.initSettings = function initSettings() {
     const motionToggle = document.getElementById('reduce-motion-toggle');
     const ultraLowToggle = document.getElementById('ultra-low-toggle');
     const settingsStore = window.BARK.settings;
+    const settingsRegistry = window.BARK.SETTINGS_REGISTRY || {};
+    const performanceSettingKeys = window.BARK.PERFORMANCE_SETTING_KEYS || [];
+
+    const syncPerformanceControls = () => {
+        const lowGraphicsActive = Boolean(window.lowGfxEnabled);
+        performanceSettingKeys.forEach((key) => {
+            const setting = settingsRegistry[key];
+            if (!setting) return;
+
+            const input = document.getElementById(setting.elementId);
+            const row = input ? input.closest('[data-setting-key]') : null;
+            if (!input) return;
+
+            input.checked = Boolean(window[key]);
+            input.disabled = lowGraphicsActive && !setting.master;
+            if (row) row.style.opacity = input.disabled ? '0.62' : '1';
+        });
+    };
+
+    const renderPerformanceSettings = () => {
+        const container = document.getElementById('performance-settings-registry');
+        if (!container || container.dataset.rendered === 'true') return;
+
+        container.innerHTML = performanceSettingKeys.map((key) => {
+            const setting = settingsRegistry[key];
+            if (!setting) return '';
+
+            const rowStyle = setting.master
+                ? 'display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; background: rgba(33, 150, 243, 0.06); padding: 10px; border-radius: 8px; border: 1px solid rgba(33, 150, 243, 0.14);'
+                : 'display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;';
+
+            return `
+                <div data-setting-key="${key}" style="${rowStyle}">
+                    <div style="flex: 1;">
+                        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">${setting.label}</div>
+                        <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">${setting.description}</div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="${setting.elementId}">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+            `;
+        }).join('');
+
+        container.dataset.rendered = 'true';
+    };
+
+    const refreshTrailRendering = () => {
+        if (window.lastActiveTrailId && typeof window.BARK.renderVirtualTrailOverlay === 'function') {
+            window.BARK.renderVirtualTrailOverlay(window.lastActiveTrailId, window.lastMilesCompleted || 0);
+        }
+        if (typeof window.BARK.renderCompletedTrailsOverlay === 'function' && typeof firebase !== 'undefined') {
+            const user = firebase.auth().currentUser;
+            if (user) {
+                firebase.firestore().collection('users').doc(user.uid).get().then(doc => {
+                    if (doc.exists && doc.data().completedExpeditions) {
+                        window.BARK.renderCompletedTrailsOverlay(doc.data().completedExpeditions);
+                    }
+                });
+            }
+        }
+    };
+
+    const applyRegistrySettingEffects = (setting) => {
+        if (!setting) return;
+
+        if (typeof window.BARK.applyGlobalStyles === 'function') window.BARK.applyGlobalStyles();
+        if (setting.impact === window.BARK.SETTING_IMPACTS.MAP_BEHAVIOR && typeof window.BARK.applyMapPerformancePolicy === 'function') {
+            window.BARK.applyMapPerformancePolicy();
+        }
+        if (setting.impact === window.BARK.SETTING_IMPACTS.MARKER_LAYER && typeof window.BARK.rebuildMarkerLayer === 'function') {
+            window.BARK.rebuildMarkerLayer();
+        }
+        if (setting.impact === window.BARK.SETTING_IMPACTS.TRAIL_RENDER) {
+            refreshTrailRendering();
+        }
+        if (typeof window.syncState === 'function') window.syncState();
+    };
+
+    const setupRegistryPerformanceToggles = () => {
+        performanceSettingKeys.forEach((key) => {
+            const setting = settingsRegistry[key];
+            const input = setting ? document.getElementById(setting.elementId) : null;
+            if (!setting || !input || input.dataset.bound === 'true') return;
+
+            input.dataset.bound = 'true';
+            input.checked = Boolean(window[key]);
+            input.addEventListener('change', (e) => {
+                if (settingsStore && typeof settingsStore.set === 'function') {
+                    settingsStore.set(key, e.target.checked);
+                } else {
+                    window[key] = e.target.checked;
+                    if (setting.storageKey) localStorage.setItem(setting.storageKey, window[key] ? 'true' : 'false');
+                    syncPerformanceControls();
+                    applyRegistrySettingEffects(setting);
+                }
+            });
+
+            if (settingsStore && typeof settingsStore.onChange === 'function') {
+                settingsStore.onChange(key, () => {
+                    syncPerformanceControls();
+                    applyRegistrySettingEffects(setting);
+                });
+            }
+        });
+
+        syncPerformanceControls();
+    };
+
+    window.BARK.syncSettingsControls = function syncSettingsControls() {
+        syncPerformanceControls();
+    };
 
     const syncClusterToggles = () => {
         if (standardToggle) standardToggle.checked = window.standardClusteringEnabled;
@@ -50,6 +163,9 @@ window.BARK.initSettings = function initSettings() {
     }
 
     if (settingsGearBtn && settingsOverlay) {
+        renderPerformanceSettings();
+        setupRegistryPerformanceToggles();
+
         // Sync visuals to state
         if (allowUncheckToggle) allowUncheckToggle.checked = window.allowUncheck;
         if (lowGfxToggle) lowGfxToggle.checked = window.lowGfxEnabled;
@@ -111,15 +227,6 @@ window.BARK.initSettings = function initSettings() {
             });
         }
 
-        if (lowGfxToggle) {
-            lowGfxToggle.addEventListener('change', (e) => {
-                window.lowGfxEnabled = e.target.checked;
-                localStorage.setItem('barkLowGfxEnabled', window.lowGfxEnabled ? 'true' : 'false');
-                window.BARK.applyGlobalStyles();
-                window.syncState();
-            });
-        }
-
         if (motionToggle) {
             motionToggle.checked = window.reducePinMotion;
             motionToggle.addEventListener('change', (e) => {
@@ -137,24 +244,6 @@ window.BARK.initSettings = function initSettings() {
                 }
             });
         }
-
-        // Performance Modifier Toggles
-        const setupPerfToggle = (id, windowVar, storageKey) => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.checked = window[windowVar];
-            el.addEventListener('change', (e) => {
-                window[windowVar] = e.target.checked;
-                localStorage.setItem(storageKey, window[windowVar] ? 'true' : 'false');
-                window.BARK.applyGlobalStyles();
-                window.syncState();
-            });
-        };
-
-        setupPerfToggle('toggle-remove-shadows', 'removeShadows', 'barkRemoveShadows');
-        setupPerfToggle('toggle-stop-resizing', 'stopResizing', 'barkStopResizing');
-        setupPerfToggle('toggle-viewport-culling', 'viewportCulling', 'barkViewportCulling');
-        setupPerfToggle('toggle-force-plain-markers', 'forcePlainMarkers', 'barkForcePlainMarkers');
 
         const disableDoubleTapEl = document.getElementById('toggle-disable-double-tap');
         if (disableDoubleTapEl) {
@@ -219,26 +308,6 @@ window.BARK.initSettings = function initSettings() {
 
                 sessionStorage.setItem('skipCloudHydration', 'true');
                 setTimeout(() => window.location.reload(true), 150);
-            });
-        }
-
-        if (simplifyTrailToggle) {
-            simplifyTrailToggle.addEventListener('change', (e) => {
-                window.simplifyTrails = e.target.checked;
-                localStorage.setItem('barkSimplifyTrails', window.simplifyTrails ? 'true' : 'false');
-                if (window.lastActiveTrailId) {
-                    window.BARK.renderVirtualTrailOverlay(window.lastActiveTrailId, window.lastMilesCompleted || 0);
-                }
-                if (typeof window.BARK.renderCompletedTrailsOverlay === 'function') {
-                    const user = firebase.auth().currentUser;
-                    if (user) {
-                        firebase.firestore().collection('users').doc(user.uid).get().then(doc => {
-                            if (doc.exists && doc.data().completedExpeditions) {
-                                window.BARK.renderCompletedTrailsOverlay(doc.data().completedExpeditions);
-                            }
-                        });
-                    }
-                }
             });
         }
 
@@ -334,6 +403,9 @@ window.BARK.initSettings = function initSettings() {
                     mapStyle: localStorage.getItem('barkMapStyle') || 'default',
                     visitedFilter: localStorage.getItem('barkVisitedFilter') || 'all'
                 };
+                Object.entries(settingsRegistry).forEach(([key, setting]) => {
+                    if (setting.cloudKey) settingsPayload[setting.cloudKey] = Boolean(window[key]);
+                });
 
                 try {
                     await firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid).set({ settings: settingsPayload }, { merge: true });

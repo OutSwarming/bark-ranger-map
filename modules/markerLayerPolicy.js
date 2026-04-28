@@ -11,8 +11,10 @@ function getMarkerLayerPolicy(zoom) {
     return {
         layerType: canCluster ? 'cluster' : 'plain',
         freezeDuringZoom: Boolean(window.stopResizing),
-        cullPlainMarkers: Boolean(window.viewportCulling || window.forcePlainMarkers),
-        useReducedVisualsDuringMotion: Boolean(window.stopResizing || window.lowGfxEnabled || window.ultraLowEnabled)
+        cullPlainMarkers: Boolean(window.viewportCulling || window.forcePlainMarkers || window.lowGfxEnabled || window.ultraLowEnabled),
+        useReducedVisualsDuringMotion: Boolean(window.simplifyPinsWhileMoving || window.stopResizing || window.lowGfxEnabled || window.ultraLowEnabled),
+        limitZoomOut: Boolean(window.limitZoomOut || window.lowGfxEnabled || window.ultraLowEnabled),
+        minZoom: (window.limitZoomOut || window.lowGfxEnabled || window.ultraLowEnabled) ? 5 : null
     };
 }
 

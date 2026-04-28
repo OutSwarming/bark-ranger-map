@@ -619,83 +619,7 @@
                         <!-- 🔬 ADVANCED OPTIMIZATION -->
                         <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; margin-bottom: 15px;">Advanced Optimization</div>
 
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Simplify Trails</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Reduces trail detail to prevent map stuttering.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="simplify-trail-toggle">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Viewport Culling</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Only renders on-screen pins. Max CPU savings for country views.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-viewport-culling">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Low Graphics Mode</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Disables blurs and particle effects for speed.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="low-gfx-toggle">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Remove Shadows</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Strips heavy GPU shadow filters from all pins.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-remove-shadows">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Resizing</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Pin size stays locked during zoom. No micro-calculations.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-stop-resizing">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Force Plain Pins</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Disables bubble clustering for older phones that struggle with cluster recalculation.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-force-plain-markers">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
+                        <div id="performance-settings-registry" style="display: flex; flex-direction: column; gap: 15px;"></div>
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
                                 <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Auto Movements</div>
@@ -1291,6 +1215,7 @@
     <script src="MapMarkerConfig.js?v=3" defer></script>
 
     <!-- NEW: Modular Architecture (strict load order) -->
+    <script src="modules/settingsRegistry.js?v=1" defer></script>
     <script src="modules/barkState.js?v=1" defer></script>
     <script src="modules/barkConfig.js?v=1" defer></script>
     <script src="config/domRefs.js?v=1" defer></script>

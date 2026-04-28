@@ -22,6 +22,9 @@ function applyGlobalStyles() {
     if (window.stopResizing) addClasses.push('stop-resizing');
     else removeClasses.push('stop-resizing');
 
+    if (window.simplifyPinsWhileMoving) addClasses.push('simplify-pins-while-moving');
+    else removeClasses.push('simplify-pins-while-moving');
+
     if (window.viewportCulling) addClasses.push('viewport-culling');
     else removeClasses.push('viewport-culling');
 
@@ -74,6 +77,21 @@ const mapOptions = window.ultraLowEnabled ? {
 };
 
 window.map = L.map('map', mapOptions);
+const defaultMinZoom = window.map.options.minZoom ?? 0;
+
+window.BARK.applyMapPerformancePolicy = function applyMapPerformancePolicy() {
+    if (!window.map) return;
+    const policy = window.BARK.getMarkerLayerPolicy
+        ? window.BARK.getMarkerLayerPolicy(window.map.getZoom())
+        : { minZoom: null };
+    const nextMinZoom = policy.minZoom === null ? defaultMinZoom : policy.minZoom;
+
+    window.map.setMinZoom(nextMinZoom);
+    if (window.map.getZoom() < nextMinZoom) {
+        window.map.setZoom(nextMinZoom, { animate: false });
+    }
+};
+window.BARK.applyMapPerformancePolicy();
 
 // 🎯 MAP MEMORY INJECTION
 function setInitialMapView(defaultLat, defaultLng) {
@@ -104,6 +122,9 @@ map.on('dblclick', (e) => {
 
 // 🚀 MAP POSITION SAVER
 map.on('moveend', () => {
+    window.BARK._isMoving = false;
+    document.body.classList.remove('map-is-moving');
+
     clearTimeout(mapSaveTimeout);
     mapSaveTimeout = setTimeout(() => {
         const center = map.getCenter();
@@ -126,6 +147,13 @@ map.on('moveend', () => {
     }
 });
 
+map.on('movestart', () => {
+    window.BARK._isMoving = true;
+    if (window.BARK.getMarkerLayerPolicy && window.BARK.getMarkerLayerPolicy(map.getZoom()).useReducedVisualsDuringMotion) {
+        document.body.classList.add('map-is-moving');
+    }
+});
+
 function getEffectiveMarkerLayerTypeForZoom(zoom) {
     if (window.BARK.getMarkerLayerPolicy) return window.BARK.getMarkerLayerPolicy(zoom).layerType;
     const forceNoClustering = window.premiumClusteringEnabled && zoom >= 7;
@@ -140,6 +168,9 @@ let zoomLayerChangePending = false;
 
 map.on('zoomstart', () => {
     window.BARK._isZooming = true;
+    if (window.BARK.getMarkerLayerPolicy && window.BARK.getMarkerLayerPolicy(map.getZoom()).useReducedVisualsDuringMotion) {
+        document.body.classList.add('map-is-moving');
+    }
     if (window.stopResizing) {
         document.body.classList.add('map-is-zooming');
     }
@@ -168,6 +199,12 @@ map.on('zoomend', () => {
         clearTimeout(trackpadZoomTimeout);
         trackpadZoomTimeout = setTimeout(() => {
             document.body.classList.remove('map-is-zooming');
+            document.body.classList.remove('map-is-moving');
+        }, 150);
+    } else {
+        clearTimeout(trackpadZoomTimeout);
+        trackpadZoomTimeout = setTimeout(() => {
+            document.body.classList.remove('map-is-moving');
         }, 150);
     }
 });

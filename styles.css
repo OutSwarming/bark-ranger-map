@@ -1448,6 +1448,27 @@ body.stop-resizing.map-is-zooming .leaflet-marker-pane {
     transition: none !important;
 }
 
+/* 3b. SIMPLIFY WHILE MOVING: temporary effect budget for pan/zoom only */
+body.simplify-pins-while-moving.map-is-moving .leaflet-marker-icon,
+body.simplify-pins-while-moving.map-is-moving .leaflet-marker-pane *,
+body.simplify-pins-while-moving.map-is-moving .custom-bark-marker,
+body.simplify-pins-while-moving.map-is-moving .custom-bark-marker * {
+    transition: none !important;
+    animation: none !important;
+    will-change: auto !important;
+}
+
+body.simplify-pins-while-moving.map-is-moving .visited-pin,
+body.simplify-pins-while-moving.map-is-moving .cat-national,
+body.simplify-pins-while-moving.map-is-moving .cat-state {
+    filter: none !important;
+}
+
+body.simplify-pins-while-moving.map-is-moving .enamel-pin-wrapper:hover,
+body.simplify-pins-while-moving.map-is-moving .custom-bark-marker.active-pin .enamel-pin-wrapper {
+    transform: none !important;
+}
+
 /* 4. VIEWPORT CULLING: No fade — instant snap to prevent spin/sideways glitch with CSS toggle */
 body.viewport-culling .leaflet-marker-icon {
     animation: none !important;

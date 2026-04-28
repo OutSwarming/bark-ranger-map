@@ -121,9 +121,11 @@ function getMarkerVisibilityStateKey() {
         window.clusteringEnabled ? 'cluster-on' : 'cluster-off',
         window.premiumClusteringEnabled ? 'premium-cluster-on' : 'premium-cluster-off',
         window.standardClusteringEnabled ? 'standard-cluster-on' : 'standard-cluster-off',
+        window.lowGfxEnabled ? 'low-gfx-on' : 'low-gfx-off',
         window.forcePlainMarkers ? 'force-plain-on' : 'force-plain-off',
         window.stopResizing ? 'stop-resizing-on' : 'stop-resizing-off',
         window.viewportCulling ? 'viewport-culling-on' : 'viewport-culling-off',
+        window.limitZoomOut ? 'limit-zoom-on' : 'limit-zoom-off',
         getTargetMarkerLayerType(zoom),
         shouldCull ? zoom : '',
         viewportKey
