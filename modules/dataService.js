@@ -192,56 +192,64 @@ function processParsedResults(results) {
     const newAllPoints = window.BARK.allPoints;
     const incomingParkIds = new Set();
 
-    results.data.forEach(rawItem => {
-        const item = normalizeCSVRow(rawItem);
-        const name = item.name;
-        const state = item.state;
-        const cost = item.cost;
-        const category = item.category;
-        const info = item.info;
-        const website = item.website;
-        const pics = item.pics;
-        const video = item.video;
-        let lat = item.lat;
-        let lng = item.lng;
+    results.data.forEach((rawItem, rowIndex) => {
+        try {
+            const item = normalizeCSVRow(rawItem);
+            const name = item.name;
+            const state = item.state;
+            const cost = item.cost;
+            const category = item.category;
+            const info = item.info;
+            const website = item.website;
+            const pics = item.pics;
+            const video = item.video;
+            let lat = item.lat;
+            let lng = item.lng;
 
-        if (name && name.includes('War in the Pacific')) {
-            lat = 13.402746;
-            lng = 144.6632005;
+            if (name && name.includes('War in the Pacific')) {
+                lat = 13.402746;
+                lng = 144.6632005;
+            }
+
+            if (!lat || !lng) return;
+
+            const swagType = item.swagType;
+            const parkCategory = window.BARK.getParkCategory(category);
+
+            const id = window.BARK.generatePinId(lat, lng);
+            const parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng, parkCategory };
+
+            // v25: Pre-Normalized Name
+            parkData._cachedNormalizedName = window.BARK.normalizeText(name);
+
+            incomingParkIds.add(id);
+
+            let marker = markerCache.get(id);
+            if (!marker) {
+                const isVisited = userVisitedPlaces.has(id);
+                marker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
+                bindMarkerEvents(marker);
+                markerCache.set(id, marker);
+
+                marker._layerAdded = false;
+                marker._barkLayerType = null;
+            } else {
+                const wasVisited = userVisitedPlaces.has(marker._parkData.id);
+                const isVisited = userVisitedPlaces.has(id);
+                updateCachedMarker(marker, parkData, wasVisited, isVisited);
+            }
+
+            parkData.marker = marker;
+            parkData.category = parkCategory;
+            window.parkLookup.set(id, parkData);
+            newAllPoints.push(parkData);
+        } catch (error) {
+            console.error('[dataService] Failed to process CSV row; skipping row.', {
+                rowNumber: rowIndex + 2,
+                rawItem,
+                error
+            });
         }
-
-        if (!lat || !lng) return;
-
-        const swagType = item.swagType;
-        const parkCategory = window.BARK.getParkCategory(category);
-
-        const id = window.BARK.generatePinId(lat, lng);
-        const parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng, parkCategory };
-
-        // v25: Pre-Normalized Name
-        parkData._cachedNormalizedName = window.BARK.normalizeText(name);
-
-        incomingParkIds.add(id);
-
-        let marker = markerCache.get(id);
-        if (!marker) {
-            const isVisited = userVisitedPlaces.has(id);
-            marker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
-            bindMarkerEvents(marker);
-            markerCache.set(id, marker);
-
-            marker._layerAdded = false;
-            marker._barkLayerType = null;
-        } else {
-            const wasVisited = userVisitedPlaces.has(marker._parkData.id);
-            const isVisited = userVisitedPlaces.has(id);
-            updateCachedMarker(marker, parkData, wasVisited, isVisited);
-        }
-
-        parkData.marker = marker;
-        parkData.category = parkCategory;
-        window.parkLookup.set(id, parkData);
-        newAllPoints.push(parkData);
     });
 
     markerCache.forEach((marker, id) => {

@@ -143,6 +143,7 @@ window.BARK.syncScoreToLeaderboard = syncScoreToLeaderboard;
 
 // ====== EVALUATE ACHIEVEMENTS ======
 async function evaluateAchievements(visitedPlacesMap) {
+    try {
     const visitedArray = Array.from(visitedPlacesMap.values());
     const userLocationMarker = window.BARK.getUserLocationMarker();
     const allPoints = window.BARK.allPoints;
@@ -366,6 +367,13 @@ async function evaluateAchievements(visitedPlacesMap) {
             if (content) content.classList.add('active');
         };
     });
+    } catch (error) {
+        console.error('[profileEngine] Achievement evaluation/render failed; profile update skipped.', {
+            visitedCount: visitedPlacesMap && typeof visitedPlacesMap.size === 'number' ? visitedPlacesMap.size : null,
+            currentWalkPoints: window.currentWalkPoints || 0,
+            error
+        });
+    }
 }
 
 window.BARK.evaluateAchievements = evaluateAchievements;
