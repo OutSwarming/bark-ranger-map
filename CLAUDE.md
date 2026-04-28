@@ -53,7 +53,7 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 
 - [x] **#11 — Levenshtein search is unbounded on main thread** (`modules/searchEngine.js`, `modules/renderEngine.js`) ✅
 
-- [ ] **#12 — `barkState.js` redundant settings initialization** (`modules/barkState.js`): The 20 `window.x = localStorage.getItem(...)` assignments at the top are immediately overwritten by `settingsStore.js` property descriptors. Remove the settings block from `barkState.js`. It should only initialize data state: `allPoints`, `userVisitedPlaces`, `tripDays`, `activeDayIdx`, `activeSwagFilters`, `activeSearchQuery`, `activeTypeFilter`, `visitedFilterState`, `_searchResultCache`, `activePinMarker`.
+- [x] **#12 — `barkState.js` redundant settings initialization** (`modules/barkState.js`) ✅
 
 - [ ] **#13 — `authService.js` cloud hydration has 90+ hardcoded element IDs** (`services/authService.js`, `handleCloudSettingsHydration`): The final `ids` object hardcodes 20 element IDs that already exist in `SETTINGS_REGISTRY[key].elementId`. Replace with a loop over the registry.
 
@@ -68,7 +68,7 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 - [ ] **#18 — User-visible degraded state when `initMap` fails**: When the map fails (Leaflet CDN down, DOM node missing, etc.), the user sees nothing — no error, no message, just a broken blank screen. Add a visible in-page message ("Map unavailable — try refreshing") that appears if `initMap` is not in `_bootErrors` within N seconds, or if `window.map` is still undefined after boot. This is distinct from Fix #2 (loader stuck) — the loader dismisses, but the user still has no signal that something is wrong.
 
 ## Current Work
-Fix #11 complete. Start with Fix #12 next session.
+Fix #12 complete. Start with Fix #13 next session.
 
 ---
 
@@ -782,6 +782,241 @@ Search should feel the same on small/current data, but it should stay responsive
 | Code efficiency | 8 | More helper code, but each helper has a specific job and avoids new dependencies |
 | Reliability | 9 | Cancellation, partial cache metadata, render-cache alignment, delayed global fallback, and complete-result auto-framing all protect real edge cases |
 | Debuggability | 10 | `_searchResultCache.complete`, `processedCount`, and `totalCount` make search state inspectable instead of invisible |
+
+### Fix #12 — `barkState.js` Is Runtime Data State Only
+**File:** `modules/barkState.js`
+**Date:** 2026-04-28
+
+**What was wrong:**
+`barkState.js` was still initializing persistent settings directly from `localStorage` at module load:
+
+```js
+window.allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
+window.standardClusteringEnabled = localStorage.getItem('barkStandardClustering') !== 'false';
+window.premiumClusteringEnabled = localStorage.getItem('barkPremiumClustering') === 'true';
+window.lowGfxEnabled = ...
+window.simplifyTrails = ...
+window.instantNav = ...
+```
+
+That block was no longer the real settings system. `state/settingsStore.js` loads shortly afterward, reads persistent settings directly, then installs `Object.defineProperty(window, key, { get, set })` mirrors for the same legacy `window.*` names. The `barkState.js` values were temporary raw globals that were overwritten by the canonical settings store.
+
+This created two problems:
+- Ownership was unclear. A reader could reasonably think `barkState.js` owned settings because it still contained the old localStorage hydration logic.
+- Boot-time debugging was noisier than necessary. There were two places to inspect for settings defaults, low-graphics presets, clustering derivation, gesture toggles, and performance toggles.
+
+The actual app already depended on the later `settingsStore.js` mirrors. Keeping the old block in `barkState.js` made the codebase look less stable than it really was.
+
+**The fix:**
+- Removed the entire settings hydration block from `modules/barkState.js`.
+- Removed raw initialization for:
+  - `allowUncheck`
+  - `standardClusteringEnabled`
+  - `premiumClusteringEnabled`
+  - `clusteringEnabled`
+  - `lowGfxEnabled`
+  - `simplifyTrails`
+  - `instantNav`
+  - `rememberMapPosition`
+  - `startNationalView`
+  - `stopAutoMovements`
+  - `reducePinMotion`
+  - `removeShadows`
+  - `stopResizing`
+  - `viewportCulling`
+  - `forcePlainMarkers`
+  - `limitZoomOut`
+  - `simplifyPinsWhileMoving`
+  - `ultraLowEnabled`
+  - `lockMapPanning`
+  - `disable1fingerZoom`
+  - `disableDoubleTap`
+  - `disablePinchZoom`
+- Left runtime data state in `barkState.js`:
+  - `allPoints`
+  - `userVisitedPlaces`
+  - `tripDays`
+  - `activeDayIdx`
+  - `activeSwagFilters`
+  - `activeSearchQuery`
+  - `activeTypeFilter`
+  - `visitedFilterState`
+  - `_searchResultCache`
+  - `activePinMarker`
+  - trip bookends
+  - `parkLookup`
+  - app version
+  - request-count safety state
+  - gamification engine instance
+- Updated the file header to make ownership explicit:
+  - `barkState.js` owns mutable runtime data state and the `window.BARK` namespace.
+  - Persistent user settings are owned by `state/settingsStore.js`.
+
+**Why this is safe:**
+The script order in `index.html` is:
+
+```text
+modules/settingsRegistry.js
+modules/barkState.js
+modules/barkConfig.js
+config/domRefs.js
+state/settingsStore.js
+state/appState.js
+...
+modules/mapEngine.js
+modules/renderEngine.js
+...
+core/app.js
+```
+
+The only files between `barkState.js` and `settingsStore.js` are `barkConfig.js` and `domRefs.js`. Those files do not read `window.lowGfxEnabled`, `window.clusteringEnabled`, `window.allowUncheck`, gesture settings, or performance settings during parse. The map/render/search/settings controllers that actually consume those legacy setting globals load after `settingsStore.js` has installed the canonical mirrors.
+
+The smoke test verified this explicitly:
+- After `barkState.js`, `window.allowUncheck` and `window.lowGfxEnabled` are not created by `barkState.js`.
+- After `settingsStore.js`, the legacy mirrors exist.
+- Stored values still hydrate correctly from `localStorage`.
+- Derived `window.clusteringEnabled` still works.
+- Assigning a legacy mirror like `window.allowUncheck = false` still routes through `settingsStore` and persists to `localStorage`.
+
+**Why this matters:**
+This is not a flashy feature fix. It is an ownership fix. For a codebase trying to become reliable at scale, state ownership matters a lot. Settings now have one obvious home:
+
+```text
+Persistent settings -> state/settingsStore.js
+Runtime app data    -> modules/barkState.js / state/appState.js mirrors
+```
+
+That makes future debugging faster. If low graphics mode is wrong, look in `settingsStore.js`, the settings registry, or the cloud hydration path. Do not waste time checking a stale boot-time localStorage block in `barkState.js`. If active search, trip days, visited places, or marker state is wrong, then `barkState.js` is still relevant.
+
+**Pros of this approach:**
+- Removes duplicate settings ownership.
+- Reduces boot-time code in `barkState.js`.
+- Makes `barkState.js` easier to scan: it now starts with app version, then runtime data/state infrastructure.
+- Prevents future engineers from editing the wrong settings initialization path.
+- Keeps all existing settings behavior because `settingsStore.js` already hydrates from `localStorage`.
+- Keeps legacy `window.*` setting reads working for existing modules.
+- Keeps low-graphics default behavior in the canonical store, including device-memory auto-detect when no saved value exists.
+- Keeps low-graphics and ultra-low presets centralized in one place.
+- Keeps derived clustering centralized: `window.clusteringEnabled` remains a read-only derived mirror from standard/premium clustering.
+- No dependency, schema, DOM, Firebase, or user-data changes.
+- Smaller boot surface: fewer raw global writes before the structured store takes over.
+
+**Cons / tradeoffs:**
+- There is now a short parse-time interval between `barkState.js` and `settingsStore.js` where settings globals are intentionally not defined. This is safe with the current load order because no in-between module reads them, but it is a load-order invariant worth preserving.
+- If someone later inserts a new script between `barkState.js` and `settingsStore.js` and that script reads `window.lowGfxEnabled` at parse time, it will see `undefined`. The correct fix in that future case is to move the script after `settingsStore.js` or read through `window.BARK.settings` after it exists, not to reintroduce duplicate hydration.
+- `barkState.js` still reads `localStorage` for non-settings runtime state (`APP_VERSION`, `visitedFilterState`). That is intentional; this fix removed persistent settings only.
+- The legacy global names still exist after `settingsStore.js` because the rest of the app still reads `window.lowGfxEnabled`, `window.instantNav`, etc. This fix clarifies ownership but does not yet remove legacy global reads from every module.
+
+**Alternative solution A — Leave the duplicate block in place:**
+
+**Pros:**
+- Zero code change.
+- Settings globals exist a few milliseconds earlier during boot.
+- No risk from future scripts inserted before `settingsStore.js`.
+
+**Cons:**
+- Keeps two apparent sources of truth.
+- Future debugging remains confusing.
+- A future edit to `barkState.js` settings defaults could appear to work briefly, then be overwritten by `settingsStore.js`.
+- Makes the architecture look less mature than it is.
+
+**Verdict:**
+Not acceptable for the reliability goal. Duplicate ownership is exactly the kind of thing that causes slow, frustrating debugging later.
+
+**Alternative solution B — Move `settingsStore.js` before `barkState.js`:**
+
+**Pros:**
+- Settings mirrors would exist before `barkState.js`.
+- Removes the parse-time gap where settings globals are absent.
+- Could make settings ownership even earlier in boot.
+
+**Cons:**
+- Larger load-order change.
+- `settingsStore.js` depends on `settingsRegistry.js` and `LOW_GRAPHICS_PRESET`; moving it safely means re-auditing more boot edges.
+- `barkState.js` does not need settings during parse after this fix, so moving the store earlier is unnecessary.
+- More risky than removing dead duplicate code.
+
+**Verdict:**
+Possibly reasonable later, but not needed for Fix #12. The current script order is safe and already has `settingsStore.js` before every real settings consumer.
+
+**Alternative solution C — Keep fallback defaults in `barkState.js` but mark them temporary:**
+
+**Pros:**
+- Settings globals exist early.
+- Could protect against accidental future parse-time readers.
+- Smaller behavioral change than full removal.
+
+**Cons:**
+- Still duplicates settings logic.
+- Still leaves two places to update defaults and presets.
+- Comments do not enforce ownership.
+- Future readers still have to reason about which copy wins.
+
+**Verdict:**
+This would preserve the confusion while pretending it is documented. Better to remove the duplicate state.
+
+**Alternative solution D — Move all runtime state out of `barkState.js` into `state/appState.js`:**
+
+**Pros:**
+- Cleaner long-term architecture.
+- Could eventually eliminate more legacy globals.
+- Stronger structured-state story.
+
+**Cons:**
+- Much larger refactor.
+- High blast radius because many modules still use `window.BARK.allPoints`, `window.BARK.tripDays`, `window.tripStartNode`, and related legacy state.
+- Not necessary to solve the settings duplication issue.
+
+**Verdict:**
+Good future direction, not Fix #12. This fix intentionally keeps runtime data state stable.
+
+**Use cases and what the user sees:**
+
+**Use case 1 — User has Low Graphics saved:**
+A user previously enabled Low Graphics mode. On app boot, `settingsStore.js` still reads `barkLowGfxEnabled`, applies the low-graphics preset, installs `window.lowGfxEnabled`, and the later map modules still read the correct value. The user should see the same low-graphics behavior as before.
+
+**Use case 2 — User has Premium Clustering enabled:**
+The stored premium/standard clustering settings still hydrate in `settingsStore.js`. `window.clusteringEnabled` is still derived from those settings. The map and marker layer policy still see the correct clustering mode.
+
+**Use case 3 — User opens settings:**
+The settings UI still reads the same legacy mirrors and store values. Checkboxes should still reflect saved preferences. The difference is under the hood: there is no stale pre-store settings copy in `barkState.js`.
+
+**Use case 4 — Developer debugs a setting bug:**
+Before this fix, a developer could see `window.lowGfxEnabled` initialized in `barkState.js`, then later mirrored by `settingsStore.js`, and have to reason through which one was real. After this fix, the answer is straightforward: settings live in `settingsStore.js`.
+
+**Use case 5 — A future setting is added:**
+The developer should add it to the registry/store path, not to `barkState.js`. This reduces the chance of adding a setting to one place and forgetting the other.
+
+**User-visible difference:**
+There should be no intentional visual or interaction change for users. Saved settings should behave the same. The real user benefit is reliability: fewer chances for future setting defaults, low-graphics behavior, clustering behavior, or gesture toggles to drift between two initialization paths.
+
+One concrete app instance: a user who enabled Low Graphics mode should still open the map and get the same reduced-motion/reduced-marker-cost behavior. The difference is that the map now gets that value from the single canonical settings store path, not from a temporary `barkState.js` value that gets overwritten during boot.
+
+**How much better:**
+- Before: `barkState.js` appeared to own settings, then `settingsStore.js` actually owned them.
+- Before: low-graphics, ultra-low, clustering, gesture, and performance defaults existed in two places.
+- After: `barkState.js` owns runtime data; `settingsStore.js` owns persistent settings.
+- After: settings debugging starts in one place.
+
+**Verification:**
+- `node --check modules/barkState.js`
+- `node --check state/settingsStore.js`
+- `rg` confirmed the removed setting assignments are gone from `modules/barkState.js`.
+- VM smoke test loaded `settingsRegistry.js` -> `barkState.js` -> `settingsStore.js` with mocked `localStorage`, `navigator`, and `GamificationEngine`.
+  - Confirmed `barkState.js` does not create setting globals before `settingsStore.js`.
+  - Confirmed `settingsStore.js` hydrates stored setting values.
+  - Confirmed `window.clusteringEnabled` still derives correctly.
+  - Confirmed legacy `window.*` assignment still persists through `settingsStore`.
+
+**Rating: 9 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 9 | Clear ownership split: runtime data in `barkState.js`, persistent settings in `settingsStore.js` |
+| Speed | 10 | Fewer boot-time localStorage reads and raw global writes; no runtime cost |
+| Code efficiency | 10 | Removed a large obsolete block without adding replacement complexity |
+| Reliability | 9 | Behavior preserved by `settingsStore.js`; only caveat is preserving script order so no future pre-store settings reader appears |
+| Debuggability | 10 | One canonical place to inspect setting hydration, defaults, derived clustering, and presets |
 
 ---
 

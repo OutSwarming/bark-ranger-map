@@ -1,6 +1,7 @@
 /**
  * barkState.js — Central State Store
- * Owns all mutable application state and the window.BARK namespace.
+ * Owns mutable runtime data state and the window.BARK namespace.
+ * Persistent user settings are owned by state/settingsStore.js.
  * Loaded FIRST in the boot sequence.
  */
 window.BARK = window.BARK || {};
@@ -10,67 +11,6 @@ let APP_VERSION = parseInt(localStorage.getItem('bark_seen_version') || '26');
 console.log(`B.A.R.K. Engine v${APP_VERSION}: Performance Optimized`);
 window.BARK.APP_VERSION = APP_VERSION;
 window.BARK.setAppVersion = function (v) { APP_VERSION = v; window.BARK.APP_VERSION = v; };
-
-// ====== SETTINGS STATE (localStorage hydration) ======
-window.allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
-
-// 3-Way Bubble Logic
-window.standardClusteringEnabled = localStorage.getItem('barkStandardClustering') !== 'false'; // Default ON
-window.premiumClusteringEnabled = localStorage.getItem('barkPremiumClustering') === 'true';   // Default OFF
-
-// Master state for the engine
-window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
-
-// 🛡️ STRICT HARDWARE FIX: Only auto-detect if the user has NEVER touched the setting.
-let lowGfxSaved = localStorage.getItem('barkLowGfxEnabled');
-window.lowGfxEnabled = false;
-
-if (lowGfxSaved !== null) {
-    window.lowGfxEnabled = lowGfxSaved === 'true';
-} else {
-    const deviceRAM = navigator.deviceMemory || 4;
-    window.lowGfxEnabled = (deviceRAM < 4);
-}
-window.simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
-window.instantNav = localStorage.getItem('barkInstantNav') === 'true';
-window.rememberMapPosition = localStorage.getItem('remember-map-toggle') === 'true';
-window.startNationalView = localStorage.getItem('barkNationalView') === 'true';
-window.stopAutoMovements = localStorage.getItem('barkStopAutoMove') === 'true';
-
-// 🛑 REDUCE PIN SCALING / MOTION STATE
-window.reducePinMotion = localStorage.getItem('barkReducePinMotion') === 'true';
-
-// 🚀 B.A.R.K. PERFORMANCE MODIFIERS (V24 — 4 Toggles)
-window.removeShadows = localStorage.getItem('barkRemoveShadows') === 'true';
-window.stopResizing = localStorage.getItem('barkStopResizing') === 'true';
-window.viewportCulling = localStorage.getItem('barkViewportCulling') === 'true';
-window.forcePlainMarkers = localStorage.getItem('barkForcePlainMarkers') === 'true';
-window.limitZoomOut = localStorage.getItem('barkLimitZoomOut') === 'true';
-window.simplifyPinsWhileMoving = localStorage.getItem('barkSimplifyPinsWhileMoving') === 'true';
-
-// 🔨 ULTRA-LOW SLEDGEHAMMER STATE
-window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
-
-// Master state for the engine (recomputed)
-window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
-
-// 1-Finger Zoom disabled state
-window.lockMapPanning = localStorage.getItem('barkLockMapPanning') === 'true';
-window.disable1fingerZoom = localStorage.getItem('barkDisable1Finger') === 'true';
-window.disableDoubleTap = localStorage.getItem('barkDisableDoubleTap') === 'true';
-window.disablePinchZoom = localStorage.getItem('barkDisablePinchZoom') === 'true';
-
-// Apply Master Override if Ultra Low is ON
-if (window.ultraLowEnabled) {
-    window.lowGfxEnabled = true;
-    window.standardClusteringEnabled = true;
-    window.instantNav = true;
-    window.simplifyTrails = true;
-    window.clusteringEnabled = true;
-    window.forcePlainMarkers = false;
-    window.limitZoomOut = true;
-    window.simplifyPinsWhileMoving = true;
-}
 
 // ====== GLOBAL LOOKUP ENGINE (v25 Performance) ======
 // Populated by dataService with canonical Park IDs from the source sheet.
