@@ -86,7 +86,9 @@ function getParkId(item) {
 function processParsedResults(results) {
     window.BARK.allPoints = [];
     const newAllPoints = window.BARK.allPoints;
+    const seenParkIds = new Set();
     let missingParkIdCount = 0;
+    let duplicateParkIdCount = 0;
 
     results.data.forEach((rawItem, rowIndex) => {
         try {
@@ -117,6 +119,16 @@ function processParsedResults(results) {
                 missingParkIdCount++;
                 return;
             }
+            if (seenParkIds.has(id)) {
+                duplicateParkIdCount++;
+                console.warn('[dataService] Skipped duplicate Park ID row. Production data must have one row per UUID.', {
+                    rowNumber: rowIndex + 2,
+                    id,
+                    name
+                });
+                return;
+            }
+            seenParkIds.add(id);
 
             const parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng, parkCategory };
 
@@ -136,6 +148,9 @@ function processParsedResults(results) {
 
     if (missingParkIdCount > 0) {
         console.warn(`[dataService] Skipped ${missingParkIdCount} row(s) without Park ID. Production data must be UUID-only.`);
+    }
+    if (duplicateParkIdCount > 0) {
+        console.warn(`[dataService] Skipped ${duplicateParkIdCount} duplicate Park ID row(s). Check the sheet before publishing.`);
     }
 
     // Hydrate canonical counts for gamification

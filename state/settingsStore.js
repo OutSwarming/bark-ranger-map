@@ -19,6 +19,7 @@
         removeShadows: 'barkRemoveShadows',
         stopResizing: 'barkStopResizing',
         viewportCulling: 'barkViewportCulling',
+        forcePlainMarkers: 'barkForcePlainMarkers',
         ultraLowEnabled: 'barkUltraLowEnabled',
         lockMapPanning: 'barkLockMapPanning',
         disable1fingerZoom: 'barkDisable1Finger',
@@ -42,6 +43,7 @@
         removeShadows: false,
         stopResizing: false,
         viewportCulling: false,
+        forcePlainMarkers: false,
         ultraLowEnabled: false,
         lockMapPanning: false,
         disable1fingerZoom: false,
@@ -150,6 +152,7 @@
             applyValue('premiumClusteringEnabled', false);
             applyValue('instantNav', true);
             applyValue('simplifyTrails', true);
+            applyValue('forcePlainMarkers', false);
         }
 
         const nextClusterState = get('clusteringEnabled');
@@ -184,6 +187,7 @@
             values.premiumClusteringEnabled = false;
             values.instantNav = true;
             values.simplifyTrails = true;
+            values.forcePlainMarkers = false;
         }
     }
 

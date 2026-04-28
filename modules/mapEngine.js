@@ -113,7 +113,10 @@ map.on('moveend', () => {
     }, 500);
 
     // 🚀 VIEWPORT CULLING DYNAMIC RENDER (Throttled to prevent flash)
-    if (window.viewportCulling) {
+    const markerPolicy = window.BARK.getMarkerLayerPolicy
+        ? window.BARK.getMarkerLayerPolicy(map.getZoom())
+        : { layerType: 'plain', cullPlainMarkers: window.viewportCulling };
+    if (markerPolicy.layerType === 'plain' && markerPolicy.cullPlainMarkers) {
         if (!window._cullingTimeout) {
             window._cullingTimeout = setTimeout(() => {
                 window._cullingTimeout = null;
@@ -124,7 +127,8 @@ map.on('moveend', () => {
 });
 
 function getEffectiveMarkerLayerTypeForZoom(zoom) {
-    const forceNoClustering = (window.premiumClusteringEnabled && zoom >= 7) || window.stopResizing;
+    if (window.BARK.getMarkerLayerPolicy) return window.BARK.getMarkerLayerPolicy(zoom).layerType;
+    const forceNoClustering = window.premiumClusteringEnabled && zoom >= 7;
     return (window.clusteringEnabled && !forceNoClustering) ? 'cluster' : 'plain';
 }
 

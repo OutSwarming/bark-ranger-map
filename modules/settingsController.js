@@ -154,6 +154,7 @@ window.BARK.initSettings = function initSettings() {
         setupPerfToggle('toggle-remove-shadows', 'removeShadows', 'barkRemoveShadows');
         setupPerfToggle('toggle-stop-resizing', 'stopResizing', 'barkStopResizing');
         setupPerfToggle('toggle-viewport-culling', 'viewportCulling', 'barkViewportCulling');
+        setupPerfToggle('toggle-force-plain-markers', 'forcePlainMarkers', 'barkForcePlainMarkers');
 
         const disableDoubleTapEl = document.getElementById('toggle-disable-double-tap');
         if (disableDoubleTapEl) {
@@ -324,6 +325,7 @@ window.BARK.initSettings = function initSettings() {
                     removeShadows: window.removeShadows || false,
                     stopResizing: window.stopResizing || false,
                     viewportCulling: window.viewportCulling || false,
+                    forcePlainMarkers: window.forcePlainMarkers || false,
                     ultraLowEnabled: window.ultraLowEnabled || false,
                     lockMapPanning: window.lockMapPanning || false,
                     disablePinchZoom: window.disablePinchZoom || false,

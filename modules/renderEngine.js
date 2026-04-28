@@ -80,8 +80,17 @@ function serializeSet(set) {
 }
 
 function getTargetMarkerLayerType(zoom) {
-    const forceNoClustering = (window.premiumClusteringEnabled && zoom >= 7) || window.stopResizing;
+    if (window.BARK.getMarkerLayerPolicy) return window.BARK.getMarkerLayerPolicy(zoom).layerType;
+    const forceNoClustering = window.premiumClusteringEnabled && zoom >= 7;
     return (window.clusteringEnabled && !forceNoClustering) ? 'cluster' : 'plain';
+}
+
+function shouldCullPlainMarkers(zoom) {
+    if (window.BARK.getMarkerLayerPolicy) {
+        const policy = window.BARK.getMarkerLayerPolicy(zoom);
+        return policy.layerType === 'plain' && policy.cullPlainMarkers;
+    }
+    return Boolean(window.viewportCulling);
 }
 
 function getMarkerVisibilityStateKey() {
@@ -93,10 +102,11 @@ function getMarkerVisibilityStateKey() {
         .sort()
         .join(',');
     const visitedIds = Array.from((window.BARK.userVisitedPlaces || new Map()).keys()).sort().join(',');
-    const viewportKey = window.viewportCulling && map
+    const zoom = map ? map.getZoom() : 0;
+    const shouldCull = shouldCullPlainMarkers(zoom);
+    const viewportKey = shouldCull && map
         ? map.getBounds().pad(0.2).toBBoxString()
         : '';
-    const zoom = map ? map.getZoom() : 0;
 
     return [
         window.BARK._markerDataRevision || 0,
@@ -111,10 +121,11 @@ function getMarkerVisibilityStateKey() {
         window.clusteringEnabled ? 'cluster-on' : 'cluster-off',
         window.premiumClusteringEnabled ? 'premium-cluster-on' : 'premium-cluster-off',
         window.standardClusteringEnabled ? 'standard-cluster-on' : 'standard-cluster-off',
+        window.forcePlainMarkers ? 'force-plain-on' : 'force-plain-off',
         window.stopResizing ? 'stop-resizing-on' : 'stop-resizing-off',
         window.viewportCulling ? 'viewport-culling-on' : 'viewport-culling-off',
         getTargetMarkerLayerType(zoom),
-        window.viewportCulling ? zoom : '',
+        shouldCull ? zoom : '',
         viewportKey
     ].join('|');
 }
@@ -166,6 +177,7 @@ function updateMarkers() {
 
     const currentZoom = map.getZoom();
     const targetLayerType = getTargetMarkerLayerType(currentZoom);
+    const shouldCull = shouldCullPlainMarkers(currentZoom);
 
     let visibleBounds = L.latLngBounds();
     const screenBounds = map.getBounds().pad(0.2);
@@ -203,7 +215,7 @@ function updateMarkers() {
         let isVisible = (matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip;
 
         // 🎯 VIEWPORT CULLING: Skip off-screen pins entirely
-        if (isVisible && window.viewportCulling && !screenBounds.contains([item.lat, item.lng])) {
+        if (isVisible && shouldCull && !screenBounds.contains([item.lat, item.lng])) {
             isVisible = false;
         }
 
@@ -224,6 +236,10 @@ function updateMarkers() {
             }
         }
     });
+
+    if (window.BARK.markerManager && typeof window.BARK.markerManager.applyVisibility === 'function') {
+        window.BARK.markerManager.applyVisibility(allPoints);
+    }
 
     // 🏭 BATCH: Apply visited-pin class (avoids interleaved read/write layout thrash)
     markerClassUpdates.forEach(({ icon, isVisited }) => {

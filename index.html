@@ -683,6 +683,19 @@
                                 <span class="slider round"></span>
                             </label>
                         </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Force Plain Pins</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Disables bubble clustering for older phones that struggle with cluster recalculation.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-force-plain-markers">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
                                 <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Auto Movements</div>
@@ -1288,6 +1301,7 @@
     <script src="renderers/routeRenderer.js?v=1" defer></script>
     <script src="services/checkinService.js?v=1" defer></script>
     <script src="services/authService.js?v=1" defer></script>
+    <script src="modules/markerLayerPolicy.js?v=1" defer></script>
     <script src="modules/MarkerLayerManager.js?v=1" defer></script>
     <script src="modules/mapEngine.js?v=1" defer></script>
     <script src="modules/renderEngine.js?v=1" defer></script>

@@ -44,6 +44,7 @@ window.reducePinMotion = localStorage.getItem('barkReducePinMotion') === 'true';
 window.removeShadows = localStorage.getItem('barkRemoveShadows') === 'true';
 window.stopResizing = localStorage.getItem('barkStopResizing') === 'true';
 window.viewportCulling = localStorage.getItem('barkViewportCulling') === 'true';
+window.forcePlainMarkers = localStorage.getItem('barkForcePlainMarkers') === 'true';
 
 // 🔨 ULTRA-LOW SLEDGEHAMMER STATE
 window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
@@ -64,6 +65,7 @@ if (window.ultraLowEnabled) {
     window.instantNav = true;
     window.simplifyTrails = true;
     window.clusteringEnabled = true;
+    window.forcePlainMarkers = false;
 }
 
 // ====== GLOBAL LOOKUP ENGINE (v25 Performance) ======

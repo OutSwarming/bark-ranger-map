@@ -39,6 +39,7 @@ function handleCloudSettingsHydration(data, metadata = {}) {
             window.removeShadows = applySetting('barkRemoveShadows', s.removeShadows || false);
             window.stopResizing = applySetting('barkStopResizing', s.stopResizing || false);
             window.viewportCulling = applySetting('barkViewportCulling', s.viewportCulling || false);
+            window.forcePlainMarkers = applySetting('barkForcePlainMarkers', s.forcePlainMarkers || false);
             window.ultraLowEnabled = applySetting('barkUltraLowEnabled', s.ultraLowEnabled || false);
             window.lockMapPanning = applySetting('barkLockMapPanning', s.lockMapPanning || false);
             if (mapRef) {
@@ -66,6 +67,7 @@ function handleCloudSettingsHydration(data, metadata = {}) {
                 'toggle-remove-shadows': window.removeShadows,
                 'toggle-stop-resizing': window.stopResizing,
                 'toggle-viewport-culling': window.viewportCulling,
+                'toggle-force-plain-markers': window.forcePlainMarkers,
                 'ultra-low-toggle': window.ultraLowEnabled,
                 'toggle-lock-map-panning': window.lockMapPanning,
                 'toggle-disable-pinch': window.disablePinchZoom,

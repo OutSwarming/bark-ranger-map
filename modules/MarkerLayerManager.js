@@ -36,7 +36,8 @@ class MarkerLayerManager {
 
     getTargetLayerType() {
         const zoom = this.map ? this.map.getZoom() : 0;
-        const forceNoClustering = (window.premiumClusteringEnabled && zoom >= 7) || window.stopResizing;
+        if (window.BARK.getMarkerLayerPolicy) return window.BARK.getMarkerLayerPolicy(zoom).layerType;
+        const forceNoClustering = window.premiumClusteringEnabled && zoom >= 7;
         return (window.clusteringEnabled && !forceNoClustering) ? 'cluster' : 'plain';
     }
 
@@ -131,7 +132,7 @@ class MarkerLayerManager {
         const marker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
         marker._layerAdded = false;
         marker._barkLayerType = null;
-        marker._barkIsVisible = true;
+        marker._barkIsVisible = false;
         marker._barkDataFingerprint = this.getDataFingerprint(parkData);
         marker._barkVisitedState = isVisited;
         this.bindMarkerEvents(marker);
@@ -156,10 +157,19 @@ class MarkerLayerManager {
 
     moveMarkersToLayer(points, targetLayerType) {
         const markersToAdd = [];
+        const policy = window.BARK.getMarkerLayerPolicy
+            ? window.BARK.getMarkerLayerPolicy(this.map ? this.map.getZoom() : 0)
+            : { cullPlainMarkers: false };
 
         points.forEach(point => {
             const marker = point.marker;
             if (!marker) return;
+
+            if (targetLayerType === 'plain' && policy.cullPlainMarkers && marker._barkIsVisible === false) {
+                this.removeMarker(marker);
+                return;
+            }
+
             if (marker._layerAdded && marker._barkLayerType === targetLayerType) return;
 
             this.removeMarker(marker);
@@ -179,6 +189,10 @@ class MarkerLayerManager {
         }
 
         window.BARK._lastLayerType = targetLayerType;
+    }
+
+    applyVisibility(points = window.BARK.allPoints || []) {
+        this.moveMarkersToLayer(points, this.getTargetLayerType());
     }
 
     sync(points = window.BARK.allPoints || []) {
