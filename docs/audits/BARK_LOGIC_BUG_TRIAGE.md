@@ -44,7 +44,7 @@ This is the working tracker for the 17 reported logic bugs. Keep this file curre
 | 8 | High | Fixed by reusing the Leaflet map readiness helper in search | Done | Fixed |
 | 9 | High | Fixed with defensive Firebase/auth/Firestore guards in leaderboard sync | Done | Fixed |
 | 10 | High | Fixed with safe leaderboard rank parsing and rendering | Done | Fixed |
-| 11 | Medium | Mostly not confirmed; settings store mirrors change behavior | P3 | Partially confirmed |
+| 11 | Medium | Fixed by routing standalone settings through the settings store | Done | Fixed |
 | 12 | Medium | Confirmed | P2 | Confirmed |
 | 13 | Medium | Not a current bug; design risk | P3 | Design risk |
 | 14 | Medium | Confirmed as low-risk stale UI closure | P3 | Confirmed |
@@ -656,18 +656,42 @@ Verification:
 
 ## Bug 11: Ultra Low Toggle Bypasses Settings Store
 
-Status: Partially confirmed
+Status: Fixed
 
 Files:
-- `state/settingsStore.js:227`
-- `state/settingsStore.js:235`
-- `state/settingsStore.js:256`
-- `modules/settingsController.js:318`
-- `modules/settingsController.js:319`
-- `modules/settingsController.js:340`
-- `modules/settingsController.js:353`
+- `state/settingsStore.js:142`
+- `state/settingsStore.js:150`
+- `state/settingsStore.js:192`
+- `modules/settingsController.js:107`
+- `modules/settingsController.js:320`
+- `modules/settingsController.js:338`
+- `modules/settingsController.js:348`
+- `modules/settingsController.js:359`
 
-Evidence:
+How a user can trigger it:
+- Open Settings.
+- Toggle Ultra Low Graphics on or off.
+- Confirm the reload prompt.
+- Before the fix, the handler set `window.ultraLowEnabled`, which did route through the store, but then also wrote several related settings directly to `localStorage`.
+- The bug was most visible when disabling Ultra Low: `lowGfxEnabled`, `instantNav`, and `simplifyTrails` were changed in storage without going through `settingsStore.set()`, so store listeners did not fire before reload.
+
+What the user saw before:
+- Usually nothing obvious because the page reloaded after 150ms.
+- In that short window, any code listening through `window.BARK.settings.onChange(...)` could see stale in-memory settings.
+- The controller also carried duplicate persistence logic for `reducePinMotion`, `rememberMapPosition`, and `startNationalView`, making it easy for future settings changes to drift.
+
+Expected user result:
+- Toggling Ultra Low should update the setting and all effective preset settings through one source of truth.
+- Any setting whose effective value changes should notify store listeners.
+- The visible behavior should stay the same: confirm prompt, set mode, skip cloud hydration for that reload, then reload.
+
+What the user sees now:
+- The UI behavior is unchanged.
+- Ultra Low enable/disable is routed through the settings store.
+- Related preset settings are persisted and notify through the store.
+- Standalone settings now share the same controller helper instead of writing localStorage directly.
+
+Original evidence:
 - The current settings store installs legacy `window.*` property setters.
 - Assignments such as `window.ultraLowEnabled = isEnabled`, `window.rememberMapPosition = ...`, and `window.startNationalView = ...` route through `settingsStore.set()`.
 
@@ -679,13 +703,41 @@ Remaining risk:
 - The Ultra Low handler also writes related keys directly to localStorage. On disable, `lowGfxEnabled`, `instantNav`, and `simplifyTrails` localStorage values are changed without corresponding store updates/listener notifications before reload.
 - The 150ms reload window makes this low priority, but the handler is still redundant and easy to simplify.
 
-Likely fix:
-- Use `settingsStore.set('ultraLowEnabled', isEnabled)` explicitly.
-- Let the store own preset side effects.
-- Remove redundant direct localStorage writes or replace them with store calls if disabling should actively change related settings.
+Fix options and tradeoffs:
+
+Option A: Leave as-is and document as low risk
+- Approach: Keep the direct localStorage writes because the reload happens almost immediately.
+- Pros: Zero regression risk; current user-visible behavior mostly works.
+- Cons: Keeps duplicate state paths; listeners remain unreliable during the reload window; future settings work stays harder to reason about.
+
+Option B: Replace direct localStorage writes with store calls in the controller
+- Approach: Have the Ultra Low handler call `settingsStore.set(...)` for every related setting it changes.
+- Pros: Fixes listener notifications; removes most bypass behavior from the controller.
+- Cons: Still keeps Ultra Low preset knowledge split between controller and store; easy for future preset changes to update one side but not the other.
+
+Option C: Move Ultra Low preset side effects into the settings store
+- Approach: Add store helpers for preset application, have the controller set only `ultraLowEnabled`, and route standalone toggles through a small `setSettingValue()` helper.
+- Pros: One source of truth; every effective setting change persists and notifies; controller becomes linear; reduces duplicate localStorage writes for reduce motion, remember map position, and national view.
+- Cons: Slightly broader patch; still keeps legacy `window.*` mirrors for compatibility until the app is ready to drop them.
+
+Chosen strategy:
+- Use Option C.
+- Preserve current user-facing prompts and reload behavior.
+- Keep the fallback direct localStorage write only for the degraded case where the settings store is unavailable.
+
+Fix applied:
+- Added `applyPresetValues(...)` in `state/settingsStore.js`.
+- Added `getUltraLowPresetValues(isEnabled)` so Ultra Low enable/disable side effects live in the store.
+- `settingsStore.set('ultraLowEnabled', true)` now applies the low-graphics preset and Ultra Low overrides through store persistence/notifications.
+- `settingsStore.set('ultraLowEnabled', false)` now disables the related high-impact settings through store persistence/notifications.
+- Added `setSettingValue(key, value)` in `modules/settingsController.js`.
+- Ultra Low, Reduced Pin Resizing, Remember Map Position, and Start National View now route through `setSettingValue(...)` instead of duplicating localStorage writes.
 
 Verification:
 - Store `onChange()` listeners fire for every setting whose effective value changes.
+- `node --check state/settingsStore.js` passes.
+- `node --check modules/settingsController.js` passes.
+- Stubbed settings-store smoke test confirms Ultra Low enable/disable notifies related setting listeners.
 
 ## Bug 12: Manage Portal Visit Dates Display In UTC
 

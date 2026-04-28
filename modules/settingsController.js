@@ -16,6 +16,12 @@ window.BARK.initSettings = function initSettings() {
     const settingsStore = window.BARK.settings;
     const settingsRegistry = window.BARK.SETTINGS_REGISTRY || {};
     const performanceSettingKeys = window.BARK.PERFORMANCE_SETTING_KEYS || [];
+    const standaloneStorageKeys = {
+        ultraLowEnabled: 'barkUltraLowEnabled',
+        rememberMapPosition: 'remember-map-toggle',
+        startNationalView: 'barkNationalView',
+        reducePinMotion: 'barkReducePinMotion'
+    };
     const settingsScrollLock = {
         locked: false,
         scrollY: 0,
@@ -91,6 +97,22 @@ window.BARK.initSettings = function initSettings() {
         settingsScrollLock.activeViewScrollTop = 0;
         settingsScrollLock.bodyStyles = null;
         settingsScrollLock.activeViewStyles = null;
+    };
+
+    const getStorageKeyForSetting = (key) => {
+        if (settingsRegistry[key] && settingsRegistry[key].storageKey) return settingsRegistry[key].storageKey;
+        return standaloneStorageKeys[key];
+    };
+
+    const setSettingValue = (key, value) => {
+        if (settingsStore && typeof settingsStore.set === 'function') {
+            settingsStore.set(key, value);
+            return;
+        }
+
+        window[key] = value;
+        const storageKey = getStorageKeyForSetting(key);
+        if (storageKey) localStorage.setItem(storageKey, window[key] ? 'true' : 'false');
     };
 
     const syncRegisteredControls = () => {
@@ -222,8 +244,7 @@ window.BARK.initSettings = function initSettings() {
                 if (settingsStore && typeof settingsStore.set === 'function') {
                     settingsStore.set(key, e.target.checked);
                 } else {
-                    window[key] = e.target.checked;
-                    if (setting.storageKey) localStorage.setItem(setting.storageKey, window[key] ? 'true' : 'false');
+                    setSettingValue(key, e.target.checked);
                     syncRegisteredControls();
                     scheduleRegistrySettingEffects(setting);
                 }
@@ -296,7 +317,7 @@ window.BARK.initSettings = function initSettings() {
                         ? "Enabling Reduced Pin Resizing requires a page reload. Proceed?"
                         : "Restoring full pin animations requires a page reload. Proceed?";
                     if (window.confirm(msg)) {
-                        localStorage.setItem('barkReducePinMotion', newVal ? 'true' : 'false');
+                        setSettingValue('reducePinMotion', newVal);
                         location.reload();
                     } else {
                         e.target.checked = window.reducePinMotion;
@@ -314,19 +335,7 @@ window.BARK.initSettings = function initSettings() {
                     "Switching to High Graphics requires a page reload. Proceed?";
                 if (!window.confirm(msg)) { e.target.checked = !isEnabled; return; }
 
-                window.ultraLowEnabled = isEnabled;
-                localStorage.setItem('barkUltraLowEnabled', isEnabled ? 'true' : 'false');
-                if (isEnabled) {
-                    localStorage.setItem('barkLowGfxEnabled', 'true');
-                    localStorage.setItem('barkStandardClustering', 'false');
-                    localStorage.setItem('barkPremiumClustering', 'false');
-                    localStorage.setItem('barkInstantNav', 'true');
-                    localStorage.setItem('barkSimplifyTrails', 'true');
-                } else {
-                    localStorage.setItem('barkLowGfxEnabled', 'false');
-                    localStorage.setItem('barkInstantNav', 'false');
-                    localStorage.setItem('barkSimplifyTrails', 'false');
-                }
+                setSettingValue('ultraLowEnabled', isEnabled);
 
                 sessionStorage.setItem('skipCloudHydration', 'true');
                 setTimeout(() => window.location.reload(true), 150);
@@ -336,12 +345,10 @@ window.BARK.initSettings = function initSettings() {
         const nationalViewToggle = document.getElementById('national-view-toggle');
         if (rememberMapToggle) {
             rememberMapToggle.addEventListener('change', (e) => {
-                window.rememberMapPosition = e.target.checked;
-                localStorage.setItem('remember-map-toggle', window.rememberMapPosition ? 'true' : 'false');
+                setSettingValue('rememberMapPosition', e.target.checked);
                 if (window.rememberMapPosition && nationalViewToggle) {
                     nationalViewToggle.checked = false;
-                    window.startNationalView = false;
-                    localStorage.setItem('barkNationalView', 'false');
+                    setSettingValue('startNationalView', false);
                 }
             });
         }
@@ -349,12 +356,10 @@ window.BARK.initSettings = function initSettings() {
         if (nationalViewToggle) {
             nationalViewToggle.checked = window.startNationalView;
             nationalViewToggle.addEventListener('change', (e) => {
-                window.startNationalView = e.target.checked;
-                localStorage.setItem('barkNationalView', window.startNationalView ? 'true' : 'false');
+                setSettingValue('startNationalView', e.target.checked);
                 if (window.startNationalView && rememberMapToggle) {
                     rememberMapToggle.checked = false;
-                    window.rememberMapPosition = false;
-                    localStorage.setItem('remember-map-toggle', 'false');
+                    setSettingValue('rememberMapPosition', false);
                 }
             });
         }

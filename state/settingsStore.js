@@ -139,6 +139,36 @@
         }
     }
 
+    function applyPresetValues(presetValues) {
+        Object.entries(presetValues || {}).forEach(([presetKey, presetValue]) => {
+            if (Object.prototype.hasOwnProperty.call(STORAGE_KEYS, presetKey)) {
+                applyValue(presetKey, presetValue);
+            }
+        });
+    }
+
+    function getUltraLowPresetValues(isEnabled) {
+        if (!isEnabled) {
+            return {
+                lowGfxEnabled: false,
+                instantNav: false,
+                simplifyTrails: false
+            };
+        }
+
+        return {
+            lowGfxEnabled: true,
+            ...(window.BARK.LOW_GRAPHICS_PRESET || {}),
+            standardClusteringEnabled: false,
+            premiumClusteringEnabled: false,
+            instantNav: true,
+            simplifyTrails: true,
+            forcePlainMarkers: false,
+            limitZoomOut: true,
+            simplifyPinsWhileMoving: true
+        };
+    }
+
     function set(key, value) {
         assertKnownKey(key);
 
@@ -160,22 +190,13 @@
         }
 
         if (key === 'ultraLowEnabled' && values.ultraLowEnabled) {
-            applyValue('lowGfxEnabled', true);
-            applyValue('standardClusteringEnabled', false);
-            applyValue('premiumClusteringEnabled', false);
-            applyValue('instantNav', true);
-            applyValue('simplifyTrails', true);
-            applyValue('forcePlainMarkers', false);
-            applyValue('limitZoomOut', true);
-            applyValue('simplifyPinsWhileMoving', true);
+            applyPresetValues(getUltraLowPresetValues(true));
+        } else if (key === 'ultraLowEnabled') {
+            applyPresetValues(getUltraLowPresetValues(false));
         }
 
         if (key === 'lowGfxEnabled' && values.lowGfxEnabled) {
-            Object.entries(window.BARK.LOW_GRAPHICS_PRESET || {}).forEach(([presetKey, presetValue]) => {
-                if (Object.prototype.hasOwnProperty.call(STORAGE_KEYS, presetKey)) {
-                    applyValue(presetKey, presetValue);
-                }
-            });
+            applyPresetValues(window.BARK.LOW_GRAPHICS_PRESET || {});
         }
 
         const nextClusterState = get('clusteringEnabled');
@@ -205,21 +226,12 @@
         });
 
         if (values.ultraLowEnabled) {
-            values.lowGfxEnabled = true;
-            values.standardClusteringEnabled = false;
-            values.premiumClusteringEnabled = false;
-            values.instantNav = true;
-            values.simplifyTrails = true;
-            values.forcePlainMarkers = false;
-            values.limitZoomOut = true;
-            values.simplifyPinsWhileMoving = true;
+            Object.assign(values, getUltraLowPresetValues(true));
         }
 
         if (values.lowGfxEnabled) {
             Object.entries(window.BARK.LOW_GRAPHICS_PRESET || {}).forEach(([presetKey, presetValue]) => {
-                if (Object.prototype.hasOwnProperty.call(STORAGE_KEYS, presetKey)) {
-                    values[presetKey] = presetValue;
-                }
+                if (Object.prototype.hasOwnProperty.call(STORAGE_KEYS, presetKey)) values[presetKey] = presetValue;
             });
         }
     }
