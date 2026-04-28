@@ -27,6 +27,10 @@ if (window.visualViewport) {
             savedScrollTop = activeView ? activeView.scrollTop : 0;
         } else if (!isKeyboardOpen && wasKeyboardOpen) {
             // Keyboard just closed — restore scroll position after layout settles
+            if (typeof window.BARK.hideAllInlinePlannerSuggestions === 'function') {
+                window.BARK.hideAllInlinePlannerSuggestions();
+            }
+
             if (activeView && savedScrollTop !== null) {
                 requestAnimationFrame(() => {
                     activeView.scrollTop = savedScrollTop;

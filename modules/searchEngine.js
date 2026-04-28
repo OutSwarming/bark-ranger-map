@@ -11,6 +11,7 @@ const SEARCH_CONTINUATION_DELAY_MS = 0;
 const SEARCH_SUGGESTION_LIMIT = 8;
 const SEARCH_SCORE_THRESHOLD = 2;
 const SEARCH_GLOBAL_MIN_LENGTH = 3;
+const INLINE_PLANNER_SEARCH_TYPES = ['start', 'end'];
 
 // ====== TEXT NORMALIZATION ======
 function normalizeText(text) {
@@ -178,6 +179,21 @@ function hideInlineSuggestions(type) {
     if (suggestBox) suggestBox.style.display = 'none';
 }
 
+function hideAllInlineSuggestions() {
+    INLINE_PLANNER_SEARCH_TYPES.forEach(hideInlineSuggestions);
+}
+
+function isInlinePlannerSearchTarget(target, type) {
+    const DOM = window.BARK.DOM;
+    const input = DOM && DOM.inlineInput ? DOM.inlineInput(type) : null;
+    const suggestBox = DOM && DOM.inlineSuggest ? DOM.inlineSuggest(type) : null;
+
+    return Boolean(
+        (input && target === input) ||
+        (suggestBox && suggestBox.contains(target))
+    );
+}
+
 function appendInlineStatus(suggestBox, text, cssText) {
     if (!suggestBox) return;
     const statusDiv = document.createElement('div');
@@ -318,6 +334,8 @@ function getSearchMovementMap(targetType) {
 
 window.BARK.getLocalParkMatches = getLocalParkMatches;
 window.BARK.runInlinePlannerSearch = runInlinePlannerSearch;
+window.BARK.hideInlinePlannerSuggestions = hideInlineSuggestions;
+window.BARK.hideAllInlinePlannerSuggestions = hideAllInlineSuggestions;
 
 // ====== SEARCH UI BINDING ======
 function initSearchEngine() {
@@ -586,6 +604,15 @@ function initSearchEngine() {
             }
         }
     });
+
+    document.addEventListener('pointerdown', (e) => {
+        INLINE_PLANNER_SEARCH_TYPES.forEach((type) => {
+            const suggestBox = DOM.inlineSuggest(type);
+            if (!suggestBox || suggestBox.style.display !== 'block') return;
+            if (isInlinePlannerSearchTarget(e.target, type)) return;
+            hideInlineSuggestions(type);
+        });
+    }, true);
 
     // Reshow dropdown when focusing search bar
     searchInput.addEventListener('focus', () => {

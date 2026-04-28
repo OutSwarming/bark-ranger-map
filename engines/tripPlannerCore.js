@@ -309,7 +309,25 @@ window.editBookend = function (type) {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 window.processInlineSearch(type);
+            } else if (e.key === 'Escape') {
+                if (window.BARK.hideInlinePlannerSuggestions) {
+                    window.BARK.hideInlinePlannerSuggestions(type);
+                }
+                inlineInput.blur();
             }
+        });
+
+        inlineInput.addEventListener('blur', () => {
+            setTimeout(() => {
+                const suggestBox = window.BARK.DOM.inlineSuggest(type);
+                if (suggestBox && suggestBox.contains(document.activeElement)) return;
+
+                if (window.BARK.hideInlinePlannerSuggestions) {
+                    window.BARK.hideInlinePlannerSuggestions(type);
+                } else if (suggestBox) {
+                    suggestBox.style.display = 'none';
+                }
+            }, 120);
         });
     }
 };
