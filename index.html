@@ -140,14 +140,12 @@
         <div class="panel-content">
             <h2 id="panel-title" style="margin-bottom: 20px;">Park Name</h2>
 
-            <div class="panel-section" id="panel-visited-section" style="display: none; margin-bottom: 20px;">
-                <button id="verify-checkin-btn" class="glass-btn"
-                    style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; background: #FF9800; color: white; border: none; padding: 12px; border-radius: 50px; box-shadow: 0 4px 10px rgba(255, 152, 0, 0.3); margin-bottom: 10px; transition: all 0.2s ease-in-out;">
-                    <span style="font-size: 16px;">🐾</span>
-                    <span id="verify-checkin-text" style="color: white !important;">Verified Check-In</span>
+            <div class="panel-section" id="panel-visited-section" style="display: none;">
+                <button id="verify-checkin-btn" class="glass-btn panel-visit-action">
+                    <span class="panel-action-icon">🐾</span>
+                    <span id="verify-checkin-text">Verified Check-In</span>
                 </button>
-                <button id="mark-visited-btn" class="glass-btn"
-                    style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700;">
+                <button id="mark-visited-btn" class="glass-btn panel-visit-action">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         stroke-linecap="round" stroke-linejoin="round" class="heart-icon">
                         <path
@@ -158,8 +156,7 @@
                 </button>
             </div>
 
-            <a id="suggest-edit-btn" href="mailto:usbarkrangers@gmail.com" class="glass-btn outline-btn"
-                style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; text-decoration: none; margin-bottom: 20px;">
+            <a id="suggest-edit-btn" href="mailto:usbarkrangers@gmail.com" class="glass-btn outline-btn panel-secondary-action">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                     stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 20h9"></path>

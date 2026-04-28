@@ -163,7 +163,7 @@ function renderMarkerClickPanel(context) {
 
     if (visitedSection && markVisitedBtn && markVisitedText && verifyBtn) {
         if (firebaseService && firebaseService.getCurrentUser()) {
-            visitedSection.style.display = 'block';
+            visitedSection.style.display = 'grid';
 
             if (userVisitedPlaces.has(d.id)) {
                 const cachedObj = userVisitedPlaces.get(d.id);
