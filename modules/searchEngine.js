@@ -293,6 +293,11 @@ function runInlinePlannerSearch(type, options = {}) {
         return;
     }
 
+    if (!options.executeGlobal && input !== document.activeElement) {
+        hideInlineSuggestions(type);
+        return;
+    }
+
     const lowerQuery = query.toLowerCase();
     if (lowerQuery === 'my location' || lowerQuery === 'current location') {
         executeGeocode(query, type);

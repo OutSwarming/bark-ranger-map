@@ -105,26 +105,6 @@ html {
     background: transparent;
 }
 
-.bark-page-scrollbar {
-    position: fixed;
-    top: 0;
-    right: max(3px, env(safe-area-inset-right, 0px));
-    width: 4px;
-    min-height: 28px;
-    border-radius: 999px;
-    background: rgba(2, 6, 23, 0.9);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
-    opacity: 0;
-    pointer-events: none;
-    transform: translate3d(0, 8px, 0);
-    transition: opacity 0.18s ease;
-    z-index: 3200;
-}
-
-.bark-page-scrollbar.is-visible {
-    opacity: 1;
-}
-
 /* Allow text selection in inputs and textareas */
 input,
 textarea,
@@ -475,7 +455,7 @@ textarea,
 /* Slide-Out Info Panel */
 #slide-panel {
     position: absolute;
-    z-index: 9999;
+    z-index: 1800;
     width: 100%;
     background: white;
     box-shadow: -4px 0 25px rgba(0, 0, 0, 0.15);
@@ -557,12 +537,12 @@ textarea,
         height: 55vh;
         border-top-left-radius: 28px;
         border-top-right-radius: 28px;
-        transform: translateY(105%);
+        transform: translate3d(0, calc(100% + env(safe-area-inset-bottom, 0px) + 32px), 0);
         /* Hidden */
     }
 
     #slide-panel.open {
-        transform: translateY(0);
+        transform: translate3d(0, 0, 0);
     }
 
     /* Ensure Leaflet controls don't overlap with the nav bar on mobile */
@@ -963,15 +943,6 @@ textarea,
 }
 
 @media (max-width: 767px) {
-    .ui-view {
-        scrollbar-width: none;
-    }
-
-    .ui-view::-webkit-scrollbar {
-        width: 0;
-        height: 0;
-    }
-
     .glass-nav {
         bottom: 0;
         left: 0;

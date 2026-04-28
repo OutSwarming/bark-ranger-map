@@ -15,35 +15,32 @@ document.addEventListener('contextmenu', function (e) {
 // ====== iOS KEYBOARD LAYOUT FIX ======
 if (window.visualViewport) {
     let initialHeight = window.visualViewport.height;
-    let savedScrollTop = null;
 
     window.visualViewport.addEventListener('resize', () => {
         const isKeyboardOpen = (initialHeight - window.visualViewport.height) > window.screen.height * 0.2;
         const wasKeyboardOpen = document.body.classList.contains('keyboard-open');
-        const activeView = document.querySelector('.ui-view.active');
 
-        if (isKeyboardOpen && !wasKeyboardOpen) {
-            // Keyboard just opened — save scroll position before browser moves it
-            savedScrollTop = activeView ? activeView.scrollTop : 0;
-        } else if (!isKeyboardOpen && wasKeyboardOpen) {
-            // Keyboard just closed — restore scroll position after layout settles
-            if (typeof window.BARK.hideAllInlinePlannerSuggestions === 'function') {
-                window.BARK.hideAllInlinePlannerSuggestions();
+        if (!isKeyboardOpen && wasKeyboardOpen) {
+            const activeElement = document.activeElement;
+            if (
+                activeElement &&
+                activeElement.id &&
+                /^inline-(start|end)-input$/.test(activeElement.id) &&
+                typeof activeElement.blur === 'function'
+            ) {
+                activeElement.blur();
             }
 
-            if (activeView && savedScrollTop !== null) {
-                requestAnimationFrame(() => {
-                    activeView.scrollTop = savedScrollTop;
-                    savedScrollTop = null;
-                });
+            if (typeof window.BARK.hideAllInlinePlannerSuggestions === 'function') {
+                window.BARK.hideAllInlinePlannerSuggestions();
             }
         }
 
         document.body.classList.toggle('keyboard-open', isKeyboardOpen);
 
         if (isKeyboardOpen && window.innerWidth < 768) {
-            const slidePanel = document.querySelector('.slide-panel');
-            if (slidePanel) slidePanel.classList.remove('open');
+            const panel = document.getElementById('slide-panel');
+            if (panel) panel.classList.remove('open');
         }
     });
 
@@ -135,90 +132,6 @@ if (plannerViewEl) {
     }, { passive: true });
 }
 
-// ====== MOBILE PAGE SCROLLBAR ======
-function initMobilePageScrollbar() {
-    const thumb = document.createElement('div');
-    const mobileQuery = window.matchMedia('(max-width: 767px)');
-    let hideTimer = null;
-
-    thumb.className = 'bark-page-scrollbar';
-    document.body.appendChild(thumb);
-
-    function hide() {
-        thumb.classList.remove('is-visible');
-    }
-
-    function getTrackBounds() {
-        const nav = document.getElementById('main-nav');
-        const navRect = nav ? nav.getBoundingClientRect() : null;
-        const top = 8;
-        const bottom = navRect && navRect.top > 0 && navRect.top < window.innerHeight
-            ? window.innerHeight - navRect.top + 8
-            : 8;
-
-        return {
-            top,
-            height: Math.max(0, window.innerHeight - top - bottom)
-        };
-    }
-
-    function update(show = false) {
-        if (!mobileQuery.matches || document.body.classList.contains('keyboard-open')) {
-            hide();
-            return;
-        }
-
-        const scroller = document.querySelector('.ui-view.active');
-        if (!scroller) {
-            hide();
-            return;
-        }
-
-        const maxScroll = scroller.scrollHeight - scroller.clientHeight;
-        if (maxScroll <= 1) {
-            hide();
-            return;
-        }
-
-        const track = getTrackBounds();
-        if (track.height <= 40) {
-            hide();
-            return;
-        }
-
-        const thumbHeight = Math.max(28, track.height * (scroller.clientHeight / scroller.scrollHeight));
-        const progress = scroller.scrollTop / maxScroll;
-        const y = track.top + ((track.height - thumbHeight) * progress);
-
-        thumb.style.height = `${Math.round(thumbHeight)}px`;
-        thumb.style.transform = `translate3d(0, ${Math.round(y)}px, 0)`;
-
-        if (show) thumb.classList.add('is-visible');
-    }
-
-    function showTemporarily() {
-        update(true);
-        clearTimeout(hideTimer);
-        hideTimer = setTimeout(hide, 800);
-    }
-
-    uiViews.forEach(view => {
-        view.addEventListener('scroll', showTemporarily, { passive: true });
-    });
-
-    window.addEventListener('resize', () => update(false));
-    if (mobileQuery.addEventListener) {
-        mobileQuery.addEventListener('change', () => update(false));
-    } else if (mobileQuery.addListener) {
-        mobileQuery.addListener(() => update(false));
-    }
-
-    requestAnimationFrame(() => update(false));
-    return { update: () => update(false) };
-}
-
-const mobilePageScrollbar = initMobilePageScrollbar();
-
 // Stop Leaflet from stealing touches on the UI panels
 if (slidePanel) {
     L.DomEvent.disableClickPropagation(slidePanel);
@@ -264,8 +177,6 @@ navItems.forEach(btn => {
             if (slidePanel) slidePanel.classList.remove('open');
             if (leafletControls.length) leafletControls[0].style.display = 'none';
         }
-
-        if (mobilePageScrollbar) requestAnimationFrame(mobilePageScrollbar.update);
     });
 });
 

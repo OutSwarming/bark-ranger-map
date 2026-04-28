@@ -318,6 +318,7 @@ window.editBookend = function (type) {
         });
 
         inlineInput.addEventListener('blur', () => {
+            clearTimeout(inlineSearchTimer);
             setTimeout(() => {
                 const suggestBox = window.BARK.DOM.inlineSuggest(type);
                 if (suggestBox && suggestBox.contains(document.activeElement)) return;
