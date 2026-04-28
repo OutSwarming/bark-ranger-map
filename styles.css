@@ -75,27 +75,54 @@ html {
 }
 
 /* ====== APP-WIDE SCROLLBAR STYLING ====== */
-::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #020617 transparent;
 }
 
-::-webkit-scrollbar-track {
+*::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+*::-webkit-scrollbar-track {
     background: transparent;
     border-radius: 6px;
 }
 
-::-webkit-scrollbar-thumb {
-    background: #1e293b;
-    border-radius: 6px;
+*::-webkit-scrollbar-thumb {
+    background-color: #020617;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
 }
 
-::-webkit-scrollbar-thumb:hover {
-    background: #0f172a;
+*::-webkit-scrollbar-thumb:hover {
+    background-color: #111827;
 }
 
-::-webkit-scrollbar-corner {
+*::-webkit-scrollbar-corner {
     background: transparent;
+}
+
+.bark-page-scrollbar {
+    position: fixed;
+    top: 0;
+    right: max(3px, env(safe-area-inset-right, 0px));
+    width: 4px;
+    min-height: 28px;
+    border-radius: 999px;
+    background: rgba(2, 6, 23, 0.9);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(0, 8px, 0);
+    transition: opacity 0.18s ease;
+    z-index: 3200;
+}
+
+.bark-page-scrollbar.is-visible {
+    opacity: 1;
 }
 
 /* Allow text selection in inputs and textareas */
@@ -936,6 +963,15 @@ textarea,
 }
 
 @media (max-width: 767px) {
+    .ui-view {
+        scrollbar-width: none;
+    }
+
+    .ui-view::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+    }
+
     .glass-nav {
         bottom: 0;
         left: 0;
