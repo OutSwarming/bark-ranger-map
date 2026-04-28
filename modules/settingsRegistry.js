@@ -36,7 +36,7 @@ window.BARK.SETTINGS_REGISTRY = Object.freeze({
     standardClusteringEnabled: {
         storageKey: 'barkStandardClustering',
         cloudKey: 'standardClustering',
-        defaultValue: true,
+        defaultValue: false,
         elementId: 'standard-cluster-toggle',
         impact: window.BARK.SETTING_IMPACTS.MARKER_LAYER
     },
@@ -176,7 +176,7 @@ window.BARK.LOW_GRAPHICS_PRESET = Object.freeze({
     viewportCulling: true,
     limitZoomOut: true,
     simplifyTrails: true,
-    standardClusteringEnabled: true,
+    standardClusteringEnabled: false,
     premiumClusteringEnabled: false,
     instantNav: true,
     forcePlainMarkers: false

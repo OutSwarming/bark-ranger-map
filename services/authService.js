@@ -65,11 +65,11 @@ function handleCloudSettingsHydration(data, metadata = {}) {
             store.set('lowGfxEnabled', s.lowGfxEnabled === true);
         }
 
-        // standardClustering default: derive from premium when the field was never stored.
+        // standardClustering default: off, matching the public Google My Maps-like view.
         const cloudPremiumClustering = s.premiumClustering || false;
         const cloudStandardClustering = s.standardClustering === undefined
-            ? !cloudPremiumClustering
-            : s.standardClustering !== false;
+            ? false
+            : s.standardClustering === true;
 
         Object.entries(registry).forEach(([settingKey, setting]) => {
             if (!setting.cloudKey || settingKey === 'lowGfxEnabled') return;
@@ -273,7 +273,7 @@ function resetGuestSettingsToDefaults() {
     });
 
     setGuestDefaultSetting('rememberMapPosition', false);
-    setGuestDefaultSetting('startNationalView', false);
+    setGuestDefaultSetting('startNationalView', true);
 
     if (typeof window.BARK.syncSettingsControls === 'function') window.BARK.syncSettingsControls();
     if (typeof window.BARK.applyGlobalStyles === 'function') window.BARK.applyGlobalStyles();

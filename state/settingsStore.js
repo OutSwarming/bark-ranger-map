@@ -33,12 +33,12 @@
     const CLUSTER_SETTING_KEYS = new Set(['standardClusteringEnabled', 'premiumClusteringEnabled']);
     const DEFAULT_VALUES = {
         allowUncheck: false,
-        standardClusteringEnabled: true,
+        standardClusteringEnabled: false,
         premiumClusteringEnabled: false,
         simplifyTrails: false,
         instantNav: false,
         rememberMapPosition: false,
-        startNationalView: false,
+        startNationalView: true,
         stopAutoMovements: false,
         reducePinMotion: false,
         removeShadows: false,
@@ -161,7 +161,7 @@
 
         if (key === 'ultraLowEnabled' && values.ultraLowEnabled) {
             applyValue('lowGfxEnabled', true);
-            applyValue('standardClusteringEnabled', true);
+            applyValue('standardClusteringEnabled', false);
             applyValue('premiumClusteringEnabled', false);
             applyValue('instantNav', true);
             applyValue('simplifyTrails', true);
@@ -206,7 +206,7 @@
 
         if (values.ultraLowEnabled) {
             values.lowGfxEnabled = true;
-            values.standardClusteringEnabled = true;
+            values.standardClusteringEnabled = false;
             values.premiumClusteringEnabled = false;
             values.instantNav = true;
             values.simplifyTrails = true;

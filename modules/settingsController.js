@@ -319,7 +319,7 @@ window.BARK.initSettings = function initSettings() {
                 localStorage.setItem('barkUltraLowEnabled', isEnabled ? 'true' : 'false');
                 if (isEnabled) {
                     localStorage.setItem('barkLowGfxEnabled', 'true');
-                    localStorage.setItem('barkStandardClustering', 'true');
+                    localStorage.setItem('barkStandardClustering', 'false');
                     localStorage.setItem('barkPremiumClustering', 'false');
                     localStorage.setItem('barkInstantNav', 'true');
                     localStorage.setItem('barkSimplifyTrails', 'true');
