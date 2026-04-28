@@ -403,10 +403,16 @@ function resetMapViewToGuestDefault() {
     const mapRef = window.map || (typeof map !== 'undefined' ? map : null);
     if (!mapRef || typeof mapRef.setView !== 'function') return;
 
+    const guestZoom = 5;
+
     localStorage.removeItem('mapLat');
     localStorage.removeItem('mapLng');
     localStorage.removeItem('mapZoom');
-    mapRef.setView([39.8283, -98.5795], 4, { animate: false });
+    mapRef.setView([39.8283, -98.5795], guestZoom, { animate: false });
+
+    if (mapRef.locate && navigator.geolocation) {
+        mapRef.locate({ setView: true, maxZoom: guestZoom, watch: false });
+    }
 }
 
 function restoreGuestMarkerLayer() {
@@ -611,6 +617,7 @@ function initFirebase() {
                         window.BARK.invalidateVisitedIdsCache();
                     }
                     applyGuestZoomLimitDefault();
+                    resetMapViewToGuestDefault();
                     window.syncState();
                     if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
                 }
