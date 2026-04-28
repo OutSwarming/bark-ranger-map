@@ -122,6 +122,13 @@ navItems.forEach(btn => {
                 if (filterPanel) filterPanel.style.display = 'flex';
                 if (leafletControls.length) leafletControls[0].style.display = 'block';
                 if (window.map) window.map.invalidateSize();
+                if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
+                    window.BARK.invalidateMarkerVisibility();
+                }
+                if (typeof window.syncState === 'function') {
+                    window.BARK._pendingMarkerSync = false;
+                    window.syncState();
+                }
             });
         } else {
             uiViews.forEach(v => {

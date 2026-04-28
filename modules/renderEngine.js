@@ -85,7 +85,20 @@ function getTargetMarkerLayerType(zoom) {
     return (window.clusteringEnabled && !forceNoClustering) ? 'cluster' : 'plain';
 }
 
+function isMapViewActive() {
+    return !document.querySelector('.ui-view.active');
+}
+
+function isMapViewportReady(map) {
+    if (!map || !isMapViewActive()) return false;
+    const container = map.getContainer && map.getContainer();
+    if (!container) return false;
+    const rect = container.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+}
+
 function shouldCullPlainMarkers(zoom) {
+    if (!isMapViewportReady(window.map)) return false;
     if (window.BARK.getMarkerLayerPolicy) {
         const policy = window.BARK.getMarkerLayerPolicy(zoom);
         return policy.layerType === 'plain' && policy.cullPlainMarkers;
@@ -135,6 +148,7 @@ function getMarkerVisibilityStateKey() {
 window.BARK.invalidateMarkerVisibility = function () {
     lastMarkerVisibilityStateKey = null;
 };
+window.BARK.isMapViewActive = isMapViewActive;
 
 window.syncState = function () {
     if (syncScheduled) return;
@@ -142,7 +156,9 @@ window.syncState = function () {
     window.requestAnimationFrame(() => {
         syncScheduled = false;
         if (typeof window.BARK.updateMarkers === 'function') {
-            if (window.BARK._isZooming) {
+            if (!isMapViewActive()) {
+                window.BARK._pendingMarkerSync = true;
+            } else if (window.BARK._isZooming) {
                 window.BARK._pendingMarkerSync = true;
             } else {
                 const markerVisibilityStateKey = getMarkerVisibilityStateKey();

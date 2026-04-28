@@ -113,8 +113,11 @@ window.BARK.initSettings = function initSettings() {
             if (impacts.has(window.BARK.SETTING_IMPACTS.MAP_BEHAVIOR) && typeof window.BARK.applyMapPerformancePolicy === 'function') {
                 window.BARK.applyMapPerformancePolicy();
             }
-            if (impacts.has(window.BARK.SETTING_IMPACTS.MARKER_LAYER) && typeof window.BARK.rebuildMarkerLayer === 'function') {
+            const mapViewActive = typeof window.BARK.isMapViewActive !== 'function' || window.BARK.isMapViewActive();
+            if (impacts.has(window.BARK.SETTING_IMPACTS.MARKER_LAYER) && mapViewActive && typeof window.BARK.rebuildMarkerLayer === 'function') {
                 window.BARK.rebuildMarkerLayer();
+            } else if (impacts.has(window.BARK.SETTING_IMPACTS.MARKER_LAYER) && typeof window.BARK.invalidateMarkerVisibility === 'function') {
+                window.BARK.invalidateMarkerVisibility();
             }
             if (impacts.has(window.BARK.SETTING_IMPACTS.TRAIL_RENDER)) {
                 refreshTrailRendering();
