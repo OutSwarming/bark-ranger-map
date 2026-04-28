@@ -531,26 +531,13 @@
 
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Premium Bubble Mode</div>
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Auto Movements</div>
                                 <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Semantic Zooming: Explodes clusters as you zoom in. Keeps high-level map clean.
+                                    Prevents the map from automatically panning during search, filtering, and pin selection.
                                 </div>
                             </div>
                             <label class="switch">
-                                <input type="checkbox" id="premium-cluster-toggle">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Standard Bubble Mode</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Groups aggressively to keep the screen clean. Recommended for older devices.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="standard-cluster-toggle">
+                                <input type="checkbox" id="toggle-stop-auto-move">
                                 <span class="slider round"></span>
                             </label>
                         </div>
@@ -619,19 +606,33 @@
                         <!-- 🔬 ADVANCED OPTIMIZATION -->
                         <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; margin-bottom: 15px;">Advanced Optimization</div>
 
-                        <div id="performance-settings-registry" style="display: flex; flex-direction: column; gap: 15px;"></div>
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Auto Movements</div>
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Premium Bubble Mode</div>
                                 <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Prevents the map from automatically panning during search, filtering, and pin selection.
+                                    Semantic Zooming: Explodes clusters as you zoom in. Keeps high-level map clean.
                                 </div>
                             </div>
                             <label class="switch">
-                                <input type="checkbox" id="toggle-stop-auto-move">
+                                <input type="checkbox" id="premium-cluster-toggle">
                                 <span class="slider round"></span>
                             </label>
                         </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Standard Bubble Mode</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Groups aggressively to keep the screen clean. Recommended for older devices.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="standard-cluster-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div id="performance-settings-registry" style="display: flex; flex-direction: column; gap: 15px;"></div>
 
                         <!-- 🔨 ULTRA-LOW SLEDGEHAMMER -->
                         <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 5px 0;"></div>
