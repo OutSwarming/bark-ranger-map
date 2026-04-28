@@ -83,6 +83,16 @@ function serializeSet(set) {
     return Array.from(set || []).sort().join(',');
 }
 
+function getVisitedIdsCacheKey() {
+    if (typeof window.BARK._visitedIdsCacheKey === 'string') {
+        return window.BARK._visitedIdsCacheKey;
+    }
+
+    const visitedPlaces = window.BARK.userVisitedPlaces || new Map();
+    window.BARK._visitedIdsCacheKey = Array.from(visitedPlaces.keys()).sort().join(',');
+    return window.BARK._visitedIdsCacheKey;
+}
+
 function getTargetMarkerLayerType(zoom) {
     if (window.BARK.getMarkerLayerPolicy) return window.BARK.getMarkerLayerPolicy(zoom).layerType;
     const forceNoClustering = window.premiumClusteringEnabled && zoom >= 7;
@@ -114,11 +124,12 @@ function getMarkerVisibilityStateKey() {
     const map = window.map;
     const searchCache = window.BARK._searchResultCache || {};
     const searchCacheIds = searchCache.matchedIds ? Array.from(searchCache.matchedIds).sort().join(',') : '';
+    const searchCacheStatus = searchCache.complete === false ? 'search-partial' : 'search-complete';
     const tripStops = (window.BARK.tripDays || [])
         .flatMap(day => (day.stops || []).map(stop => stop.id))
         .sort()
         .join(',');
-    const visitedIds = Array.from((window.BARK.userVisitedPlaces || new Map()).keys()).sort().join(',');
+    const visitedIds = getVisitedIdsCacheKey();
     const zoom = map ? map.getZoom() : 0;
     const shouldCull = shouldCullPlainMarkers(zoom);
     const viewportKey = shouldCull && map
@@ -134,6 +145,7 @@ function getMarkerVisibilityStateKey() {
         visitedIds,
         tripStops,
         searchCache.query || '',
+        searchCacheStatus,
         searchCacheIds,
         window.clusteringEnabled ? 'cluster-on' : 'cluster-off',
         window.premiumClusteringEnabled ? 'premium-cluster-on' : 'premium-cluster-off',
@@ -151,6 +163,10 @@ function getMarkerVisibilityStateKey() {
 
 window.BARK.invalidateMarkerVisibility = function () {
     lastMarkerVisibilityStateKey = null;
+};
+window.BARK.invalidateVisitedIdsCache = function () {
+    window.BARK._visitedIdsCacheKey = null;
+    window.BARK.invalidateMarkerVisibility();
 };
 window.BARK.isMapViewActive = isMapViewActive;
 
@@ -220,6 +236,10 @@ function updateMarkers() {
     const tripDays = window.BARK.tripDays;
     const visitedFilterState = window.BARK.visitedFilterState;
     const _searchResultCache = window.BARK._searchResultCache;
+    const queryNorm = window.BARK.normalizeText(activeSearchQuery);
+    const cachedSearch = _searchResultCache || {};
+    const searchCacheMatchesQuery = Boolean(queryNorm && cachedSearch.query === queryNorm && cachedSearch.matchedIds);
+    const searchCacheComplete = !searchCacheMatchesQuery || cachedSearch.complete !== false;
 
     const currentZoom = map.getZoom();
     const targetLayerType = getTargetMarkerLayerType(currentZoom);
@@ -238,17 +258,17 @@ function updateMarkers() {
 
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
-        const cachedSearch = _searchResultCache;
-        const queryNorm = window.BARK.normalizeText(activeSearchQuery);
-        const nameNorm = item._cachedNormalizedName;
-        let matchesSearch = !activeSearchQuery || (cachedSearch.matchedIds?.has(item.id) ?? true) || (!queryNorm || nameNorm.includes(queryNorm));
+        const nameNorm = item._cachedNormalizedName || window.BARK.normalizeText(item.name);
+        let matchesSearch = true;
 
-        if (!matchesSearch && queryNorm.length > 2) {
-            let minDist = window.BARK.levenshtein(queryNorm, nameNorm);
-            for (const word of nameNorm.split(' ')) {
-                minDist = Math.min(minDist, window.BARK.levenshtein(queryNorm, word));
+        if (activeSearchQuery) {
+            if (!queryNorm) {
+                matchesSearch = true;
+            } else if (searchCacheMatchesQuery) {
+                matchesSearch = cachedSearch.matchedIds.has(item.id);
+            } else {
+                matchesSearch = nameNorm.includes(queryNorm);
             }
-            if (minDist <= 2) matchesSearch = true;
         }
 
         const matchesType = activeTypeFilter === 'all' || item.category === activeTypeFilter;
@@ -295,11 +315,17 @@ function updateMarkers() {
     window.BARK._lastLayerType = targetLayerType;
 
     // 🎯 SMART AUTO-FRAMING (Interrupt Protection)
-    const currentFilterState = activeSearchQuery + '|' + Array.from(activeSwagFilters).join(',');
+    const hasLongSearchQuery = activeSearchQuery.length > 2;
+    const currentFilterState = [
+        activeSearchQuery,
+        Array.from(activeSwagFilters).join(','),
+        hasLongSearchQuery && searchCacheMatchesQuery && !searchCacheComplete ? 'search-partial' : 'search-complete'
+    ].join('|');
+
     if (window._lastFilterState !== currentFilterState) {
         window._lastFilterState = currentFilterState;
 
-        if (!window.stopAutoMovements && (activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
+        if (!window.stopAutoMovements && searchCacheComplete && (activeSwagFilters.size > 0 || hasLongSearchQuery) && visibleBounds.isValid()) {
             map.flyToBounds(visibleBounds, {
                 padding: [50, 50],
                 maxZoom: 12,

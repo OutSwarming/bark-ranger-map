@@ -112,6 +112,9 @@ async function removeVisitedPlace(place) {
     try {
         if (window.confirm(`Remove ${place.name}?`)) {
             window.BARK.userVisitedPlaces.delete(place.id);
+            if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+                window.BARK.invalidateVisitedIdsCache();
+            }
             await syncUserProgress();
             window.syncState();
             window.BARK.renderManagePortal();

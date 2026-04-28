@@ -49,9 +49,9 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 
 - [x] **#9 — CSV polling at 10s will get throttled at scale** (`modules/dataService.js`, `core/app.js`) ✅
 
-- [ ] **#10 — `getMarkerVisibilityStateKey()` sorts visited IDs on every RAF** (`modules/renderEngine.js:117`): `Array.from(userVisitedPlaces.keys()).sort().join(',')` runs on every heartbeat. Cache this string as `window.BARK._visitedIdsCacheKey`, invalidate it only inside `handleVisitedPlacesSync()` in `authService.js` and inside the `markAsVisited` flow in `checkinService.js`.
+- [x] **#10 — `getMarkerVisibilityStateKey()` sorts visited IDs on every RAF** (`modules/renderEngine.js`, `services/authService.js`, `services/checkinService.js`, `services/firebaseService.js`) ✅
 
-- [ ] **#11 — Levenshtein search is unbounded on main thread** (`modules/searchEngine.js`): Runs synchronously across all parks. Add a `performance.now()` budget check — if search loop exceeds 16ms, return partial results and schedule remainder. Prepares for 5,000+ parks.
+- [x] **#11 — Levenshtein search is unbounded on main thread** (`modules/searchEngine.js`, `modules/renderEngine.js`) ✅
 
 - [ ] **#12 — `barkState.js` redundant settings initialization** (`modules/barkState.js`): The 20 `window.x = localStorage.getItem(...)` assignments at the top are immediately overwritten by `settingsStore.js` property descriptors. Remove the settings block from `barkState.js`. It should only initialize data state: `allPoints`, `userVisitedPlaces`, `tripDays`, `activeDayIdx`, `activeSwagFilters`, `activeSearchQuery`, `activeTypeFilter`, `visitedFilterState`, `_searchResultCache`, `activePinMarker`.
 
@@ -68,7 +68,7 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 - [ ] **#18 — User-visible degraded state when `initMap` fails**: When the map fails (Leaflet CDN down, DOM node missing, etc.), the user sees nothing — no error, no message, just a broken blank screen. Add a visible in-page message ("Map unavailable — try refreshing") that appears if `initMap` is not in `_bootErrors` within N seconds, or if `window.map` is still undefined after boot. This is distinct from Fix #2 (loader stuck) — the loader dismisses, but the user still has no signal that something is wrong.
 
 ## Current Work
-Fix #9 complete. Start with Fix #10 next session.
+Fix #11 complete. Start with Fix #12 next session.
 
 ---
 
@@ -107,6 +107,15 @@ Original `callInit()` used synchronous `try/catch`. If an init returned a reject
 - Before: 1 broken init = silent cascade, 0 diagnostic info, async rejections invisible.
 - After: 1 broken init = 1 named console error, all subsequent features still initialize, async rejections caught and named, boot summary lists every failure. Debugging time cut from "re-read all code" to "read the console."
 
+**Rating: 9 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 9 | `callInit()` is scalable, async-aware, and easy to extend; unified pattern replaces inconsistent raw `if` calls |
+| Speed | 10 | Zero overhead when nothing fails; try/catch and `await` add negligible cost on the happy path |
+| Code efficiency | 9 | Unified pattern eliminated redundant code; boot summary is new capability with no extra complexity |
+| Reliability | 9 | Catches both sync throws and rejected Promises; every failure is named in the boot summary |
+
 ### Fix #2 — Loader Never Dismisses on Firebase Failure
 **File:** `modules/mapEngine.js`
 **Date:** 2026-04-28
@@ -139,6 +148,15 @@ Firebase Auth on a normal connection resolves in under 2 seconds. 8 seconds cove
 **How much better:**
 - Before: Firebase down = 100% blocked, spinner forever, and a latent crash if Leaflet also failed.
 - After: Firebase down = map loads in ≤8s regardless of CDN state, user can browse/search/plan.
+
+**Rating: 8 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 8 | 8-second timeout is a reasonable judgment call; moving to module scope was the correct structural fix |
+| Speed | 10 | No performance impact; loader dismissal is CSS opacity + a single `setTimeout` |
+| Code efficiency | 9 | Minimal change; module-scope definition cleanly eliminates the ordering dependency |
+| Reliability | 8 | Covers Firebase failure and Leaflet CDN failure; 8s edge case (auth slow but not dead) is a known, accepted tradeoff |
 
 ---
 
@@ -191,6 +209,15 @@ Rewrote `handleCloudSettingsHydration` with one explicit path:
 - Before: 2–3 localStorage writes per setting, duplicate code paths, 20 hardcoded element IDs that drift out of sync when the registry changes.
 - After: 1 localStorage write per setting (via `persist()`), one code path, zero hardcoded element IDs for registry settings — new settings added to the registry are automatically hydrated.
 
+**Rating: 8 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 9 | Registry-driven hydration auto-handles new settings without touching `authService.js` |
+| Speed | 8 | `onChange` fires synchronously for each of up to 15 settings; RAF batching absorbs the effects but the notify volume is unchanged |
+| Code efficiency | 9 | ~90 lines → ~50 lines, one code path, four redundant mechanisms removed |
+| Reliability | 8 | Correct and clean; synchronous `onChange` burst is absorbed by RAF but not minimally efficient |
+
 ### Fix #4 — Expedition Trail Layers Initialized Too Early
 **File:** `modules/expeditionEngine.js`
 **Date:** 2026-04-28
@@ -229,6 +256,15 @@ A user opening the app on bad campground Wi-Fi where Leaflet fails to load shoul
 **How much better:**
 - Before: Leaflet missing = expedition module parse crash before boot error handling can see it.
 - After: Leaflet missing = expedition module loads, boot continues, trail overlays initialize lazily when possible, and map-dependent trail actions are guarded.
+
+**Rating: 8.5 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 8 | Lazy init is the right pattern; turf CDN is the same category of risk and remains unguarded |
+| Speed | 9 | O(1) null check on every render call — zero measurable overhead on the happy path |
+| Code efficiency | 9 | Minimal surface area changed, no new abstractions, well-scoped |
+| Reliability | 8 | Correctly prevents the parse-time crash; `flyToActiveTrail()` error message is slightly misleading when Leaflet is the real failure |
 
 ### Fix #5 — Background Request Cadence & Session Kill Switch
 **Files:** `modules/barkState.js`, `modules/dataService.js`
@@ -272,6 +308,15 @@ A user planning a long multi-day route can leave the app open for hours without 
 - Before: 10-second CSV polling + 600 cap = safety shutdown risk after roughly 75 minutes.
 - After: 5-minute CSV polling + 2,000 cap = far lower background traffic, better long-session stability, and fewer false kill-switch trips.
 
+**Rating: 9 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 9 | Named constants, correct responsibility split, error backoff, and all the right guards |
+| Speed | 10 | 96.7% reduction in background CSV requests — maximum possible without removing the feature |
+| Code efficiency | 8 | The 4-function chain (`loadData` → `runDataPollCycle` → `runScheduledDataPoll` → `scheduleNextDataPoll`) is slightly deeper than needed but each function has a clear single purpose |
+| Reliability | 9 | Kill switch, stop flag, `pollInFlight` guard, and idempotent listener all present; fire-and-forget in `loadData()` is the only gap |
+
 ### Fix #6 — Achievement Evaluation Mutated Live Visit Records
 **File:** `modules/profileEngine.js`
 **Date:** 2026-04-28
@@ -307,6 +352,15 @@ A user with older cloud visit records that do not include `state` can still earn
 **How much better:**
 - Before: achievement render = badge calculation plus hidden mutation of live visit objects.
 - After: achievement render = badge calculation with copied/enriched inputs only; canonical visit records remain stable.
+
+**Rating: 8.5 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 8 | Shallow copy is correct for this data shape; future nested mutations would need separate attention |
+| Speed | 9 | One spread per visited park per achievement eval — submillisecond even at 1,000 parks |
+| Code efficiency | 9 | Five lines changed, zero new abstractions, exactly what was needed |
+| Reliability | 9 | Three defensive guards (null check, `parkLookup` existence, `mapPoint` null) — all correct |
 
 ### Fix #7 — Daily Streak Uses Local Calendar Date
 **File:** `services/firebaseService.js`
@@ -345,6 +399,15 @@ A user checking in during the evening in the US no longer has that check-in coun
 **How much better:**
 - Before: local evening check-in could be stored as tomorrow because the app used UTC.
 - After: daily streak dates are generated from the user's local calendar day.
+
+**Rating: 9.5 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 9 | `getLocalDateKey` is reusable if streak logic expands; manual formatting is more portable than `toLocaleDateString` especially on Cloud Functions runtimes with small-ICU |
+| Speed | 10 | Three date reads and two `padStart()` calls — can't get cheaper |
+| Code efficiency | 10 | One helper, zero new abstractions, implementation strictly better than the original spec |
+| Reliability | 9 | Calendar arithmetic handles DST and month rollover correctly; one-time sting for users with existing UTC-shifted records |
 
 ### Fix #8 — Achievement Evaluation Debounced Outside the Render Heartbeat
 **File:** `modules/renderEngine.js`
@@ -386,6 +449,15 @@ When a user rapidly filters, checks in, syncs cloud data, or moves through UI st
 - Before: every settled `syncState()` heartbeat could launch achievement evaluation as soon as the previous run finished.
 - After: heartbeat bursts schedule one trailing achievement evaluation after 3 seconds of quiet, with concurrency protection for long runs.
 
+**Rating: 9.5 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 9 | Trailing debounce + overlap guard is the canonical pattern, correctly implemented |
+| Speed | 9 | `clearTimeout` + `setTimeout` are O(1); minor: fires on every RAF frame even for non-achievement state changes |
+| Code efficiency | 9 | Three module-local variables, clean separation of scheduling and execution, no globals |
+| Reliability | 10 | `finally` prevents deadlock, boolean flag deduplicates correctly, error path fully handled |
+
 ### Fix #9 — CSV Polling Scale Hardening
 **Files:** `modules/dataService.js`, `core/app.js`
 **Date:** 2026-04-28
@@ -424,6 +496,292 @@ A user still gets park data immediately on load, and if they return to the tab l
 **How much better:**
 - Before: 10-second CSV polling and boot orchestration that knew about both immediate load and polling internals.
 - After: 5-minute CSV polling, refocus refresh, and one clean app boot call into the data service.
+
+**Rating: 9 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 9 | Single data entry point for boot is cleaner; data service owns its full lifecycle |
+| Speed | 9 | No change to polling cadence — same 5-minute intervals, same refocus behavior |
+| Code efficiency | 9 | Two fewer lines in `app.js`, one cleaner comment, no regressions |
+| Reliability | 9 | Online and offline paths both correct; timer-before-fetch ordering is intentional and safe |
+
+### Fix #10 — Cached Visited-ID Render Fingerprint
+**Files:** `modules/renderEngine.js`, `services/authService.js`, `services/checkinService.js`, `services/firebaseService.js`
+**Date:** 2026-04-28
+
+**What was wrong:**
+`getMarkerVisibilityStateKey()` rebuilt the visited-ID part of the marker fingerprint on every heartbeat with `Array.from(userVisitedPlaces.keys()).sort().join(',')`. That is unnecessary work during map movement, filtering, and other render cycles where the visited set has not changed. As the visit count grows, sorting those IDs repeatedly becomes wasted main-thread work.
+
+**The fix:**
+- Added `getVisitedIdsCacheKey()` in `renderEngine.js`.
+- It returns `window.BARK._visitedIdsCacheKey` when present.
+- It only rebuilds the sorted visited-ID string when the cache is missing.
+- Added `window.BARK.invalidateVisitedIdsCache()`.
+- The invalidation helper clears `_visitedIdsCacheKey` and also invalidates marker visibility so changed visit IDs refresh pin classes.
+- Added cache invalidation when cloud auth sync replaces `userVisitedPlaces`.
+- Added cache invalidation when logout clears `userVisitedPlaces`.
+- Added cache invalidation for GPS verified check-ins.
+- Added cache invalidation for manual mark-as-visited add/remove.
+- Added cache invalidation for manage-portal removal.
+
+**Why this matters:**
+The marker fingerprint is part of the central render heartbeat. Anything inside it should be cheap and stable. Visited IDs change only when the user adds/removes/checks in/syncs visits, not every frame. Moving the sort to mutation time keeps the render path fast and makes the cost proportional to actual visit changes instead of UI heartbeat frequency.
+
+**Pros of this approach:**
+- Removes repeated visited-ID sorting from the hot render path.
+- Keeps the existing fingerprint behavior and marker refresh semantics.
+- Invalidation is explicit at every known ID-changing mutation point.
+- The cache is stored on `window.BARK`, making it easy to inspect in the console during debugging.
+- Manual removal and GPS check-ins are covered in addition to the original cloud/manual mark flows.
+- The cache sentinel uses `typeof window.BARK._visitedIdsCacheKey === 'string'` rather than a truthiness check — this correctly handles the zero-visits state where the key is `''` (empty string). A truthiness check would treat `''` as a cache miss and re-sort on every frame when the user has no visits.
+- All six invalidation call sites guard with `if (typeof window.BARK.invalidateVisitedIdsCache === 'function')` — if `renderEngine.js` fails to boot, service files degrade to a safe no-op instead of throwing a ReferenceError mid-check-in or mid-sync.
+- `invalidateVisitedIdsCache()` calling `invalidateMarkerVisibility()` is redundant when IDs actually change (the fingerprint differs anyway), but it provides a correctness guarantee for any future preventive invalidation — forcing the next heartbeat to re-evaluate unconditionally without relying on the fingerprint comparison.
+
+**Cons / tradeoffs:**
+- Correctness now depends on every future visit-ID mutation calling `window.BARK.invalidateVisitedIdsCache()`.
+- The cache stores only IDs, not visit metadata; changing a visit date or verification detail does not invalidate it because those changes do not alter marker visibility membership.
+- There is still sorting work when the visited set changes, but that is the right time to pay it.
+
+**User-visible difference:**
+Users with many visited places should get smoother map/render behavior during interactions that do not change visits, because the app no longer sorts the full visited-ID list on every heartbeat. Pins still update immediately after add/remove/check-in/cloud sync because those paths invalidate the cache.
+
+**How much better:**
+- Before: every marker fingerprint rebuild sorted all visited IDs.
+- After: visited IDs are sorted once per visit-set change and reused until invalidated.
+
+**Rating: 8.5 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 8 | Correct caching pattern; maintenance burden grows as more visit-mutation paths are added |
+| Speed | 9 | O(n log n) sort moved off every RAF frame; cost now proportional to actual visit changes |
+| Code efficiency | 8 | Four files, six call sites — correctly guarded everywhere, but wider surface area than most fixes |
+| Reliability | 9 | `typeof === 'string'` handles zero-visits correctly; typeof guards on all call sites; redundant but safe `invalidateMarkerVisibility()` |
+
+### Fix #11 — Budgeted Levenshtein Search
+**Files:** `modules/searchEngine.js`, `modules/renderEngine.js`
+**Date:** 2026-04-28
+
+**What was wrong:**
+The search input waited for the 300ms debounce, then ran fuzzy matching synchronously across every park in `window.BARK.allPoints`. For each park it could run Levenshtein against the full normalized park name, then against individual words. At ~1,000 parks this may feel acceptable on a desktop. At 5,000+ parks, especially on a mobile device, the worst-case path can monopolize the main thread long enough to cause input jank, delayed paints, and a "the app froze while I typed" feeling.
+
+There was also a second hidden version of the same risk in `renderEngine.js`: if `_searchResultCache` was missing or mismatched, marker rendering could run its own Levenshtein fallback inside the marker loop. That means a partial/budgeted search fix in `searchEngine.js` alone would not be enough. The expensive work could still reappear during `updateMarkers()`, which is exactly the render heartbeat path we are trying to keep cheap.
+
+One more user-facing issue appeared once search became partial: the existing global-town fallback could fire as soon as local suggestions were empty. With chunking, "empty so far" is not the same as "empty after checking all parks." The fallback needed to wait until local search finished, otherwise premium users could trigger unnecessary global geocode calls before the app had finished checking the local park list.
+
+**The fix:**
+- Added named search constants:
+  - `SEARCH_INPUT_DEBOUNCE_MS = 300`
+  - `SEARCH_FRAME_BUDGET_MS = 16`
+  - `SEARCH_CONTINUATION_DELAY_MS = 0`
+  - `SEARCH_SUGGESTION_LIMIT = 8`
+  - `SEARCH_SCORE_THRESHOLD = 2`
+  - `SEARCH_GLOBAL_MIN_LENGTH = 3`
+- Extracted search scoring into `scoreSearchItem(item, queryNorm)` so the scoring rules live in one place instead of being buried inside the event handler.
+- Renamed the misleading code comment from `O(1) LEVENSHTEIN` to `SPACE-OPTIMIZED LEVENSHTEIN`. The implementation uses one row of dynamic-programming state, so memory is optimized, but runtime is still proportional to the compared string lengths.
+- Replaced the one-shot `allPoints.forEach(...)` search with a budgeted chunk runner:
+  - It records `performance.now()` at the start of each chunk.
+  - It processes parks until the elapsed chunk time reaches the 16ms budget.
+  - It publishes partial results into `_searchResultCache`.
+  - It schedules the remainder with `setTimeout(..., 0)`.
+  - It repeats until every park has been checked.
+- Added a per-search `activeSearchRunId` cancellation guard. Every new keystroke, clear action, or suggestion click invalidates older scheduled work so stale chunks cannot repaint old results over the new query.
+- Expanded `_searchResultCache` shape:
+  - `query`
+  - `matchedIds`
+  - `complete`
+  - `processedCount`
+  - `totalCount`
+- Suggestions now render from the incremental `matches` array instead of doing a second full `allPoints.filter(...)` pass after scoring.
+- While a large local search is still running, the dropdown can show partial local matches plus a "Searching local map..." status row.
+- The global towns/cities fallback now waits until local search is complete. "No local matches yet" no longer triggers geocoding.
+- Suggestion click now cancels pending search work and seeds `_searchResultCache` with the selected park. That keeps marker rendering deterministic after the active search text changes to the selected park name.
+- `renderEngine.js` now normalizes the active search query once per marker update instead of once per marker.
+- `renderEngine.js` now trusts a matching `_searchResultCache` and no longer runs Levenshtein inside the marker loop.
+- If the render cache is unavailable or mismatched, `renderEngine.js` only falls back to a cheap substring check. Fuzzy search is now owned by `searchEngine.js`, not duplicated in the render heartbeat.
+- The marker visibility fingerprint now includes whether the search cache is partial or complete.
+- Map auto-framing waits for the matching search cache to be complete. This prevents the map from flying to partial early results, then refusing to re-frame when the full result set finishes.
+- Search suggestion UI now uses DOM nodes and `textContent` for user-entered query text in the rebuilt rows, instead of injecting the query through `innerHTML`.
+
+**Why this matters:**
+The main thread is the user's whole app: typing, painting, scrolling, map movement, marker visibility, and click response all share it. A synchronous fuzzy search that scales linearly with park count and string-comparison cost is okay only while the dataset is small. It becomes a reliability bug as the data grows.
+
+This fix keeps the same local fuzzy-search behavior, but changes the scheduling model. Instead of "finish all fuzzy matching before the browser can breathe," the app now does "work for a small budget, publish what is known, then continue." That is the right long-term direction for a map app that wants to scale from ~1,000 parks to 5,000+ without making mobile users pay for the whole search in one blocking task.
+
+**Pros of this approach:**
+- Keeps the existing fuzzy search behavior: substring matches still win, typo tolerance still works for local park names, and the score threshold remains `<= 2`.
+- Prevents one search from monopolizing the main thread for the full dataset.
+- Gives the UI a chance to paint between chunks on large searches.
+- Results become progressive: the app can show early local matches while still checking the rest.
+- Stale search work is cancelled cleanly with `activeSearchRunId`, so fast typers do not get old-query results rendered after a new query starts.
+- The cache is now self-describing: `complete`, `processedCount`, and `totalCount` make debugging much easier in the console.
+- Global geocoding is more correct because it only runs after local search is truly complete.
+- The render heartbeat becomes cheaper and easier to reason about because fuzzy matching no longer happens in `updateMarkers()`.
+- Normalizing the query once per marker update removes repeated string work from the marker loop.
+- Auto-framing waits for complete search results, which avoids camera movement based on an incomplete subset.
+- Rebuilding the global fallback button with DOM nodes avoids injecting raw user search text into `innerHTML`.
+- The solution fits the current architecture: vanilla JS, no bundler, no new dependency, no worker build pipeline, no server change.
+
+**Cons / tradeoffs of this approach:**
+- Total search work is still linear across all parks. Chunking improves responsiveness, not total algorithmic complexity.
+- The 16ms budget is best-effort. If one individual park comparison is unusually expensive, that one comparison still has to finish before the loop can yield.
+- The dropdown may briefly show partial local results plus a "Searching local map..." row on very large datasets or slow devices.
+- Markers can update progressively as the cache fills. That is intentional, but it means the visible filtered set may be incomplete for a moment during a large fuzzy search.
+- Global town/city fallback is delayed until local search completes. This is the correct behavior, but premium users searching for a city may wait a little longer before the global search begins.
+- `renderEngine.js` no longer performs fuzzy fallback if some external code sets `window.BARK.activeSearchQuery` without going through the search engine. In that rare case, render falls back to cheap substring matching only. Normal user typing still goes through the budgeted fuzzy cache.
+- More helper functions exist inside `initSearchEngine()`. The complexity is still scoped, but the search module is larger than before.
+- `setTimeout(..., 0)` yields work in small tasks but is not the same as a true background thread. A Web Worker would isolate CPU work more strongly, but would require a larger architectural change.
+
+**Alternative solution A — Web Worker search:**
+
+**Pros:**
+- Best main-thread isolation. Fuzzy matching could run off the UI thread entirely.
+- Scales better for very large datasets and slower mobile CPUs.
+- Cancellation can be implemented with worker message IDs similar to `activeSearchRunId`.
+- Would make future heavier ranking algorithms safer.
+
+**Cons:**
+- Larger architecture change in this app because there is no bundler and modules attach to `window.BARK`.
+- Worker needs a serializable copy of park search fields. Markers and Leaflet objects cannot cross the worker boundary.
+- Requires a sync/update protocol whenever `allPoints` changes.
+- Debugging becomes more complex because search state is split between the main thread and worker thread.
+- More moving parts for a store-launch reliability pass. Good future option, bigger than Fix #11.
+
+**Verdict:**
+Best long-term ceiling, but heavier than needed today. The chunked main-thread approach gets most of the responsiveness win with much lower implementation risk.
+
+**Alternative solution B — Prebuilt client-side search index (`Fuse.js`, `FlexSearch`, MiniSearch, trie/prefix index):**
+
+**Pros:**
+- Faster repeated searches after the index is built.
+- Better ranking, weighting, and typo behavior if using a mature library.
+- Could support richer search fields later: park name, state, swag type, aliases, nearby towns.
+- A purpose-built index can reduce per-keystroke brute-force work.
+
+**Cons:**
+- Adds dependency and load-order concerns to a no-bundler app.
+- Index build time still has to happen somewhere and must be refreshed when CSV data updates.
+- Fuzzy libraries can be surprisingly heavy on mobile if configured broadly.
+- Different scoring can subtly change search results users are used to.
+- More surface area to debug if search results look "wrong."
+
+**Verdict:**
+Good future product improvement if search becomes a major feature. For Fix #11, it is more change than needed to solve the immediate main-thread reliability problem.
+
+**Alternative solution C — Remove Levenshtein and use substring/prefix search only:**
+
+**Pros:**
+- Fastest and simplest client-side option.
+- Very easy to reason about.
+- No typo-distance cost.
+- Marker render fallback would stay cheap everywhere.
+
+**Cons:**
+- Loses typo tolerance. A user searching `Yosimite`, `Acadiaa`, or `Grnad Canyon` may get no local result.
+- Makes the app feel less forgiving.
+- Does not match the existing user experience.
+
+**Verdict:**
+Excellent for raw speed, too large a UX regression for this app. Kept fuzzy search instead.
+
+**Alternative solution D — Server-side search endpoint:**
+
+**Pros:**
+- Keeps heavy search work off the client.
+- Can scale with a proper database/index.
+- Could support analytics, synonyms, aliases, and typo correction centrally.
+
+**Cons:**
+- Requires backend work and network availability for a core local-map interaction.
+- Adds latency and possible cost.
+- Offline/PWA behavior gets worse.
+- Current park data already lives client-side after CSV load, so server round trips are unnecessary for local park search.
+
+**Verdict:**
+Not the right fit for local park search right now. Better reserved for richer future search products or admin/store features.
+
+**Alternative solution E — Increase debounce only:**
+
+**Pros:**
+- Tiny change.
+- Reduces how often search runs while the user is typing.
+- No behavioral complexity.
+
+**Cons:**
+- Does not fix the blocking search once it starts.
+- Makes search feel slower.
+- Fails the 5,000+ parks scalability goal because the final query still runs as one synchronous block.
+
+**Verdict:**
+Helpful only as a band-aid. The app already had a 300ms debounce; the real issue was the unbounded post-debounce work.
+
+**Use cases and what the user sees:**
+
+**Use case 1 — Exact local park search:**
+A user types `Acadia`. On normal devices and current data size, results should appear almost exactly as before. Internally, the search may still complete in one chunk if it stays under budget. If the dataset is much larger or the device is slower, the dropdown can show early local matches while the rest of the map is still being checked.
+
+**Use case 2 — Typo-tolerant local search:**
+A user types a slightly wrong park name like `Acadiaa` or `Yosimite`. Fuzzy matching still works because the Levenshtein scoring rules were preserved. The difference is that typo matching no longer has to finish across every park before the browser can paint.
+
+**Use case 3 — Massive future dataset on a phone:**
+At 5,000+ parks, a single synchronous fuzzy loop can make the keyboard, dropdown, or map feel stuck. With this fix, the app works in slices. The user may see a "Searching local map..." row briefly, but the page stays responsive and results fill in progressively.
+
+**Use case 4 — Premium user searches for a town/city not in local parks:**
+Before chunking, the global fallback ran after the full local pass. With naive chunking, it could have accidentally run after only a partial local pass. This fix preserves the correct behavior: the app waits until local search is complete, then offers/runs global search if there are no local matches.
+
+**Use case 5 — User types quickly, then changes their mind:**
+If the user types `aca`, then quickly changes to `yose`, the older `aca` chunks are invalidated by `activeSearchRunId`. Old work cannot repaint stale suggestions over the new query.
+
+**Use case 6 — User taps a local suggestion while search is still running:**
+The app cancels remaining chunks, sets the input to the chosen park, seeds the cache with that exact park, hides suggestions, syncs markers, and opens the marker. There is no delayed stale chunk coming behind it.
+
+**Use case 7 — Map auto-framing during large search:**
+The map no longer flies to the first partial set of search results. It waits until the matching cache is complete, then frames the final visible result set. This is less jumpy and avoids a subtle "camera moved to the wrong subset" problem.
+
+**Debugging notes:**
+Inspect `window.BARK._searchResultCache` in the console while typing. During a large search it should look like:
+
+```js
+{
+  query: "acadia",
+  matchedIds: Set(...),
+  complete: false,
+  processedCount: 240,
+  totalCount: 5000
+}
+```
+
+When the search finishes, `complete` becomes `true` and `processedCount === totalCount`. If a stale query ever appears, check `activeSearchRunId` logic in `initSearchEngine()` first. If marker visibility looks wrong, confirm that `searchCache.query` equals `window.BARK.normalizeText(window.BARK.activeSearchQuery)` and that `matchedIds` contains the expected park IDs.
+
+**User-visible difference:**
+Search should feel the same on small/current data, but it should stay responsive on larger data and slower devices. On large searches, users may briefly see a local-search status row while results are still being checked. Premium global search starts after local search is complete, not while local search is still partial. The map camera should move after final search results are known rather than reacting to an incomplete subset.
+
+**How much better:**
+- Before: one post-debounce search could synchronously fuzzy-match every park on the main thread.
+- Before: marker rendering still had a hidden duplicate Levenshtein fallback.
+- Before: a chunked search would have risked global fallback and auto-framing based on incomplete local results.
+- After: search work is budgeted to ~16ms chunks, stale chunks are cancelled, partial progress is cached, marker rendering avoids fuzzy work, global fallback waits for local completion, and auto-framing waits for the final matching cache.
+
+**Verification:**
+- `node --check modules/searchEngine.js`
+- `node --check modules/renderEngine.js`
+- Mocked DOM/clock smoke test forced the 16ms budget path:
+  - Debounced search scheduled correctly at 300ms.
+  - First search chunk published `complete: false`.
+  - Continuation chunks were scheduled with delay `0`.
+  - Final cache published `complete: true`.
+  - Expected local match was present in `matchedIds`.
+
+**Rating: 9 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 8 | Correct low-risk bridge for 5,000+ parks; a worker or search index may eventually be better if search grows into a major product surface |
+| Speed | 9 | Removes the worst single blocking task and removes render-loop Levenshtein; total work is still linear |
+| Code efficiency | 8 | More helper code, but each helper has a specific job and avoids new dependencies |
+| Reliability | 9 | Cancellation, partial cache metadata, render-cache alignment, delayed global fallback, and complete-result auto-framing all protect real edge cases |
+| Debuggability | 10 | `_searchResultCache.complete`, `processedCount`, and `totalCount` make search state inspectable instead of invisible |
 
 ---
 

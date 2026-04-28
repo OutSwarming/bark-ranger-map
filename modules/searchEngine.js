@@ -5,6 +5,13 @@
  */
 window.BARK = window.BARK || {};
 
+const SEARCH_INPUT_DEBOUNCE_MS = 300;
+const SEARCH_FRAME_BUDGET_MS = 16;
+const SEARCH_CONTINUATION_DELAY_MS = 0;
+const SEARCH_SUGGESTION_LIMIT = 8;
+const SEARCH_SCORE_THRESHOLD = 2;
+const SEARCH_GLOBAL_MIN_LENGTH = 3;
+
 // ====== TEXT NORMALIZATION ======
 function normalizeText(text) {
     if (!text) return '';
@@ -19,7 +26,7 @@ function normalizeText(text) {
     return words.join(' ');
 }
 
-// ====== O(1) LEVENSHTEIN ======
+// ====== SPACE-OPTIMIZED LEVENSHTEIN ======
 function levenshtein(a, b) {
     if (a === b) return 0;
     if (a.length > b.length) [a, b] = [b, a];
@@ -40,6 +47,38 @@ function levenshtein(a, b) {
 window.BARK.normalizeText = normalizeText;
 window.BARK.levenshtein = levenshtein;
 
+function getSearchNow() {
+    return (window.performance && typeof window.performance.now === 'function')
+        ? window.performance.now()
+        : Date.now();
+}
+
+function scoreSearchItem(item, queryNorm) {
+    const nameNorm = item._cachedNormalizedName || normalizeText(item.name);
+    let score = 999;
+
+    if (!queryNorm) return score;
+
+    if (nameNorm.includes(queryNorm)) {
+        score = 0;
+    } else if (queryNorm.length > 2) {
+        let minDist = levenshtein(queryNorm, nameNorm);
+        const words = nameNorm.split(' ');
+
+        for (let i = 0; i < words.length; i++) {
+            if (minDist <= 1) break;
+            const word = words[i];
+            if (Math.abs(queryNorm.length - word.length) < 5) {
+                minDist = Math.min(minDist, levenshtein(queryNorm, word));
+            }
+        }
+
+        score = minDist;
+    }
+
+    return score;
+}
+
 // ====== SEARCH UI BINDING ======
 function initSearchEngine() {
     const DOM = window.BARK.DOM;
@@ -49,136 +88,253 @@ function initSearchEngine() {
     const typeSelect = DOM.typeFilter();
     const filterBtns = document.querySelectorAll('.filter-btn');
     let searchTimeout = null;
+    let searchContinuationTimeout = null;
+    let activeSearchRunId = 0;
 
     if (!searchInput) return;
 
+    function clearSearchTimer(timer) {
+        if (timer) clearTimeout(timer);
+    }
+
+    function cancelSearchWork() {
+        activeSearchRunId += 1;
+        clearSearchTimer(searchTimeout);
+        clearSearchTimer(searchContinuationTimeout);
+        searchTimeout = null;
+        searchContinuationTimeout = null;
+    }
+
+    function resetSearchCache() {
+        window.BARK._searchResultCache = {
+            query: '',
+            matchedIds: null,
+            complete: true,
+            processedCount: 0,
+            totalCount: 0
+        };
+    }
+
+    function publishSearchCache(queryNorm, matchedIds, isComplete, processedCount, totalCount) {
+        window.BARK._searchResultCache = {
+            query: queryNorm,
+            matchedIds: matchedIds,
+            complete: isComplete,
+            processedCount: processedCount,
+            totalCount: totalCount
+        };
+    }
+
+    function appendSearchStatus(text, cssText) {
+        if (!searchSuggestions) return;
+
+        const statusDiv = document.createElement('div');
+        statusDiv.className = 'suggestion-item';
+        if (cssText) statusDiv.style.cssText = cssText;
+        statusDiv.textContent = text;
+        searchSuggestions.appendChild(statusDiv);
+    }
+
+    function appendFederatedButton(activeQuery, isPremium) {
+        if (!searchSuggestions) return;
+
+        const federatedBtn = document.createElement('div');
+        federatedBtn.className = 'suggestion-item';
+        federatedBtn.style.cssText = 'background: #f0fdf4; color: #15803d; font-weight: 700; border-top: 1px solid #bbf7d0; display: flex; align-items: center; gap: 8px; cursor: pointer; margin-top: 4px;';
+
+        const iconSpan = document.createElement('span');
+        iconSpan.textContent = isPremium ? '🌍' : '🔒';
+
+        const textWrap = document.createElement('div');
+        const label = document.createElement('div');
+        const hint = document.createElement('span');
+        hint.style.cssText = 'font-size:10px; font-weight:normal;';
+
+        if (isPremium) {
+            label.textContent = `Search towns & cities for "${activeQuery}"`;
+            hint.style.color = '#166534';
+            hint.textContent = 'Query global database';
+        } else {
+            federatedBtn.style.opacity = '0.7';
+            label.style.color = '#64748b';
+            label.textContent = `Search global towns for "${activeQuery}"`;
+            hint.textContent = 'Sign in to unlock global routing';
+        }
+
+        textWrap.appendChild(label);
+        textWrap.appendChild(hint);
+        federatedBtn.appendChild(iconSpan);
+        federatedBtn.appendChild(textWrap);
+
+        federatedBtn.addEventListener('click', () => {
+            if (!isPremium) {
+                alert('Searching for custom towns and locations is a Premium feature. Please log in via the Profile tab.');
+                return;
+            }
+            const queryToFetch = window.BARK.activeSearchQuery;
+            searchInput.value = `Searching for "${queryToFetch}"...`;
+            searchSuggestions.style.display = 'none';
+            executeGeocode(queryToFetch, 'stop');
+        });
+
+        searchSuggestions.appendChild(federatedBtn);
+    }
+
+    function renderSearchSuggestions(queryNorm, matches, isComplete) {
+        if (!searchSuggestions) return;
+        if (queryNorm !== normalizeText(window.BARK.activeSearchQuery)) return;
+
+        const activeQuery = window.BARK.activeSearchQuery;
+        const topMatches = matches
+            .slice()
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .slice(0, SEARCH_SUGGESTION_LIMIT);
+
+        searchSuggestions.innerHTML = '';
+
+        // 1. Render local map matches
+        if (topMatches.length > 0) {
+            topMatches.forEach(match => {
+                const div = document.createElement('div');
+                div.className = 'suggestion-item';
+                div.textContent = match.name + (match.state ? `, ${match.state}` : '');
+                div.addEventListener('click', () => {
+                    cancelSearchWork();
+                    searchInput.value = match.name;
+                    window.BARK.activeSearchQuery = match.name;
+                    window.BARK._searchResultCache = {
+                        query: normalizeText(match.name),
+                        matchedIds: new Set([match.id]),
+                        complete: true,
+                        processedCount: 1,
+                        totalCount: 1
+                    };
+                    searchSuggestions.style.display = 'none';
+                    window.syncState();
+
+                    if (match.marker && match.marker._parkData && typeof map !== 'undefined') {
+                        if (!window.stopAutoMovements) {
+                            map.setView([match.marker._parkData.lat, match.marker._parkData.lng], 12, {
+                                animate: !window.lowGfxEnabled,
+                                duration: window.lowGfxEnabled ? 0 : 1.5
+                            });
+                        }
+                        match.marker.fire('click');
+                    }
+                });
+                searchSuggestions.appendChild(div);
+            });
+        }
+
+        // 2. BLENDED FALLBACK: Wait until local search is complete before querying global search.
+        if (activeQuery.trim().length >= SEARCH_GLOBAL_MIN_LENGTH) {
+            if (!isComplete) {
+                appendSearchStatus(
+                    `Searching local map for "${activeQuery}"...`,
+                    'background: #f8fafc; color: #475569; font-weight: 700; border-top: 1px solid #e2e8f0;'
+                );
+            } else {
+                const isPremium = (typeof firebase !== 'undefined' && firebase.auth().currentUser !== null);
+
+                if (topMatches.length === 0 && isPremium) {
+                    appendSearchStatus(
+                        `Searching for "${activeQuery}"...`,
+                        'background: #fdf4ff; color: #c026d3; font-weight: 700; border-top: 1px solid #f0abfc;'
+                    );
+                    executeGeocode(activeQuery, 'stop');
+                } else {
+                    appendFederatedButton(activeQuery, isPremium);
+                }
+            }
+        }
+
+        if (searchSuggestions.innerHTML !== '') {
+            searchSuggestions.style.display = 'block';
+        } else {
+            searchSuggestions.style.display = 'none';
+        }
+    }
+
+    function publishSearchProgress(runId, queryNorm, matchedIds, matches, isComplete, processedCount, totalCount) {
+        if (runId !== activeSearchRunId) return false;
+
+        publishSearchCache(queryNorm, matchedIds, isComplete, processedCount, totalCount);
+        renderSearchSuggestions(queryNorm, matches, isComplete);
+        window.syncState();
+        return true;
+    }
+
+    function runSearchChunk(runId, queryNorm, allPoints, matchedIds, matches, startIndex) {
+        if (runId !== activeSearchRunId) return;
+
+        const startedAt = getSearchNow();
+        const totalCount = allPoints.length;
+
+        for (let i = startIndex; i < totalCount; i++) {
+            const item = allPoints[i];
+            const score = scoreSearchItem(item, queryNorm);
+
+            if (score <= SEARCH_SCORE_THRESHOLD) {
+                matchedIds.add(item.id);
+                matches.push(item);
+            }
+
+            const processedCount = i + 1;
+            const hasMoreWork = processedCount < totalCount;
+
+            if (hasMoreWork && getSearchNow() - startedAt >= SEARCH_FRAME_BUDGET_MS) {
+                if (!publishSearchProgress(runId, queryNorm, matchedIds, matches, false, processedCount, totalCount)) return;
+
+                searchContinuationTimeout = setTimeout(() => {
+                    searchContinuationTimeout = null;
+                    runSearchChunk(runId, queryNorm, allPoints, matchedIds, matches, processedCount);
+                }, SEARCH_CONTINUATION_DELAY_MS);
+                return;
+            }
+        }
+
+        publishSearchProgress(runId, queryNorm, matchedIds, matches, true, totalCount, totalCount);
+    }
+
+    function startBudgetedSearch(runId) {
+        searchTimeout = null;
+        if (runId !== activeSearchRunId) return;
+
+        const queryNorm = normalizeText(window.BARK.activeSearchQuery);
+        const allPoints = Array.isArray(window.BARK.allPoints) ? window.BARK.allPoints : [];
+
+        if (!queryNorm) {
+            resetSearchCache();
+            if (searchSuggestions) searchSuggestions.style.display = 'none';
+            window.syncState();
+            return;
+        }
+
+        const matchedIds = new Set();
+        const matches = [];
+        publishSearchCache(queryNorm, matchedIds, false, 0, allPoints.length);
+        runSearchChunk(runId, queryNorm, allPoints, matchedIds, matches, 0);
+    }
+
     searchInput.addEventListener('input', (e) => {
+        cancelSearchWork();
         window.BARK.activeSearchQuery = e.target.value;
 
         if (clearSearchBtn) {
             clearSearchBtn.style.display = window.BARK.activeSearchQuery.length > 0 ? 'block' : 'none';
         }
 
-        if (searchTimeout) clearTimeout(searchTimeout);
-
         if (window.BARK.activeSearchQuery.trim() === '') {
+            resetSearchCache();
             if (searchSuggestions) searchSuggestions.style.display = 'none';
             window.syncState();
             return;
         }
 
+        const runId = activeSearchRunId;
         searchTimeout = setTimeout(() => {
-            const queryNorm = normalizeText(window.BARK.activeSearchQuery);
-            const allPoints = window.BARK.allPoints;
-
-            // 🔥 FIRST PASS: Build the cache (this runs Levenshtein once)
-            const matchedIds = new Set();
-            let matches = [];
-
-            allPoints.forEach(item => {
-                const nameNorm = item._cachedNormalizedName;
-                let score = 999;
-                if (nameNorm.includes(queryNorm)) {
-                    score = 0;
-                } else if (queryNorm.length > 2) {
-                    let minDist = levenshtein(queryNorm, nameNorm);
-                    const words = nameNorm.split(' ');
-                    for (let i = 0; i < words.length; i++) {
-                        if (minDist <= 1) break;
-                        const word = words[i];
-                        if (Math.abs(queryNorm.length - word.length) < 5) {
-                            minDist = Math.min(minDist, levenshtein(queryNorm, word));
-                        }
-                    }
-                    score = minDist;
-                }
-                if (score <= 2) {
-                    matchedIds.add(item.id);
-                    matches.push({ item: item, score: score });
-                }
-            });
-            window.BARK._searchResultCache = { query: queryNorm, matchedIds };
-
-            // 🆕 SECOND PASS: Use the cache — no duplicate Levenshtein needed
-            const cachedIds = window.BARK._searchResultCache.matchedIds;
-            const suggestions = allPoints.filter(p => cachedIds.has(p.id));
-
-            suggestions.sort((a, b) => a.name.localeCompare(b.name));
-            const topMatches = suggestions.slice(0, 8);
-
-            searchSuggestions.innerHTML = '';
-
-            // 1. Render local map matches
-            if (topMatches.length > 0) {
-                topMatches.forEach(match => {
-                    const div = document.createElement('div');
-                    div.className = 'suggestion-item';
-                    div.textContent = match.name + (match.state ? `, ${match.state}` : '');
-                    div.addEventListener('click', () => {
-                        searchInput.value = match.name;
-                        window.BARK.activeSearchQuery = match.name;
-                        searchSuggestions.style.display = 'none';
-                        window.syncState();
-
-                        if (match.marker && match.marker._parkData) {
-                            if (!window.stopAutoMovements) {
-                                map.setView([match.marker._parkData.lat, match.marker._parkData.lng], 12, {
-                                    animate: !window.lowGfxEnabled,
-                                    duration: window.lowGfxEnabled ? 0 : 1.5
-                                });
-                            }
-                            match.marker.fire('click');
-                        }
-                    });
-                    searchSuggestions.appendChild(div);
-                });
-            }
-
-            // 2. BLENDED FALLBACK: Always offer global search if query is > 2 chars
-            if (window.BARK.activeSearchQuery.trim().length > 2) {
-                const isPremium = (typeof firebase !== 'undefined' && firebase.auth().currentUser !== null);
-
-                if (topMatches.length === 0 && isPremium) {
-                    const statusDiv = document.createElement('div');
-                    statusDiv.className = 'suggestion-item';
-                    statusDiv.style.cssText = 'background: #fdf4ff; color: #c026d3; font-weight: 700; border-top: 1px solid #f0abfc;';
-                    statusDiv.innerHTML = `🔍 Searching for "${window.BARK.activeSearchQuery}"...`;
-                    searchSuggestions.appendChild(statusDiv);
-                    executeGeocode(window.BARK.activeSearchQuery, 'stop');
-                } else {
-                    const federatedBtn = document.createElement('div');
-                    federatedBtn.className = 'suggestion-item';
-                    federatedBtn.style.cssText = 'background: #f0fdf4; color: #15803d; font-weight: 700; border-top: 1px solid #bbf7d0; display: flex; align-items: center; gap: 8px; cursor: pointer; margin-top: 4px;';
-                    federatedBtn.innerHTML = `🌍 <div>Search towns & cities for "${window.BARK.activeSearchQuery}"<br><span style="font-size:10px; font-weight:normal; color:#166534;">Query global database</span></div>`;
-
-                    federatedBtn.addEventListener('click', () => {
-                        if (!isPremium) {
-                            alert('Searching for custom towns and locations is a Premium feature. Please log in via the Profile tab.');
-                            return;
-                        }
-                        const queryToFetch = window.BARK.activeSearchQuery;
-                        searchInput.value = `Searching for "${queryToFetch}"...`;
-                        searchSuggestions.style.display = 'none';
-                        executeGeocode(queryToFetch, 'stop');
-                    });
-
-                    if (!isPremium) {
-                        federatedBtn.style.opacity = '0.7';
-                        federatedBtn.innerHTML = `🔒 <div style="color:#64748b;">Search global towns for "${window.BARK.activeSearchQuery}"<br><span style="font-size:10px; font-weight:normal;">Sign in to unlock global routing</span></div>`;
-                    }
-
-                    searchSuggestions.appendChild(federatedBtn);
-                }
-            }
-
-            if (searchSuggestions.innerHTML !== '') {
-                searchSuggestions.style.display = 'block';
-            } else {
-                searchSuggestions.style.display = 'none';
-            }
-
-            window.syncState();
-        }, 300);
+            startBudgetedSearch(runId);
+        }, SEARCH_INPUT_DEBOUNCE_MS);
     });
 
     // Hide dropdown when clicking outside
@@ -199,9 +355,11 @@ function initSearchEngine() {
 
     if (clearSearchBtn) {
         clearSearchBtn.addEventListener('click', () => {
+            cancelSearchWork();
             searchInput.value = '';
             window.BARK.activeSearchQuery = '';
             clearSearchBtn.style.display = 'none';
+            resetSearchCache();
             if (searchSuggestions) searchSuggestions.style.display = 'none';
             window.syncState();
             searchInput.focus();

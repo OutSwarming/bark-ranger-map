@@ -136,6 +136,9 @@ async function verifyGpsCheckin(parkData, userVisitedPlaces) {
         if (!checkinResult.success) return checkinResult;
 
         visitedPlaces.set(parkData.id, checkinResult.visitRecord);
+        if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+            window.BARK.invalidateVisitedIdsCache();
+        }
         await firebaseService.updateCurrentUserVisitedPlaces(Array.from(visitedPlaces.values()));
         queueDailyStreakIncrement(firebaseService);
 
@@ -166,6 +169,9 @@ async function markAsVisited(parkData, userVisitedPlaces) {
             }
 
             visitedPlaces.delete(parkData.id);
+            if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+                window.BARK.invalidateVisitedIdsCache();
+            }
             await firebaseService.updateCurrentUserVisitedPlaces(Array.from(visitedPlaces.values()));
             return { success: true, action: 'removed' };
         }
@@ -178,6 +184,9 @@ async function markAsVisited(parkData, userVisitedPlaces) {
 
         const visitRecord = createVisitRecord(parkData, false);
         visitedPlaces.set(parkData.id, visitRecord);
+        if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+            window.BARK.invalidateVisitedIdsCache();
+        }
 
         if (canSyncProgress) {
             await firebaseService.syncUserProgress();

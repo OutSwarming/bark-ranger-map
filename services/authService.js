@@ -185,6 +185,9 @@ function handleVisitedPlacesSync(placeList) {
             placeList.forEach(obj => {
                 if (obj && obj.id) window.BARK.userVisitedPlaces.set(obj.id, obj);
             });
+            if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+                window.BARK.invalidateVisitedIdsCache();
+            }
         }
     } catch (error) {
         console.error("[authService] visited places sync failed:", error);
@@ -352,6 +355,9 @@ function initFirebase() {
                 if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
                 if (logoutBtn) logoutBtn.style.display = 'none';
                 window.BARK.userVisitedPlaces.clear();
+                if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+                    window.BARK.invalidateVisitedIdsCache();
+                }
                 if (visitedSnapshotUnsubscribe) {
                     visitedSnapshotUnsubscribe();
                     visitedSnapshotUnsubscribe = null;
