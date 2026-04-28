@@ -117,12 +117,59 @@ function makeTripNodeFromPark(item) {
     };
 }
 
-function applyPlannerSearchSelection(type, node) {
-    if (type === 'start') window.tripStartNode = node;
-    else if (type === 'end') window.tripEndNode = node;
-    else if (typeof window.addStopToTrip === 'function') window.addStopToTrip(node);
+function alertTripPlannerUnavailable() {
+    alert('Trip planner is unavailable right now. Please refresh and try again.');
+}
 
-    if (typeof window.BARK.updateTripUI === 'function') window.BARK.updateTripUI();
+function applyTripNodeSelection(type, node, options = {}) {
+    let shouldUpdateTripUI = false;
+
+    if (type === 'start') {
+        window.tripStartNode = node;
+        shouldUpdateTripUI = true;
+    } else if (type === 'end') {
+        window.tripEndNode = node;
+        shouldUpdateTripUI = true;
+    } else if (typeof window.addStopToTrip === 'function') {
+        try {
+            if (window.addStopToTrip(node) === false) return false;
+        } catch (error) {
+            console.error('[searchEngine] addStopToTrip failed:', error);
+            if (options.alertOnFailure) alertTripPlannerUnavailable();
+            return false;
+        }
+    } else {
+        console.warn('[searchEngine] addStopToTrip unavailable; cannot add geocode stop.', node);
+        if (options.alertOnFailure) alertTripPlannerUnavailable();
+        return false;
+    }
+
+    if (shouldUpdateTripUI && typeof window.BARK.updateTripUI === 'function') window.BARK.updateTripUI();
+    return true;
+}
+
+function applyPlannerSearchSelection(type, node) {
+    return applyTripNodeSelection(type, node, { alertOnFailure: true });
+}
+
+function clearGeocodeSearchStatus(DOM, targetType) {
+    if (targetType === 'stop') {
+        const mainSearch = DOM.parkSearch();
+        const clearBtn = DOM.clearSearchBtn();
+        if (mainSearch) mainSearch.value = '';
+        if (clearBtn) clearBtn.style.display = 'none';
+        if (typeof window.BARK.activeSearchQuery !== 'undefined') window.BARK.activeSearchQuery = '';
+        return;
+    }
+
+    const inlineInput = DOM.inlineInput(targetType);
+    if (
+        inlineInput &&
+        inlineInput.value &&
+        (inlineInput.value.startsWith('Searching for "') || inlineInput.value === 'Locating GPS...')
+    ) {
+        inlineInput.value = '';
+    }
 }
 
 function hideInlineSuggestions(type) {
@@ -251,11 +298,22 @@ function runInlinePlannerSearch(type, options = {}) {
     executeGeocode(query, type);
 }
 
-function shouldMoveMapForSearchResult(targetType) {
-    return targetType === 'stop' &&
-        typeof map !== 'undefined' &&
-        !window.stopAutoMovements &&
-        (typeof window.BARK.isMapViewActive !== 'function' || window.BARK.isMapViewActive());
+function getSearchMovementMap(targetType) {
+    if (targetType !== 'stop' || window.stopAutoMovements) return null;
+    if (typeof window.BARK.isMapViewActive === 'function' && !window.BARK.isMapViewActive()) return null;
+
+    if (typeof window.BARK.getUsableMap === 'function') return window.BARK.getUsableMap();
+    if (
+        window.map &&
+        typeof window.map.setView === 'function' &&
+        typeof window.map.getZoom === 'function' &&
+        typeof window.map.getBounds === 'function' &&
+        typeof window.map.getContainer === 'function'
+    ) {
+        return window.map;
+    }
+
+    return null;
 }
 
 window.BARK.getLocalParkMatches = getLocalParkMatches;
@@ -394,9 +452,10 @@ function initSearchEngine() {
                     searchSuggestions.style.display = 'none';
                     window.syncState();
 
-                    if (match.marker && match.marker._parkData && typeof map !== 'undefined') {
-                        if (!window.stopAutoMovements) {
-                            map.setView([match.marker._parkData.lat, match.marker._parkData.lng], 12, {
+                    if (match.marker && match.marker._parkData) {
+                        const movementMap = getSearchMovementMap('stop');
+                        if (movementMap) {
+                            movementMap.setView([match.marker._parkData.lat, match.marker._parkData.lng], 12, {
                                 animate: !window.lowGfxEnabled,
                                 duration: window.lowGfxEnabled ? 0 : 1.5
                             });
@@ -605,15 +664,16 @@ async function executeGeocode(query, targetType) {
 
         navigator.geolocation.getCurrentPosition((pos) => {
             const node = { name: "My Current Location", lat: pos.coords.latitude, lng: pos.coords.longitude };
-            if (targetType === 'start') window.tripStartNode = node;
-            else if (targetType === 'end') window.tripEndNode = node;
-            else window.addStopToTrip(node);
+            const applied = applyTripNodeSelection(targetType, node, { alertOnFailure: true });
+            if (!applied) {
+                clearGeocodeSearchStatus(DOM, targetType);
+                return;
+            }
 
             if (targetType === 'stop' && mainSearch) {
                 mainSearch.value = '';
                 window.BARK.activeSearchQuery = '';
             }
-            if (typeof window.BARK.updateTripUI === 'function') window.BARK.updateTripUI();
         }, () => {
             alert("Could not get GPS location. Please check browser permissions.");
             if (targetType === 'stop' && mainSearch) mainSearch.value = '';
@@ -634,9 +694,10 @@ async function executeGeocode(query, targetType) {
             if (data.features.length === 1) {
                 const coords = data.features[0].geometry.coordinates;
                 const node = { name: data.features[0].properties.label || query, lat: coords[1], lng: coords[0] };
-                if (targetType === 'start') window.tripStartNode = node;
-                else if (targetType === 'end') window.tripEndNode = node;
-                else window.addStopToTrip(node);
+                if (!applyTripNodeSelection(targetType, node, { alertOnFailure: true })) {
+                    clearGeocodeSearchStatus(DOM, targetType);
+                    return;
+                }
 
                 const mainSearch = DOM.parkSearch();
                 const clearBtn = DOM.clearSearchBtn();
@@ -654,14 +715,14 @@ async function executeGeocode(query, targetType) {
 
                 window.syncState();
 
-                if (shouldMoveMapForSearchResult(targetType)) {
-                    map.setView([node.lat, node.lng], 10, {
+                const movementMap = getSearchMovementMap(targetType);
+                if (movementMap) {
+                    movementMap.setView([node.lat, node.lng], 10, {
                         animate: !window.instantNav,
                         duration: window.instantNav ? 0 : 0.4
                     });
                 }
 
-                if (typeof window.BARK.updateTripUI === 'function') window.BARK.updateTripUI();
             } else {
                 if (disambiguationContainer) {
                     let actionText = targetType === 'start' ? '🟢 TRIP START' : (targetType === 'end' ? '🔴 TRIP END' : '➕ ADD STOP');
@@ -679,9 +740,11 @@ async function executeGeocode(query, targetType) {
                         div.onclick = () => {
                             const coords = f.geometry.coordinates;
                             const node = { name: f.properties.label, lat: coords[1], lng: coords[0] };
-                            if (targetType === 'start') window.tripStartNode = node;
-                            else if (targetType === 'end') window.tripEndNode = node;
-                            else window.addStopToTrip(node);
+                            if (!applyTripNodeSelection(targetType, node, { alertOnFailure: true })) {
+                                clearGeocodeSearchStatus(DOM, targetType);
+                                disambiguationContainer.style.display = 'none';
+                                return;
+                            }
 
                             const mainSearch = DOM.parkSearch();
                             const clearBtn = DOM.clearSearchBtn();
@@ -697,15 +760,15 @@ async function executeGeocode(query, targetType) {
 
                             window.syncState();
 
-                            if (shouldMoveMapForSearchResult(targetType)) {
-                                map.setView([node.lat, node.lng], 10, {
+                            const movementMap = getSearchMovementMap(targetType);
+                            if (movementMap) {
+                                movementMap.setView([node.lat, node.lng], 10, {
                                     animate: !window.lowGfxEnabled,
                                     duration: window.lowGfxEnabled ? 0 : 1.5
                                 });
                             }
 
                             disambiguationContainer.style.display = 'none';
-                            if (typeof window.BARK.updateTripUI === 'function') window.BARK.updateTripUI();
                         };
                         disambiguationContainer.appendChild(div);
                     });

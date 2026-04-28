@@ -353,46 +353,81 @@ function getDistanceMeters(lat1, lon1, lat2, lon2) {
 }
 
 // ====== MILEAGE PROCESSING ======
+function getMileageContext(userData) {
+    const data = userData || {};
+    const expedition = (typeof data.virtual_expedition === 'object' && data.virtual_expedition) || {};
+    const hasActiveExpedition = Boolean(expedition.active_trail);
+    const history = Array.isArray(expedition.history) ? [...expedition.history] : [];
+
+    return {
+        expedition,
+        hasActiveExpedition,
+        currentMiles: hasActiveExpedition ? Number(expedition.miles_logged) || 0 : 0,
+        totalMiles: hasActiveExpedition ? Number(expedition.trail_total_miles) || 0 : 0,
+        history,
+        trailName: hasActiveExpedition ? (expedition.trail_name || "Active Trail") : "General Walk",
+        lifetimeMiles: Number(data.lifetime_miles) || 0
+    };
+}
+
+function updateLifetimeMilesDisplay(lifetimeMiles) {
+    const lifetimeEl = document.getElementById('lifetime-miles-display');
+    if (lifetimeEl) lifetimeEl.textContent = `${lifetimeMiles.toFixed(1)} mi`;
+}
+
 async function processMileageAddition(milesToAdd, typeLabel) {
+    if (typeof firebase === 'undefined' || !firebase.auth || !firebase.firestore) {
+        alert("Mileage logging is unavailable right now. Please refresh and try again.");
+        return false;
+    }
+
     const user = firebase.auth().currentUser;
-    if (!user) return;
+    if (!user) return false;
     const userRef = firebase.firestore().collection('users').doc(user.uid);
     window.BARK.incrementRequestCount();
 
     try {
         const docSnap = await userRef.get();
-        const userData = docSnap.data();
-        let currentMiles = 0, totalMiles = 10, history = [], lifetimeTotal = userData.lifetime_miles || 0;
-        const currentTrailName = (userData.virtual_expedition && userData.virtual_expedition.trail_name) || "Active Trail";
+        const userData = docSnap.data() || {};
+        const context = getMileageContext(userData);
+        const milesLogged = parseFloat(milesToAdd.toFixed(2));
 
-        if (userData.virtual_expedition) {
-            currentMiles = userData.virtual_expedition.miles_logged || 0;
-            totalMiles = userData.virtual_expedition.trail_total_miles || 0;
-            history = userData.virtual_expedition.history || [];
+        let newTotal = context.currentMiles + milesLogged;
+        if (context.totalMiles > 0 && newTotal > context.totalMiles) newTotal = context.totalMiles;
+
+        const logEntry = { ts: Date.now(), miles: milesLogged, type: typeLabel, trailName: context.trailName };
+        const history = [logEntry, ...context.history];
+        const virtualExpedition = { ...context.expedition, history };
+        if (context.hasActiveExpedition) virtualExpedition.miles_logged = newTotal;
+
+        await userRef.set({
+            virtual_expedition: virtualExpedition,
+            lifetime_miles: firebase.firestore.FieldValue.increment(milesLogged),
+            walkPoints: firebase.firestore.FieldValue.increment(milesLogged)
+        }, { merge: true });
+
+        window.currentWalkPoints = (window.currentWalkPoints || 0) + milesLogged;
+        if (window.BARK && typeof window.BARK.syncScoreToLeaderboard === 'function') {
+            await window.BARK.syncScoreToLeaderboard();
         }
 
-        let newTotal = currentMiles + milesToAdd;
-        if (totalMiles > 0 && newTotal > totalMiles) newTotal = totalMiles;
+        const nextLifetimeMiles = context.lifetimeMiles + milesLogged;
+        if (context.hasActiveExpedition) {
+            renderExpeditionProgress(newTotal, context.totalMiles, nextLifetimeMiles);
+            renderExpeditionHistory(history, context.trailName);
+        } else {
+            updateLifetimeMilesDisplay(nextLifetimeMiles);
+            renderExpeditionHistory(history, context.trailName);
+        }
 
-        const logEntry = { ts: Date.now(), miles: parseFloat(milesToAdd.toFixed(2)), type: typeLabel, trailName: currentTrailName };
-        history.unshift(logEntry);
-
-        await userRef.update({
-            "virtual_expedition.miles_logged": newTotal,
-            "virtual_expedition.history": history,
-            "lifetime_miles": firebase.firestore.FieldValue.increment(parseFloat(milesToAdd.toFixed(2))),
-            "walkPoints": firebase.firestore.FieldValue.increment(parseFloat(milesToAdd.toFixed(2)))
-        });
-
-        window.currentWalkPoints = (window.currentWalkPoints || 0) + parseFloat(milesToAdd.toFixed(2));
-        await window.BARK.syncScoreToLeaderboard();
-
-        renderExpeditionProgress(newTotal, totalMiles, lifetimeTotal + milesToAdd);
-        renderExpeditionHistory(history, currentTrailName);
-
-        if (newTotal >= totalMiles) setTimeout(() => alert("🎉 Expedition Complete! You conquered the trail!"), 800);
+        if (context.totalMiles > 0 && newTotal >= context.totalMiles) {
+            setTimeout(() => alert("🎉 Expedition Complete! You conquered the trail!"), 800);
+        }
+        return true;
     } catch (error) {
         console.error("Failed to log miles:", error);
+        alert("Failed to log miles. Please check your connection and try again.");
+        return false;
     }
 }
 
@@ -400,13 +435,13 @@ async function processMileageAddition(milesToAdd, typeLabel) {
 function initManualMiles() {
     const logManualBtn = document.getElementById('log-manual-miles-btn');
     if (logManualBtn) {
-        logManualBtn.addEventListener('click', () => {
+        logManualBtn.addEventListener('click', async () => {
             const inputEl = document.getElementById('miles-input');
             let milesToLog = parseFloat(inputEl.value);
             if (isNaN(milesToLog) || milesToLog <= 0) return;
             if (milesToLog > 15) { alert("Whoa there! You can only log a maximum of 15 miles per day manually."); milesToLog = 15; inputEl.value = 15; }
-            processMileageAddition(milesToLog, 'Manual Entry');
-            inputEl.value = '';
+            const logged = await processMileageAddition(milesToLog, 'Manual Entry');
+            if (logged) inputEl.value = '';
         });
     }
 }

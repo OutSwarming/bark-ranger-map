@@ -85,13 +85,46 @@ let _leaderboardSyncInProgress = false;
 let _lastLeaderboardSyncTime = 0;
 const LEADERBOARD_SYNC_DEBOUNCE_MS = 10000;
 
+function getCurrentFirebaseUser() {
+    if (typeof firebase === 'undefined' || !firebase.auth) return null;
+
+    try {
+        return firebase.auth().currentUser || null;
+    } catch (error) {
+        console.warn('[profileEngine] Firebase auth unavailable for leaderboard sync:', error);
+        return null;
+    }
+}
+
+function getFirestoreForLeaderboardSync() {
+    if (typeof firebase === 'undefined' || !firebase.firestore) return null;
+
+    try {
+        return firebase.firestore();
+    } catch (error) {
+        console.warn('[profileEngine] Firestore unavailable for leaderboard sync:', error);
+        return null;
+    }
+}
+
+function getLeaderboardServerTimestamp() {
+    if (typeof firebase === 'undefined' || !firebase.firestore || !firebase.firestore.FieldValue) return null;
+
+    try {
+        return firebase.firestore.FieldValue.serverTimestamp();
+    } catch (error) {
+        console.warn('[profileEngine] Firestore server timestamp unavailable for leaderboard sync:', error);
+        return null;
+    }
+}
+
 async function syncScoreToLeaderboard() {
     if (_leaderboardSyncInProgress) return;
 
     const now = Date.now();
     if (now - _lastLeaderboardSyncTime < LEADERBOARD_SYNC_DEBOUNCE_MS) return;
 
-    const user = firebase.auth().currentUser;
+    const user = getCurrentFirebaseUser();
     if (!user) return;
 
     const userVisitedPlaces = window.BARK.userVisitedPlaces;
@@ -102,8 +135,12 @@ async function syncScoreToLeaderboard() {
 
     _leaderboardSyncInProgress = true;
     try {
-        const db = firebase.firestore();
-        window.BARK.incrementRequestCount();
+        const db = getFirestoreForLeaderboardSync();
+        if (!db) return;
+
+        if (typeof window.BARK.incrementRequestCount === 'function') {
+            window.BARK.incrementRequestCount();
+        }
 
         await db.collection('users').doc(user.uid).set({
             totalPoints: totalScore,
@@ -112,14 +149,17 @@ async function syncScoreToLeaderboard() {
             hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified)
         }, { merge: true });
 
-        await db.collection('leaderboard').doc(user.uid).set({
+        const leaderboardPayload = {
             displayName: user.displayName || 'Bark Ranger',
             photoURL: user.photoURL || '',
             totalPoints: totalScore,
             totalVisited: userVisitedPlaces.size,
-            hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified),
-            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+            hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified)
+        };
+        const serverTimestamp = getLeaderboardServerTimestamp();
+        if (serverTimestamp) leaderboardPayload.lastUpdated = serverTimestamp;
+
+        await db.collection('leaderboard').doc(user.uid).set(leaderboardPayload, { merge: true });
 
         window._lastSyncedScore = totalScore;
 

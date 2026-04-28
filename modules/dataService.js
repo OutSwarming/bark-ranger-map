@@ -388,6 +388,31 @@ function safeDataPoll() {
     scheduleNextDataPoll();
 }
 
+function clearLayerSafely(layer, label) {
+    if (!layer || typeof layer.clearLayers !== 'function') return false;
+
+    try {
+        layer.clearLayers();
+        return true;
+    } catch (error) {
+        console.warn(`[dataService] failed to clear ${label}:`, error);
+        return false;
+    }
+}
+
+function clearMarkerLayersSafely() {
+    const markerLayerCleared = clearLayerSafely(window.BARK.markerLayer, 'markerLayer');
+    const clusterLayerCleared = clearLayerSafely(window.BARK.markerClusterGroup, 'markerClusterGroup');
+
+    if ((markerLayerCleared || clusterLayerCleared) && window.BARK.markerManager && window.BARK.markerManager.markers instanceof Map) {
+        window.BARK.markerManager.markers.clear();
+    }
+
+    if (markerLayerCleared || clusterLayerCleared) {
+        window.BARK.activePinMarker = null;
+    }
+}
+
 function loadData() {
     const cachedCsv = localStorage.getItem('barkCSV');
     const cachedTime = localStorage.getItem('barkCSV_time');
@@ -408,7 +433,7 @@ function loadData() {
         const isPremium = localStorage.getItem('premiumLoggedIn') === 'true';
         if (!isPremium && !cachedCsv) {
             alert('Network disconnected. Log in via the Profile tab to enable Premium Offline Mode.');
-            window.BARK.markerLayer.clearLayers();
+            clearMarkerLayersSafely();
         }
         return;
     }
@@ -418,6 +443,7 @@ function loadData() {
 
 window.BARK.loadData = loadData;
 window.BARK.safeDataPoll = safeDataPoll;
+window.BARK.clearMarkerLayersSafely = clearMarkerLayersSafely;
 
 // ====== VERSION CHECK ======
 let pollErrorCount = 0;

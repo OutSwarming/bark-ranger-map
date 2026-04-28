@@ -103,16 +103,30 @@ function isMapViewActive() {
     return !document.querySelector('.ui-view.active');
 }
 
+function isUsableLeafletMap(map) {
+    return Boolean(
+        map &&
+        typeof map.getZoom === 'function' &&
+        typeof map.getBounds === 'function' &&
+        typeof map.getContainer === 'function'
+    );
+}
+
+function getUsableMap() {
+    return isUsableLeafletMap(window.map) ? window.map : null;
+}
+
 function isMapViewportReady(map) {
-    if (!map || !isMapViewActive()) return false;
-    const container = map.getContainer && map.getContainer();
+    if (!isUsableLeafletMap(map) || !isMapViewActive()) return false;
+    const container = map.getContainer();
     if (!container) return false;
     const rect = container.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
 }
 
 function shouldCullPlainMarkers(zoom) {
-    if (!isMapViewportReady(window.map)) return false;
+    const map = getUsableMap();
+    if (!isMapViewportReady(map)) return false;
     if (window.BARK.getMarkerLayerPolicy) {
         const policy = window.BARK.getMarkerLayerPolicy(zoom);
         return policy.layerType === 'plain' && policy.cullPlainMarkers;
@@ -160,7 +174,7 @@ function canAutoFrameBounds(map, bounds, padding) {
 }
 
 function getMarkerVisibilityStateKey() {
-    const map = window.map;
+    const map = getUsableMap();
     const searchCache = window.BARK._searchResultCache || {};
     const searchCacheIds = searchCache.matchedIds ? Array.from(searchCache.matchedIds).sort().join(',') : '';
     const searchCacheStatus = searchCache.complete === false ? 'search-partial' : 'search-complete';
@@ -208,6 +222,8 @@ window.BARK.invalidateVisitedIdsCache = function () {
     window.BARK.invalidateMarkerVisibility();
 };
 window.BARK.isMapViewActive = isMapViewActive;
+window.BARK.isUsableLeafletMap = isUsableLeafletMap;
+window.BARK.getUsableMap = getUsableMap;
 
 function scheduleAchievementEvaluation() {
     if (typeof window.BARK.evaluateAchievements !== 'function') return;
@@ -247,6 +263,8 @@ window.syncState = function () {
         if (typeof window.BARK.updateMarkers === 'function') {
             if (!isMapViewActive()) {
                 window.BARK._pendingMarkerSync = true;
+            } else if (!getUsableMap()) {
+                window.BARK._pendingMarkerSync = true;
             } else if (window.BARK._isZooming) {
                 window.BARK._pendingMarkerSync = true;
             } else {
@@ -266,7 +284,12 @@ window.syncState = function () {
 
 // ====== THE RENDERING ENGINE — updateMarkers() ======
 function updateMarkers() {
-    const map = window.map;
+    const map = getUsableMap();
+    if (!map) {
+        window.BARK._pendingMarkerSync = true;
+        return;
+    }
+
     const allPoints = window.BARK.allPoints;
     const activeSwagFilters = window.BARK.activeSwagFilters;
     const activeSearchQuery = window.BARK.activeSearchQuery;
