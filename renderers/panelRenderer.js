@@ -325,7 +325,14 @@ function renderMarkerClickPanel(context) {
         });
     }
 
-    if (slidePanel) slidePanel.classList.add('open');
+    const mapIsActive = typeof window.BARK.isMapViewActive === 'function'
+        ? window.BARK.isMapViewActive()
+        : !document.querySelector('.ui-view.active');
+
+    if (slidePanel) {
+        if (mapIsActive) slidePanel.classList.add('open');
+        else slidePanel.classList.remove('open');
+    }
 }
 
 window.BARK.renderMarkerClickPanel = renderMarkerClickPanel;

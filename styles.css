@@ -474,6 +474,12 @@ textarea,
     backface-visibility: hidden;
 }
 
+body.app-tab-active #slide-panel {
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transform: translate3d(0, calc(100% + env(safe-area-inset-bottom, 0px) + 64px), 0) !important;
+}
+
 .panel-content {
     flex: 1;
     display: block;

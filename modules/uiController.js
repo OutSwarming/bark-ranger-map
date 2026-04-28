@@ -25,6 +25,10 @@ function isAppTabActive() {
     return Boolean(document.querySelector('.ui-view.active'));
 }
 
+function syncAppTabMode() {
+    document.body.classList.toggle('app-tab-active', isAppTabActive());
+}
+
 function closeMapOnlySurfaces() {
     const panel = document.getElementById('slide-panel');
     if (panel) panel.classList.remove('open');
@@ -77,6 +81,16 @@ const navItems = document.querySelectorAll('.nav-item');
 const uiViews = document.querySelectorAll('.ui-view');
 const filterPanel = document.getElementById('filter-panel');
 const leafletControls = document.querySelectorAll('.leaflet-control-container');
+
+if (slidePanel && window.MutationObserver) {
+    const slidePanelObserver = new MutationObserver(() => {
+        if (isAppTabActive() && slidePanel.classList.contains('open')) {
+            slidePanel.classList.remove('open');
+        }
+    });
+
+    slidePanelObserver.observe(slidePanel, { attributes: true, attributeFilter: ['class'] });
+}
 
 document.addEventListener('focusin', (e) => {
     if (!isTextEntryElement(e.target) || !isAppTabActive()) return;
@@ -138,6 +152,7 @@ function initUIEventListeners() {
 }
 
 initUIEventListeners();
+syncAppTabMode();
 
 // ====== PLANNER SCROLL: DISMISS INLINE SUGGESTIONS ======
 // When the user scrolls the planner view without selecting a suggestion,
@@ -182,6 +197,8 @@ navItems.forEach(btn => {
 
         if (targetId === 'map-view') {
             uiViews.forEach(v => v.classList.remove('active'));
+            syncAppTabMode();
+            closeMapOnlySurfaces();
             requestAnimationFrame(() => {
                 if (filterPanel) filterPanel.style.display = 'flex';
                 if (leafletControls.length) leafletControls[0].style.display = 'block';
@@ -199,6 +216,7 @@ navItems.forEach(btn => {
                 if (v.id === targetId) v.classList.add('active');
                 else v.classList.remove('active');
             });
+            syncAppTabMode();
             if (filterPanel) filterPanel.style.display = 'none';
             if (slidePanel) slidePanel.classList.remove('open');
             if (leafletControls.length) leafletControls[0].style.display = 'none';
