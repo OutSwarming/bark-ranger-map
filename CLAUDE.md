@@ -35,7 +35,7 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 
 - [x] **#2 — Loader never dismisses on Firebase failure** (`modules/mapEngine.js`) ✅
 
-- [ ] **#3 — Cloud settings bypass the settings store** (`services/authService.js`, `handleCloudSettingsHydration`): `applySetting()` writes directly to `localStorage` + raw `window.*`, bypassing `settingsStore.js`. `onChange()` listeners never fire for cloud-loaded settings. Fix: route all cloud setting writes through `window.BARK.settings.set()`.
+- [x] **#3 — Cloud settings bypass the settings store** (`services/authService.js`, `handleCloudSettingsHydration`) ✅
 
 - [ ] **#4 — `expeditionEngine.js` calls `L.featureGroup()` at module scope** (`modules/expeditionEngine.js:22-23`): These lines run at parse time, before `initMap()`. If Leaflet CDN is slow, crashes with `L is not defined`. Move layer group creation inside `initTrainingUI()`.
 
@@ -65,8 +65,10 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 
 - [ ] **#17 — iOS settings overlay scroll leak** (`modules/settingsController.js`): `document.body.style.overflow = 'hidden'` does not work on iOS Safari. Use `document.body.style.position = 'fixed'` with scroll offset preservation on open, restore on close.
 
+- [ ] **#18 — User-visible degraded state when `initMap` fails**: When the map fails (Leaflet CDN down, DOM node missing, etc.), the user sees nothing — no error, no message, just a broken blank screen. Add a visible in-page message ("Map unavailable — try refreshing") that appears if `initMap` is not in `_bootErrors` within N seconds, or if `window.map` is still undefined after boot. This is distinct from Fix #2 (loader stuck) — the loader dismisses, but the user still has no signal that something is wrong.
+
 ## Current Work
-Fix #2 complete. Start with Fix #3 next session.
+Fix #3 complete. Start with Fix #4 next session.
 
 ---
 
@@ -96,42 +98,98 @@ Fix #2 complete. Start with Fix #3 next session.
 
 **Cons / tradeoffs:**
 - We now treat `initMap` failure the same as `initWatermarkTool` failure — both are caught and execution continues. If the map fails, everything after it that depends on `window.map` will also fail, producing multiple errors rather than one clean fatal. The tradeoff is accepted: knowing all the failures is better than stopping at the first one.
-- Errors are console-only. There is no user-visible fallback state when a module fails. That is Fix #2's job (the loader never-dismiss problem).
+- Errors are console-only. There is no user-visible fallback state when a module fails. That is Fix #18's job.
+
+**Code review correction applied (same session):**
+Original `callInit()` used synchronous `try/catch`. If an init returned a rejected Promise, it slipped through — `callInit()` reported success and execution continued with the failure uncaught. Fixed: `callInit()` is now `async` and uses `await window.BARK[name]()`. The `DOMContentLoaded` handler is also `async` with `await` on each `callInit()` call to preserve boot order.
 
 **How much better:**
-- Before: 1 broken init = silent cascade = app in unknown broken state, 0 diagnostic info.
-- After: 1 broken init = 1 named console error, all other features still initialize normally, boot summary lists everything that failed. Debugging time cut from "unknown, must re-read all code" to "read the console."
+- Before: 1 broken init = silent cascade, 0 diagnostic info, async rejections invisible.
+- After: 1 broken init = 1 named console error, all subsequent features still initialize, async rejections caught and named, boot summary lists every failure. Debugging time cut from "re-read all code" to "read the console."
 
 ### Fix #2 — Loader Never Dismisses on Firebase Failure
 **File:** `modules/mapEngine.js`
 **Date:** 2026-04-28
 
 **What was wrong:**
-`window.dismissBarkLoader()` was called in exactly two places — both inside the `onAuthStateChanged` callback in `authService.js` (line 361 for logged-in users, line 396 for logged-out users). If Firebase fails to initialize, the SDK doesn't load from CDN, or the network is down, `onAuthStateChanged` never fires. The `#bark-loader` spinner stays on screen permanently and blocks the entire app — users can't see the map, can't search, can't do anything. The app is 100% inaccessible.
+`window.dismissBarkLoader()` was called in exactly two places — both inside the `onAuthStateChanged` callback in `authService.js`. If Firebase fails to initialize, the SDK doesn't load from CDN, or the network is down, `onAuthStateChanged` never fires. The `#bark-loader` spinner stays on screen permanently and blocks the entire app.
 
-**The fix:**
-One line added in `initMap()`, directly after `dismissBarkLoader` is defined:
-```javascript
-setTimeout(() => window.dismissBarkLoader(), 8000);
-```
-After 8 seconds, the loader is force-dismissed regardless of Firebase state. `dismissBarkLoader` is already idempotent — it checks `loader.style.opacity !== '0'` before acting, so calling it from both the fallback and Firebase is safe. Whichever fires first wins; the second call is a no-op.
+**Initial fix:**
+Added an 8-second fallback `setTimeout(() => window.dismissBarkLoader(), 8000)` inside `initMap()`.
+
+**Code review correction applied (same session):**
+A code review identified a second, deeper bug: `dismissBarkLoader` was originally defined at ~line 242 inside `window.BARK.initMap()`. The function calls `L.map()` at ~line 79. If Leaflet CDN fails, `L.map()` throws → `initMap()` exits early → `dismissBarkLoader` is never assigned to `window` → the 8-second fallback is never scheduled → `authService.js` later calls `window.dismissBarkLoader()` → `TypeError: window.dismissBarkLoader is not a function`.
+
+**Final state:**
+Both `window.dismissBarkLoader` definition and `setTimeout(() => window.dismissBarkLoader(), 8000)` moved to **module scope** — outside and before `window.BARK.initMap`. The function is globally safe from the moment the script tag is parsed, regardless of whether Leaflet loads or `initMap()` completes.
 
 **Why 8 seconds:**
-Firebase Auth on a normal connection resolves in under 2 seconds. 8 seconds is generous enough to cover slow networks, CDN hiccups, and cold-start Cloud Function latency — without making users wait unreasonably long when Firebase is actually down.
+Firebase Auth on a normal connection resolves in under 2 seconds. 8 seconds covers slow networks, CDN hiccups, and cold-start Cloud Function latency.
 
 **Pros of this approach:**
-- The map is always usable. Firebase failure becomes a degraded experience (no visited places, no cloud settings) rather than a total block.
-- `dismissBarkLoader` was already idempotent, so no defensive code needed — the fix is genuinely one line.
-- The fallback fires from inside `initMap()`, which is the right place: it owns the loader, and it always runs before Firebase init.
-- Zero risk of interfering with the normal Firebase path — the normal calls still happen exactly as before.
+- The map is always usable. Firebase failure = degraded experience, not total block.
+- `dismissBarkLoader` is globally safe from module parse time — no ordering dependency on `initMap()`.
+- Idempotent — whichever call fires first wins, second is a no-op.
+- Zero risk of interfering with the normal Firebase path.
 
 **Cons / tradeoffs:**
-- If Firebase auth takes exactly 8.1 seconds (extremely slow but not failing), the loader dismisses before visited places and cloud settings are hydrated. The user sees the map in a logged-out state briefly, then the UI corrects itself when Firebase resolves. Acceptable — partial data briefly is far better than blocked forever.
-- 8 seconds is a guess. If Firebase routinely takes longer on slow connections this could be raised to 10s, but 8s is the right starting point.
+- If Firebase auth takes exactly 8.1 seconds (extremely slow but not failing), the loader dismisses before visited places and cloud settings hydrate. User sees logged-out state briefly then UI corrects. Acceptable.
+- 8 seconds is a judgment call — could raise to 10s if slow-connection feedback warrants it.
 
 **How much better:**
-- Before: Firebase down = 100% of the app blocked, user sees spinner forever, no recourse.
-- After: Firebase down = map loads in 8s, user can browse parks, search, plan trips — just without their personal data until Firebase recovers.
+- Before: Firebase down = 100% blocked, spinner forever, and a latent crash if Leaflet also failed.
+- After: Firebase down = map loads in ≤8s regardless of CDN state, user can browse/search/plan.
+
+---
+
+### Code Review Opinion — Analysis & Verdict (2026-04-28)
+
+A code review raised three points. All three were valid. Here's the verdict and what was done:
+
+**Point 1 — `dismissBarkLoader` unsafe if `initMap()` throws early**
+- Valid. `dismissBarkLoader` was defined inside `initMap()`, after `L.map()`. Leaflet failure → function never exists → `authService.js` crash.
+- Action: Moved definition and fallback `setTimeout` to module scope. ✅ Fixed in code.
+
+**Point 2 — `callInit()` misses rejected Promises (async errors slip through)**
+- Valid. Original `callInit()` was synchronous `try/catch`. A `return Promise.reject(...)` from an init function would not be caught — `callInit()` would log success and execution would continue.
+- Action: Made `callInit()` `async` with `await window.BARK[name]()`. Made `DOMContentLoaded` handler `async` with `await` on each `callInit()` to preserve boot order. ✅ Fixed in core/app.js.
+
+**Point 3 — App needs a user-visible degraded state when `initMap` fails**
+- Valid. After Fix #1 the console shows everything, but the user sees a blank screen with no indication of what's wrong.
+- Action: Added as **Fix #18** in the queue. Not implemented yet — it belongs in its own slot so it can be tested properly.
+
+### Fix #3 — Cloud Settings Bypass the Settings Store
+**File:** `services/authService.js` — `handleCloudSettingsHydration()`
+**Date:** 2026-04-28
+
+**What was wrong:**
+The function had a local `applySetting(storageKey, val)` helper that wrote directly to `localStorage`, then assigned the return value to `window[key]`. Although `settingsStore.js` installs property descriptors on `window` that route assignments through `store.set()` → `notify()`, the code also had a redundant registry loop calling `store.set()` a second time. Result: each setting had localStorage written 2–3 times per cloud hydration, registry settings were processed twice (once via window assignment, once via the loop), gesture settings (`lockMapPanning`, `disablePinchZoom`) were applied inline AND via the onChange → `scheduleRegistrySettingEffects` pipeline, and an `ids` object of 20 hardcoded element IDs manually updated checkboxes that `syncRegisteredControls()` already handles. The `window.clusteringEnabled = ...` assignment was also a no-op since its property descriptor has a no-op setter.
+
+**The fix:**
+Rewrote `handleCloudSettingsHydration` with one explicit path:
+1. `store.set('lowGfxEnabled', ...)` first — its setter applies `LOW_GRAPHICS_PRESET`, individual settings below can then override.
+2. Resolve `standardClustering` default logic (derives from `premiumClustering` when absent from cloud data).
+3. One `store.set()` call per registry setting via `Object.entries(registry)` loop — skips settings absent from cloud data using `hasOwnProperty`.
+4. `store.set()` for non-registry settings (`ultraLowEnabled`, `rememberMapPosition`, `startNationalView`).
+5. Manual DOM update for only the 3 non-registry toggles that have no `onChange` listener.
+6. `mapStyle` and `visitedFilter` still written directly to `localStorage` (they're strings, not boolean settings the store manages).
+7. Removed: `applySetting()`, `applyRegistrySetting()`, the hardcoded 15-setting block, the duplicate registry loop, inline gesture side-effects, the 20-ID `ids` object, `window.clusteringEnabled = ...`.
+8. Added early `return` after the `skipCloudHydration` branch (previously the national view check still ran after the skip).
+
+**Pros of this approach:**
+- Each setting goes through the store exactly once — `persist()` called once, `notify()` fires once, no double-write.
+- `onChange` listeners in `settingsController` fire correctly for all registry settings, which calls `syncRegisteredControls()` and `scheduleRegistrySettingEffects()` — no manual DOM sync needed for them.
+- Adding a new setting to `SETTINGS_REGISTRY` with a `cloudKey` is now automatically hydrated — no changes to `authService.js` required.
+- Gesture effects (lockMapPanning, disablePinchZoom) are applied via the normal `MAP_GESTURE` impact pipeline, not inline.
+- Code went from ~90 lines to ~50 lines with one clear path.
+
+**Cons / tradeoffs:**
+- `store.set()` fires `onChange` synchronously for each registry setting in the loop — if 15 settings all change, `syncRegisteredControls()` is called 15 times in the same tick. This was the same before (each window assignment triggered the property descriptor setter). The RAF batching in `scheduleRegistrySettingEffects` absorbs the effect calls, so it's correct but not minimally efficient. A future optimization could batch all cloud settings into one notify pass — that is a separate workstream.
+- The `skipCloudHydration` path now returns early before the national view check. Previously it ran that check even after skipping. The skip is triggered by `ultraLowEnabled` toggle which force-reloads — in that case `startNationalView` hasn't changed, so skipping the mapView call is correct.
+
+**How much better:**
+- Before: 2–3 localStorage writes per setting, duplicate code paths, 20 hardcoded element IDs that drift out of sync when the registry changes.
+- After: 1 localStorage write per setting (via `persist()`), one code path, zero hardcoded element IDs for registry settings — new settings added to the registry are automatically hydrated.
 
 ---
 

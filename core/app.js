@@ -7,10 +7,11 @@
 
     const _bootErrors = [];
 
-    function callInit(name, label) {
+    // async so it catches both synchronous throws and rejected Promises from init functions.
+    async function callInit(name, label) {
         if (typeof window.BARK[name] !== 'function') return;
         try {
-            window.BARK[name]();
+            await window.BARK[name]();
             if (label) console.log(`  ✓ ${label}`);
         } catch (err) {
             _bootErrors.push(name);
@@ -18,30 +19,31 @@
         }
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
+    // async so we can await each callInit and preserve boot order even for future async inits.
+    document.addEventListener('DOMContentLoaded', async () => {
         console.log('B.A.R.K. Boot Sequence: Initializing...');
 
         // 1. Map must exist before data or UI bind to it
-        callInit('initMap', 'Map initialized');
+        await callInit('initMap', 'Map initialized');
 
         // 2. Controllers and UI
-        callInit('initSettings', 'Settings initialized');
-        callInit('initUI', 'UI initialized');
-        callInit('initSearchEngine', 'Search engine bound');
-        callInit('initTrailToggles', 'Trail toggles bound');
-        callInit('initSpinWheel', 'Spin wheel initialized');
-        callInit('initManualMiles', 'Manual miles initialized');
-        callInit('initTrainingUI', 'Expedition engine initialized');
-        callInit('initTripPlanner', 'Trip planner initialized');
-        callInit('initWatermarkTool', 'Watermark tool initialized');
-        callInit('initQRCode', 'QR code initialized');
-        callInit('initCSVExport', 'Share engine initialized');
+        await callInit('initSettings', 'Settings initialized');
+        await callInit('initUI', 'UI initialized');
+        await callInit('initSearchEngine', 'Search engine bound');
+        await callInit('initTrailToggles', 'Trail toggles bound');
+        await callInit('initSpinWheel', 'Spin wheel initialized');
+        await callInit('initManualMiles', 'Manual miles initialized');
+        await callInit('initTrainingUI', 'Expedition engine initialized');
+        await callInit('initTripPlanner', 'Trip planner initialized');
+        await callInit('initWatermarkTool', 'Watermark tool initialized');
+        await callInit('initQRCode', 'QR code initialized');
+        await callInit('initCSVExport', 'Share engine initialized');
 
         // 3. Firebase — separate try/catch because a throw here means auth is gone,
         //    not just one feature. Named clearly so the console error is unambiguous.
         try {
             if (window.BARK.services && window.BARK.services.auth) {
-                window.BARK.services.auth.initFirebase();
+                await window.BARK.services.auth.initFirebase();
                 console.log('  ✓ Firebase initialized');
             }
         } catch (err) {

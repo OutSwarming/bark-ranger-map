@@ -5,6 +5,20 @@
  */
 window.BARK = window.BARK || {};
 
+// ====== LOADER DISMISSAL — MODULE SCOPE ======
+// Defined here, outside initMap(), so it is always available even if initMap() throws
+// (e.g. Leaflet CDN failure). authService.js calls this after Firebase auth resolves.
+window.dismissBarkLoader = function () {
+    const loader = document.getElementById('bark-loader');
+    if (loader && loader.style.opacity !== '0') {
+        loader.style.opacity = '0';
+        setTimeout(() => loader.remove(), 600);
+    }
+};
+
+// Safety fallback: if Firebase auth never resolves, dismiss after 8s unconditionally.
+setTimeout(() => window.dismissBarkLoader(), 8000);
+
 // ====== BATCH CSS CLASS APPLICATION ======
 /**
  * 🏭 Batch-apply body CSS classes from window state — one DOM write, no layout thrash.
@@ -237,19 +251,6 @@ map.on('zoomend', () => {
         }, 150);
     }
 });
-
-// Helper to manually dismiss the cold-start loader
-window.dismissBarkLoader = function () {
-    const loader = document.getElementById('bark-loader');
-    if (loader && loader.style.opacity !== '0') {
-        loader.style.opacity = '0';
-        setTimeout(() => loader.remove(), 600);
-    }
-};
-
-// Safety fallback: if Firebase auth never resolves (SDK failure, timeout, no network),
-// the loader dismisses after 8s so the map is always usable regardless of auth state.
-setTimeout(() => window.dismissBarkLoader(), 8000);
 
 L.control.zoom({
     position: 'bottomleft'

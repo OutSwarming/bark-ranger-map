@@ -10,116 +10,82 @@ let visitedSnapshotUnsubscribe = null;
 function handleCloudSettingsHydration(data, metadata = {}) {
     try {
         if (!(data.settings && !window._cloudSettingsLoaded)) return;
-
         if (!metadata.fromCache) window._cloudSettingsLoaded = true;
 
         if (sessionStorage.getItem('skipCloudHydration') === 'true') {
             sessionStorage.removeItem('skipCloudHydration');
             console.log("☁️ Cloud settings skipped: Preserving local force-reload state.");
-        } else {
-            const s = data.settings;
-            const applySetting = (key, val) => {
-                localStorage.setItem(key, val ? 'true' : 'false');
-                return val;
-            };
-            const applyRegistrySetting = (settingKey, value) => {
-                const setting = window.BARK.SETTINGS_REGISTRY && window.BARK.SETTINGS_REGISTRY[settingKey];
-                if (!setting) return;
-                if (window.BARK.settings && typeof window.BARK.settings.set === 'function') {
-                    window.BARK.settings.set(settingKey, value);
-                } else {
-                    window[settingKey] = applySetting(setting.storageKey, value);
-                }
-            };
-            const mapRef = (typeof map !== 'undefined') ? map : window.map;
-            window._cloudSettingsLoaded = true;
+            return;
+        }
 
-            window.allowUncheck = applySetting('barkAllowUncheck', s.allowUncheck || false);
-            window.rememberMapPosition = applySetting('remember-map-toggle', s.rememberMapPosition || false);
-            window.startNationalView = applySetting('barkNationalView', s.startNationalView || false);
-            window.instantNav = applySetting('barkInstantNav', s.instantNav || false);
-            const cloudPremiumClustering = s.premiumClustering || false;
-            const cloudStandardClustering = s.standardClustering === undefined ? !cloudPremiumClustering : s.standardClustering !== false;
-            window.standardClusteringEnabled = applySetting('barkStandardClustering', cloudStandardClustering);
-            window.premiumClusteringEnabled = applySetting('barkPremiumClustering', cloudPremiumClustering);
-            window.simplifyTrails = applySetting('barkSimplifyTrails', s.simplifyTrails || false);
-            window.stopAutoMovements = applySetting('barkStopAutoMove', s.stopAutoMovements || false);
-            window.lowGfxEnabled = applySetting('barkLowGfxEnabled', s.lowGfxEnabled || false);
-            window.removeShadows = applySetting('barkRemoveShadows', s.removeShadows || false);
-            window.stopResizing = applySetting('barkStopResizing', s.stopResizing || false);
-            window.viewportCulling = applySetting('barkViewportCulling', s.viewportCulling || false);
-            window.forcePlainMarkers = applySetting('barkForcePlainMarkers', s.forcePlainMarkers || false);
-            window.limitZoomOut = applySetting('barkLimitZoomOut', s.limitZoomOut || false);
-            window.simplifyPinsWhileMoving = applySetting('barkSimplifyPinsWhileMoving', s.simplifyPinsWhileMoving || false);
-            Object.entries(window.BARK.SETTINGS_REGISTRY || {}).forEach(([settingKey, setting]) => {
-                if (setting.cloudKey && Object.prototype.hasOwnProperty.call(s, setting.cloudKey) && settingKey !== 'lowGfxEnabled') {
-                    applyRegistrySetting(settingKey, s[setting.cloudKey] === true);
-                }
-            });
-            if (Object.prototype.hasOwnProperty.call(s, 'lowGfxEnabled')) {
-                applyRegistrySetting('lowGfxEnabled', s.lowGfxEnabled === true);
-            }
-            window.ultraLowEnabled = applySetting('barkUltraLowEnabled', s.ultraLowEnabled || false);
-            window.lockMapPanning = applySetting('barkLockMapPanning', s.lockMapPanning || false);
-            if (mapRef) {
-                if (window.lockMapPanning) mapRef.dragging.disable(); else mapRef.dragging.enable();
-            }
-            window.disablePinchZoom = applySetting('barkDisablePinchZoom', s.disablePinchZoom || false);
-            if (mapRef) {
-                if (window.disablePinchZoom) mapRef.touchZoom.disable(); else mapRef.touchZoom.enable();
-            }
-            window.disable1fingerZoom = applySetting('barkDisable1Finger', s.disable1fingerZoom || false);
-            window.disableDoubleTap = applySetting('barkDisableDoubleTap', s.disableDoubleTap || false);
+        const s = data.settings;
+        const store = window.BARK.settings;
+        const registry = window.BARK.SETTINGS_REGISTRY || {};
 
-            window.BARK.applyGlobalStyles();
+        // lowGfxEnabled must run first — its setter applies LOW_GRAPHICS_PRESET,
+        // which individual settings set below can then override.
+        if (Object.prototype.hasOwnProperty.call(s, 'lowGfxEnabled')) {
+            store.set('lowGfxEnabled', s.lowGfxEnabled === true);
+        }
 
-            const ids = {
-                'allow-uncheck-setting': window.allowUncheck,
-                'remember-map-toggle': window.rememberMapPosition,
-                'national-view-toggle': window.startNationalView,
-                'instant-nav-toggle': window.instantNav,
-                'premium-cluster-toggle': window.premiumClusteringEnabled,
-                'standard-cluster-toggle': window.standardClusteringEnabled,
-                'simplify-trail-toggle': window.simplifyTrails,
-                'toggle-stop-auto-move': window.stopAutoMovements,
-                'low-gfx-toggle': window.lowGfxEnabled,
-                'toggle-remove-shadows': window.removeShadows,
-                'toggle-stop-resizing': window.stopResizing,
-                'toggle-viewport-culling': window.viewportCulling,
-                'toggle-force-plain-markers': window.forcePlainMarkers,
-                'toggle-limit-zoom-out': window.limitZoomOut,
-                'toggle-simplify-pins-moving': window.simplifyPinsWhileMoving,
-                'ultra-low-toggle': window.ultraLowEnabled,
-                'toggle-lock-map-panning': window.lockMapPanning,
-                'toggle-disable-pinch': window.disablePinchZoom,
-                'toggle-disable-1finger': window.disable1fingerZoom,
-                'toggle-disable-double-tap': window.disableDoubleTap
-            };
-            Object.keys(ids).forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.checked = ids[id];
-            });
+        // standardClustering default: derive from premium when the field was never stored.
+        const cloudPremiumClustering = s.premiumClustering || false;
+        const cloudStandardClustering = s.standardClustering === undefined
+            ? !cloudPremiumClustering
+            : s.standardClustering !== false;
 
-            if (s.mapStyle) {
-                localStorage.setItem('barkMapStyle', s.mapStyle);
-                const styleEl = document.getElementById('map-style-select');
-                if (styleEl) styleEl.value = s.mapStyle;
-                if (typeof window.BARK.loadLayer === 'function') window.BARK.loadLayer(s.mapStyle);
+        Object.entries(registry).forEach(([settingKey, setting]) => {
+            if (!setting.cloudKey || settingKey === 'lowGfxEnabled') return;
+
+            let value;
+            if (settingKey === 'standardClusteringEnabled') {
+                value = cloudStandardClustering;
+            } else if (settingKey === 'premiumClusteringEnabled') {
+                value = cloudPremiumClustering;
+            } else if (Object.prototype.hasOwnProperty.call(s, setting.cloudKey)) {
+                value = s[setting.cloudKey] === true;
+            } else {
+                return;
             }
-            if (s.visitedFilter) {
-                localStorage.setItem('barkVisitedFilter', s.visitedFilter);
-                const filterEl = document.getElementById('visited-filter');
-                if (filterEl) filterEl.value = s.visitedFilter;
-                window.BARK.visitedFilterState = s.visitedFilter;
-            }
+            store.set(settingKey, value);
+        });
 
-            window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
-            if (typeof window.BARK.syncSettingsControls === 'function') window.BARK.syncSettingsControls();
-            if (typeof window.BARK.applyMapPerformancePolicy === 'function') window.BARK.applyMapPerformancePolicy();
+        // Non-registry settings: route through store so persist + window mirror stay consistent.
+        if (Object.prototype.hasOwnProperty.call(s, 'ultraLowEnabled')) {
+            store.set('ultraLowEnabled', s.ultraLowEnabled === true);
+        }
+        if (Object.prototype.hasOwnProperty.call(s, 'rememberMapPosition')) {
+            store.set('rememberMapPosition', s.rememberMapPosition === true);
+        }
+        if (Object.prototype.hasOwnProperty.call(s, 'startNationalView')) {
+            store.set('startNationalView', s.startNationalView === true);
+        }
 
-            if (typeof window.syncState === 'function' && window.parkLookup && window.parkLookup.size > 0) {
-                window.syncState();
-            }
+        // These toggles have no onChange listener in settingsController — update their DOM directly.
+        const rememberMapToggleEl = document.getElementById('remember-map-toggle');
+        const nationalViewToggleEl = document.getElementById('national-view-toggle');
+        const ultraLowToggleEl = document.getElementById('ultra-low-toggle');
+        if (rememberMapToggleEl) rememberMapToggleEl.checked = window.rememberMapPosition;
+        if (nationalViewToggleEl) nationalViewToggleEl.checked = window.startNationalView;
+        if (ultraLowToggleEl) ultraLowToggleEl.checked = window.ultraLowEnabled;
+
+        if (s.mapStyle) {
+            localStorage.setItem('barkMapStyle', s.mapStyle);
+            const styleEl = document.getElementById('map-style-select');
+            if (styleEl) styleEl.value = s.mapStyle;
+            if (typeof window.BARK.loadLayer === 'function') window.BARK.loadLayer(s.mapStyle);
+        }
+        if (s.visitedFilter) {
+            localStorage.setItem('barkVisitedFilter', s.visitedFilter);
+            const filterEl = document.getElementById('visited-filter');
+            if (filterEl) filterEl.value = s.visitedFilter;
+            window.BARK.visitedFilterState = s.visitedFilter;
+        }
+
+        window.BARK.applyGlobalStyles();
+        if (typeof window.BARK.applyMapPerformancePolicy === 'function') window.BARK.applyMapPerformancePolicy();
+        if (typeof window.syncState === 'function' && window.parkLookup && window.parkLookup.size > 0) {
+            window.syncState();
         }
 
         const mapRef = (typeof map !== 'undefined') ? map : window.map;
