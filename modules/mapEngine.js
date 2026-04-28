@@ -308,6 +308,11 @@ const markerClusterGroup = L.markerClusterGroup({
 
 window.BARK.markerLayer = markerLayer;
 window.BARK.markerClusterGroup = markerClusterGroup;
+window.BARK.markerManager = new window.BARK.MarkerLayerManager({
+    map,
+    plainLayer: markerLayer,
+    clusterLayer: markerClusterGroup
+});
 
 // ====== 🐛 BUBBLE MODE SAFE TEARDOWN/REBUILD ======
 // Tracks which layer type markers are currently living in.
@@ -315,41 +320,7 @@ window.BARK.markerClusterGroup = markerClusterGroup;
 window.BARK._lastLayerType = null; // 'cluster' | 'plain' | null
 
 window.BARK.rebuildMarkerLayer = function () {
-    const allPts = window.BARK.allPoints;
-    const forceNoClustering = (window.premiumClusteringEnabled && map.getZoom() >= 7) || window.stopResizing;
-    const newLayerType = (window.clusteringEnabled && !forceNoClustering) ? 'cluster' : 'plain';
-
-    // Only rebuild if the layer type actually changed
-    if (window.BARK._lastLayerType === newLayerType) return;
-
-    console.log(`🔄 Bubble Mode: Migrating markers from "${window.BARK._lastLayerType}" → "${newLayerType}"`);
-    window.BARK._lastLayerType = newLayerType;
-
-    // 1. Detach both layers from the map
-    if (map.hasLayer(markerClusterGroup)) map.removeLayer(markerClusterGroup);
-    if (map.hasLayer(markerLayer)) map.removeLayer(markerLayer);
-
-    // 2. Clear all markers from both layers
-    markerClusterGroup.clearLayers();
-    markerLayer.clearLayers();
-
-    // 3. Reset the _layerAdded flag on every marker so they get re-injected
-    if (allPts && allPts.length > 0) {
-        allPts.forEach(item => {
-            if (item.marker) {
-                item.marker._layerAdded = false;
-                item.marker._barkLayerType = null;
-            }
-        });
-    }
-
-    // 4. Add the correct empty layer to the map — syncState/updateMarkers will refill it
-    if (newLayerType === 'cluster') {
-        markerClusterGroup.addTo(map);
-    } else {
-        markerLayer.addTo(map);
-    }
-
+    if (window.BARK.markerManager) window.BARK.markerManager.sync(window.BARK.allPoints);
     if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
         window.BARK.invalidateMarkerVisibility();
     }

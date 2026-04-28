@@ -777,12 +777,12 @@ textarea,
 .visited-pin {
     --ring-color: #4CAF50;
     --pin-color: #4CAF50;
-    filter: brightness(1.35) drop-shadow(0 0 10px var(--pin-color));
+    filter: brightness(1.35) drop-shadow(0 0 10px var(--pin-color, #4CAF50));
     z-index: 500 !important;
 }
 
 .visited-pin img {
-    border: 3px solid var(--ring-color);
+    border: 3px solid var(--ring-color, #4CAF50);
     border-radius: 50%;
 }
 
@@ -791,11 +791,11 @@ textarea,
     --ring-color: #000;
     --pin-color: #000;
     --pin-shadow-color: rgba(0, 0, 0, 0.4);
-    filter: drop-shadow(0 0 7px var(--pin-shadow-color));
+    filter: drop-shadow(0 0 7px var(--pin-shadow-color, rgba(0, 0, 0, 0.4)));
 }
 
 .cat-national:not(.visited-pin) img {
-    border: 3px solid var(--ring-color);
+    border: 3px solid var(--ring-color, #000);
     border-radius: 50%;
 }
 
@@ -804,11 +804,11 @@ textarea,
     --ring-color: #2196F3;
     --pin-color: #2196F3;
     --pin-shadow-color: rgba(33, 150, 243, 0.4);
-    filter: drop-shadow(0 0 7px var(--pin-shadow-color));
+    filter: drop-shadow(0 0 7px var(--pin-shadow-color, rgba(33, 150, 243, 0.4)));
 }
 
 .cat-state:not(.visited-pin) img {
-    border: 3px solid var(--ring-color);
+    border: 3px solid var(--ring-color, #2196F3);
     border-radius: 50%;
 }
 

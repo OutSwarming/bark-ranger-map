@@ -123,37 +123,6 @@ window.BARK.invalidateMarkerVisibility = function () {
     lastMarkerVisibilityStateKey = null;
 };
 
-function migrateMarkersToLayer(allPoints, targetLayerType, markerLayer, markerClusterGroup) {
-    const markersToAdd = [];
-
-    allPoints.forEach(item => {
-        if (!item.marker) {
-            const isVisited = window.BARK.userVisitedPlaces.has(item.id);
-            item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
-        }
-
-        if (item.marker._layerAdded && item.marker._barkLayerType === targetLayerType) return;
-
-        if (item.marker._barkLayerType === 'plain') {
-            markerLayer.removeLayer(item.marker);
-        } else if (item.marker._barkLayerType === 'cluster') {
-            markerClusterGroup.removeLayer(item.marker);
-        }
-
-        item.marker._layerAdded = true;
-        item.marker._barkLayerType = targetLayerType;
-        markersToAdd.push(item.marker);
-    });
-
-    if (!markersToAdd.length) return;
-
-    if (targetLayerType === 'cluster') {
-        markerClusterGroup.addLayers(markersToAdd);
-    } else {
-        markersToAdd.forEach(marker => markerLayer.addLayer(marker));
-    }
-}
-
 window.syncState = function () {
     if (syncScheduled) return;
     syncScheduled = true;
@@ -187,8 +156,6 @@ window.syncState = function () {
 function updateMarkers() {
     const map = window.map;
     const allPoints = window.BARK.allPoints;
-    const markerLayer = window.BARK.markerLayer;
-    const markerClusterGroup = window.BARK.markerClusterGroup;
     const activeSwagFilters = window.BARK.activeSwagFilters;
     const activeSearchQuery = window.BARK.activeSearchQuery;
     const activeTypeFilter = window.BARK.activeTypeFilter;
@@ -199,7 +166,6 @@ function updateMarkers() {
 
     const currentZoom = map.getZoom();
     const targetLayerType = getTargetMarkerLayerType(currentZoom);
-    const forceNoClustering = targetLayerType === 'plain';
 
     let visibleBounds = L.latLngBounds();
     const screenBounds = map.getBounds().pad(0.2);
@@ -208,7 +174,9 @@ function updateMarkers() {
     // Collect DOM writes to batch them (avoids layout thrashing)
     const markerClassUpdates = [];
 
-    migrateMarkersToLayer(allPoints, targetLayerType, markerLayer, markerClusterGroup);
+    if (window.BARK.markerManager) {
+        window.BARK.markerManager.sync(allPoints);
+    }
 
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
@@ -262,15 +230,7 @@ function updateMarkers() {
         icon.classList.toggle('visited-pin', isVisited);
     });
 
-    // Handle Map Layer Assignment
-    if (window.clusteringEnabled && !forceNoClustering) {
-        if (!map.hasLayer(markerClusterGroup)) map.addLayer(markerClusterGroup);
-        if (map.hasLayer(markerLayer)) map.removeLayer(markerLayer);
-    } else {
-        if (!map.hasLayer(markerLayer)) map.addLayer(markerLayer);
-        if (map.hasLayer(markerClusterGroup)) map.removeLayer(markerClusterGroup);
-    }
-    window.BARK._lastLayerType = (window.clusteringEnabled && !forceNoClustering) ? 'cluster' : 'plain';
+    window.BARK._lastLayerType = targetLayerType;
 
     // 🎯 SMART AUTO-FRAMING (Interrupt Protection)
     const currentFilterState = activeSearchQuery + '|' + Array.from(activeSwagFilters).join(',');

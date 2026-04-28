@@ -5,14 +5,7 @@
 window.BARK = window.BARK || {};
 window.BARK.services = window.BARK.services || {};
 
-const dataFirebaseService = window.BARK.services.firebase;
-if (!dataFirebaseService) {
-    throw new Error('firebaseService.js must load before dataService.js');
-}
-const dataSyncUserProgress = dataFirebaseService.syncUserProgress;
-
 // ====== CSV PARSING ENGINE ======
-const markerCache = new Map();
 let isRendering = false;
 let pendingCSV = null;
 
@@ -42,7 +35,8 @@ function getCSVValue(row, columnName) {
     if (!row) return '';
     if (Object.prototype.hasOwnProperty.call(row, columnName)) return cleanCSVValue(row[columnName]);
 
-    const matchingKey = Object.keys(row).find(key => cleanCSVValue(key) === columnName);
+    const normalizedColumnName = cleanCSVValue(columnName).toLowerCase();
+    const matchingKey = Object.keys(row).find(key => cleanCSVValue(key).toLowerCase() === normalizedColumnName);
     return matchingKey ? cleanCSVValue(row[matchingKey]) : '';
 }
 
@@ -84,176 +78,15 @@ function normalizeCSVRow(rawItem) {
     };
 }
 
-function getParkId(item, lat, lng) {
+function getParkId(item) {
     const parkId = cleanCSVValue(item && item.parkId);
-    return parkId ? String(parkId) : window.BARK.generatePinId(lat, lng);
-}
-
-function createMigratedVisitRecord(legacyVisit, parkData, legacyId) {
-    return {
-        ...legacyVisit,
-        id: parkData.id,
-        name: parkData.name,
-        lat: parkData.lat,
-        lng: parkData.lng,
-        migratedFromLegacyId: legacyVisit.migratedFromLegacyId || legacyId,
-        migratedAt: legacyVisit.migratedAt || Date.now()
-    };
-}
-
-function migrateLegacyVisitForPark(parkData, visitedPlaces = window.BARK.userVisitedPlaces) {
-    if (!parkData || !visitedPlaces || typeof visitedPlaces.has !== 'function') return false;
-
-    const legacyId = parkData._legacyPinId || window.BARK.generatePinId(parkData.lat, parkData.lng);
-    if (!legacyId || legacyId === parkData.id) return false;
-    if (!visitedPlaces.has(legacyId) || visitedPlaces.has(parkData.id)) return false;
-
-    const legacyVisit = visitedPlaces.get(legacyId);
-    if (!legacyVisit) return false;
-
-    visitedPlaces.set(parkData.id, createMigratedVisitRecord(legacyVisit, parkData, legacyId));
-    return true;
-}
-
-async function persistVisitedPlaceMigrations() {
-    try {
-        const firebaseService = window.BARK.services && window.BARK.services.firebase;
-        if (!firebaseService || typeof firebaseService.updateCurrentUserVisitedPlaces !== 'function') return;
-
-        await firebaseService.updateCurrentUserVisitedPlaces(Array.from(window.BARK.userVisitedPlaces.values()));
-        console.log('[dataService] Migrated legacy lat/lng check-ins to Park ID records.');
-    } catch (error) {
-        console.error('[dataService] Failed to persist migrated check-ins:', error);
-    }
-}
-
-function migrateLegacyVisitedPlaces() {
-    const points = window.BARK.allPoints || [];
-    const migrated = points.reduce((count, parkData) => {
-        return count + (migrateLegacyVisitForPark(parkData) ? 1 : 0);
-    }, 0);
-
-    if (migrated > 0) {
-        persistVisitedPlaceMigrations();
-        if (typeof window.BARK.invalidateMarkerVisibility === 'function') window.BARK.invalidateMarkerVisibility();
-        window.syncState();
-    }
-
-    return migrated;
-}
-
-function bindMarkerEvents(marker) {
-    if (marker._barkEventsBound) return;
-    marker._barkEventsBound = true;
-
-    // 🎯 THE DOM RECYCLING FIX
-    marker.on('remove', function () {
-        if (this._icon) {
-            this._icon.classList.remove('active-pin');
-            this._icon.classList.remove('visited-pin');
-            this._icon.classList.remove('marker-filter-hidden');
-        }
-    });
-
-    marker.on('add', function () {
-        if (this._icon) {
-            if (window.BARK.userVisitedPlaces.has(this._parkData.id)) this._icon.classList.add('visited-pin');
-            if (window.BARK.activePinMarker === this) this._icon.classList.add('active-pin');
-            this._icon.classList.toggle('marker-filter-hidden', this._barkIsVisible === false);
-        }
-    });
-
-    marker.on('click', () => {
-        window.BARK.renderMarkerClickPanel({
-            marker,
-            userVisitedPlaces: window.BARK.userVisitedPlaces,
-            syncUserProgress: dataSyncUserProgress,
-            slidePanel: document.getElementById('slide-panel'),
-            titleEl: document.getElementById('panel-title'),
-            infoSection: document.getElementById('panel-info-section'),
-            infoEl: document.getElementById('panel-info'),
-            websitesContainer: document.getElementById('websites-container'),
-            picsEl: document.getElementById('panel-pics'),
-            videoEl: document.getElementById('panel-video')
-        });
-    });
-}
-
-function hasMarkerDataChanged(currentData, nextData) {
-    if (!currentData) return true;
-
-    return [
-        'name',
-        'state',
-        'cost',
-        'swagType',
-        'info',
-        'website',
-        'pics',
-        'video',
-        'lat',
-        'lng',
-        'parkCategory',
-        'id',
-        '_legacyPinId',
-        '_cachedNormalizedName'
-    ].some(key => currentData[key] !== nextData[key]);
-}
-
-function updateCachedMarker(marker, parkData, wasVisited, isVisited) {
-    if (!hasMarkerDataChanged(marker._parkData, parkData) && wasVisited === isVisited) {
-        marker._parkData = parkData;
-        return;
-    }
-
-    const currentLatLng = marker.getLatLng();
-    const nextLat = Number(parkData.lat);
-    const nextLng = Number(parkData.lng);
-    if (
-        Number.isFinite(nextLat) &&
-        Number.isFinite(nextLng) &&
-        (currentLatLng.lat !== nextLat || currentLatLng.lng !== nextLng)
-    ) {
-        marker.setLatLng([parkData.lat, parkData.lng]);
-    }
-
-    if (marker._parkData && marker._parkData.parkCategory !== parkData.parkCategory) {
-        const replacementMarker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
-        marker.setIcon(replacementMarker.options.icon);
-    }
-
-    marker._parkData = parkData;
-
-    if (marker._icon) {
-        marker._icon.classList.toggle('visited-pin', isVisited);
-        marker._icon.classList.toggle('marker-filter-hidden', marker._barkIsVisible === false);
-    }
+    return parkId ? String(parkId) : '';
 }
 
 function processParsedResults(results) {
-    const userVisitedPlaces = window.BARK.userVisitedPlaces;
-    const markerLayer = window.BARK.markerLayer;
-    const markerClusterGroup = window.BARK.markerClusterGroup;
-    let activePinMarker = window.BARK.activePinMarker;
-    const slidePanel = document.getElementById('slide-panel');
-
-    // Remember currently active pin location
-    let activeId = null;
-    let activeLat = null, activeLng = null;
-    if (activePinMarker && activePinMarker._parkData) {
-        activeId = activePinMarker._parkData.id;
-        activeLat = activePinMarker._parkData.lat;
-        activeLng = activePinMarker._parkData.lng;
-    }
-    if (activePinMarker && activePinMarker._icon) {
-        activePinMarker._icon.classList.remove('active-pin');
-    }
-    window.BARK.activePinMarker = null;
-
     window.BARK.allPoints = [];
     const newAllPoints = window.BARK.allPoints;
-    const incomingParkIds = new Set();
-    let migratedVisitCount = 0;
+    let missingParkIdCount = 0;
 
     results.data.forEach((rawItem, rowIndex) => {
         try {
@@ -279,34 +112,18 @@ function processParsedResults(results) {
             const swagType = item.swagType;
             const parkCategory = window.BARK.getParkCategory(category);
 
-            const legacyId = window.BARK.generatePinId(lat, lng);
-            const id = getParkId(item, lat, lng);
-            const parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng, parkCategory, _legacyPinId: legacyId };
+            const id = getParkId(item);
+            if (!id) {
+                missingParkIdCount++;
+                return;
+            }
+
+            const parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng, parkCategory };
 
             // v25: Pre-Normalized Name
             parkData._cachedNormalizedName = window.BARK.normalizeText(name);
 
-            if (migrateLegacyVisitForPark(parkData, userVisitedPlaces)) migratedVisitCount++;
-            incomingParkIds.add(id);
-
-            let marker = markerCache.get(id);
-            if (!marker) {
-                const isVisited = userVisitedPlaces.has(id);
-                marker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
-                bindMarkerEvents(marker);
-                markerCache.set(id, marker);
-
-                marker._layerAdded = false;
-                marker._barkLayerType = null;
-            } else {
-                const wasVisited = userVisitedPlaces.has(marker._parkData.id);
-                const isVisited = userVisitedPlaces.has(id);
-                updateCachedMarker(marker, parkData, wasVisited, isVisited);
-            }
-
-            parkData.marker = marker;
             parkData.category = parkCategory;
-            window.parkLookup.set(id, parkData);
             newAllPoints.push(parkData);
         } catch (error) {
             console.error('[dataService] Failed to process CSV row; skipping row.', {
@@ -317,50 +134,22 @@ function processParsedResults(results) {
         }
     });
 
-    markerCache.forEach((marker, id) => {
-        if (incomingParkIds.has(id)) return;
-        markerLayer.removeLayer(marker);
-        if (markerClusterGroup) markerClusterGroup.removeLayer(marker);
-        marker._layerAdded = false;
-        marker._barkLayerType = null;
-        markerCache.delete(id);
-        window.parkLookup.delete(id);
-        if (window.BARK.activePinMarker === marker) {
-            window.BARK.activePinMarker = null;
-            if (slidePanel) slidePanel.classList.remove('open');
-        }
-    });
-
-    window.parkLookup.forEach((_, id) => {
-        if (!incomingParkIds.has(id)) window.parkLookup.delete(id);
-    });
+    if (missingParkIdCount > 0) {
+        console.warn(`[dataService] Skipped ${missingParkIdCount} row(s) without Park ID. Production data must be UUID-only.`);
+    }
 
     // Hydrate canonical counts for gamification
     if (window.gamificationEngine && newAllPoints.length > 0) {
         window.gamificationEngine.updateCanonicalCountsFromPoints(newAllPoints);
     }
 
+    if (window.BARK.markerManager) {
+        window.BARK.markerManager.sync(newAllPoints);
+    }
+
     window.BARK._markerDataRevision = (window.BARK._markerDataRevision || 0) + 1;
 
     window.syncState();
-
-    // Restore the previously active pin
-    if (activeId !== null || (activeLat !== null && activeLng !== null)) {
-        const activeLegacyId = activeLat !== null && activeLng !== null ? window.BARK.generatePinId(activeLat, activeLng) : null;
-        const match = window.parkLookup.get(activeId) || newAllPoints.find(point => point._legacyPinId === activeId || point._legacyPinId === activeLegacyId);
-        if (match) {
-            window.BARK.activePinMarker = match.marker;
-            if (window.BARK.activePinMarker._icon) {
-                window.BARK.activePinMarker._icon.classList.add('active-pin');
-            }
-        } else {
-            if (slidePanel) slidePanel.classList.remove('open');
-        }
-    }
-
-    if (migratedVisitCount > 0) {
-        persistVisitedPlaceMigrations();
-    }
 }
 
 function parseCSVString(csvString) {
@@ -395,7 +184,6 @@ function parseCSVString(csvString) {
 }
 
 window.BARK.parseCSVString = parseCSVString;
-window.BARK.migrateLegacyVisitedPlaces = migrateLegacyVisitedPlaces;
 
 // ====== DATA POLLING ======
 function quickHash(str) {
