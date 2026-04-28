@@ -74,6 +74,30 @@ html {
     background-color: #e5e5e5;
 }
 
+/* ====== APP-WIDE SCROLLBAR STYLING ====== */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.18);
+    border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.30);
+}
+
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
 /* Allow text selection in inputs and textareas */
 input,
 textarea,
@@ -642,6 +666,7 @@ textarea,
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
+    overscroll-behavior-y: none;
 }
 
 .ui-view.active {
@@ -923,6 +948,11 @@ textarea,
     body.keyboard-open #slide-panel {
         transform: translateY(110%) !important;
         pointer-events: none;
+    }
+
+    /* Reclaim nav-bar space in the active view when keyboard is open */
+    body.keyboard-open .ui-view.active {
+        padding-bottom: 16px;
     }
 
     .nav-item {
@@ -1347,6 +1377,7 @@ input:checked+.slider:before {
 .modal-overlay.active {
     opacity: 1;
     pointer-events: auto;
+    overscroll-behavior: none;
 }
 
 .modal-card {
@@ -1382,23 +1413,9 @@ input:checked+.slider:before {
     gap: 20px;
 }
 
-/* Custom Scrollbar for Premium Feel */
-.modal-body::-webkit-scrollbar {
-    width: 4px;
-}
-
-.modal-body::-webkit-scrollbar-track {
-    background: #f1f5f9;
-    border-radius: 10px;
-}
-
-.modal-body::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 10px;
-}
-
-.modal-body::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
+/* Contain modal scroll so it never bleeds through to the view behind */
+.modal-body {
+    overscroll-behavior: contain;
 }
 
 .modal-overlay.active .modal-card {

@@ -15,10 +15,28 @@ document.addEventListener('contextmenu', function (e) {
 // ====== iOS KEYBOARD LAYOUT FIX ======
 if (window.visualViewport) {
     let initialHeight = window.visualViewport.height;
+    let savedScrollTop = null;
 
     window.visualViewport.addEventListener('resize', () => {
         const isKeyboardOpen = (initialHeight - window.visualViewport.height) > window.screen.height * 0.2;
+        const wasKeyboardOpen = document.body.classList.contains('keyboard-open');
+        const activeView = document.querySelector('.ui-view.active');
+
+        if (isKeyboardOpen && !wasKeyboardOpen) {
+            // Keyboard just opened — save scroll position before browser moves it
+            savedScrollTop = activeView ? activeView.scrollTop : 0;
+        } else if (!isKeyboardOpen && wasKeyboardOpen) {
+            // Keyboard just closed — restore scroll position after layout settles
+            if (activeView && savedScrollTop !== null) {
+                requestAnimationFrame(() => {
+                    activeView.scrollTop = savedScrollTop;
+                    savedScrollTop = null;
+                });
+            }
+        }
+
         document.body.classList.toggle('keyboard-open', isKeyboardOpen);
+
         if (isKeyboardOpen && window.innerWidth < 768) {
             const slidePanel = document.querySelector('.slide-panel');
             if (slidePanel) slidePanel.classList.remove('open');
