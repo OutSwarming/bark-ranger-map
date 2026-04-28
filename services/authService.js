@@ -224,8 +224,7 @@ function handlePremiumGating(isLoggedIn) {
 function initFirebase() {
     if (typeof firebase === 'undefined') return;
 
-    const firebaseService = window.BARK.services && window.BARK.services.firebase;
-    const loadSavedRoutes = firebaseService ? firebaseService.loadSavedRoutes : window.BARK.loadSavedRoutes;
+    const loadSavedRoutes = window.BARK.loadSavedRoutes;
 
     try {
         firebase.initializeApp(window.BARK.firebaseConfig);
@@ -353,7 +352,7 @@ function initFirebase() {
                     console.error("[authService] subscribe user document failed:", error);
                 }
 
-                loadSavedRoutes(user.uid);
+                if (typeof loadSavedRoutes === 'function') loadSavedRoutes(user.uid);
                 handlePremiumGating(true);
             } else {
                 if (loginContainer) loginContainer.style.display = 'block';

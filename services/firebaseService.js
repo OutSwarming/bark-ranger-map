@@ -1,11 +1,9 @@
 /**
  * firebaseService.js - Firestore CRUD and Firebase-backed user data helpers.
- * Phase 3 keeps legacy DOM/render side effects intact while moving Firebase calls.
+ * Saved-route DOM rendering lives in renderers/routeRenderer.js.
  */
 window.BARK = window.BARK || {};
 window.BARK.services = window.BARK.services || {};
-
-window._lastSavedRouteDoc = window._lastSavedRouteDoc || null;
 
 function getCurrentUser() {
     if (typeof firebase === 'undefined') return null;
@@ -117,27 +115,9 @@ async function removeVisitedPlace(place) {
     }
 }
 
-async function loadSavedRoutes(uid, isLoadMore = false) {
-    const savedList = document.getElementById('saved-routes-list');
-    const plannerList = document.getElementById('planner-saved-routes-list');
-    const savedCount = document.getElementById('saved-routes-count');
-
-    if (!savedList && !plannerList) return;
-
-    if (!isLoadMore) {
-        window._lastSavedRouteDoc = null;
-        const renderTo = (container) => {
-            if (!container) return;
-            container.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Loading...</p>';
-        };
-        renderTo(savedList);
-        renderTo(plannerList);
-    } else {
-        document.querySelectorAll('.load-more-routes-btn').forEach(btn => btn.remove());
-    }
-
+async function loadSavedRoutes(uid, cursor = null, limit = null) {
     try {
-        const fetchLimit = isLoadMore ? 5 : 3;
+        const fetchLimit = limit || (cursor ? 5 : 3);
         window.BARK.incrementRequestCount();
 
         let query = firebase.firestore()
@@ -145,137 +125,44 @@ async function loadSavedRoutes(uid, isLoadMore = false) {
             .collection('savedRoutes')
             .orderBy('createdAt', 'desc');
 
-        if (isLoadMore && window._lastSavedRouteDoc) {
-            query = query.startAfter(window._lastSavedRouteDoc);
-        }
+        if (cursor) query = query.startAfter(cursor);
 
         const snapshot = await query.limit(fetchLimit).get();
+        const routes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        if (!isLoadMore && savedCount) {
-            savedCount.textContent = snapshot.size === fetchLimit ? `${fetchLimit}+` : snapshot.size;
-        } else if (isLoadMore && savedCount && snapshot.size > 0) {
-            const currentObj = parseInt(savedCount.textContent) || 0;
-            savedCount.textContent = snapshot.size === fetchLimit ? `${currentObj + snapshot.size}+` : (currentObj + snapshot.size);
-        }
-
-        if (!snapshot.empty) {
-            window._lastSavedRouteDoc = snapshot.docs[snapshot.docs.length - 1];
-        }
-
-        const populateList = (list) => {
-            if (!list) return;
-
-            if (snapshot.empty && !isLoadMore) {
-                list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">No saved routes yet. Generate a route to save it here!</p>';
-                return;
-            }
-
-            if (!isLoadMore) list.innerHTML = '';
-
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                const date = data.createdAt ? new Date(data.createdAt.seconds * 1000).toLocaleDateString() : 'Unknown date';
-                const dayCount = data.tripDays ? data.tripDays.length : 0;
-                const stopCount = data.tripDays ? data.tripDays.reduce((s, d) => s + (d.stops ? d.stops.length : 0), 0) : 0;
-                const colorDots = (data.tripDays || []).map(d =>
-                    `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${d.color || '#999'}; margin-right:2px;"></span>`
-                ).join('');
-                const tripName = data.tripName || "Untitled Route";
-
-                const card = document.createElement('div');
-                card.style.cssText = 'background:#f9f9f9; border-radius:10px; padding:10px 12px; margin-bottom:8px; border:1px solid rgba(0,0,0,0.06);';
-                card.innerHTML = `
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
-                        <div>
-                            <div style="font-weight:800; font-size:14px; color:#1a1a1a; margin-bottom:2px;">${tripName}</div>
-                            <div style="font-weight:600; font-size:12px; color:#555; margin-bottom:4px;">${colorDots} ${dayCount} day${dayCount !== 1 ? 's' : ''} · ${stopCount} stop${stopCount !== 1 ? 's' : ''}</div>
-                            <div style="font-size:11px; color:#888;">${date}</div>
-                        </div>
-                        <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
-                            <button class="load-route-btn" data-id="${doc.id}" style="background:#22c55e; color:white; border:none; border-radius:8px; padding:5px 10px; font-size:12px; cursor:pointer; font-weight:600;">Load</button>
-                            <button class="delete-route-btn" data-id="${doc.id}" style="background:none; border:none; color:#dc2626; font-size:14px; cursor:pointer; font-weight:bold;" title="Delete">×</button>
-                        </div>
-                    </div>
-                `;
-                list.appendChild(card);
-            });
-
-            list.querySelectorAll('.load-route-btn').forEach(btn => {
-                btn.onclick = async () => {
-                    try {
-                        const docId = btn.getAttribute('data-id');
-                        window.BARK.incrementRequestCount();
-                        const docSnap = await firebase.firestore()
-                            .collection('users').doc(uid)
-                            .collection('savedRoutes').doc(docId).get();
-                        if (!docSnap.exists) return;
-                        const data = docSnap.data();
-                        window.BARK.tripDays = data.tripDays.map(d => ({ color: d.color, stops: d.stops, notes: d.notes || "" }));
-                        window.BARK.activeDayIdx = 0;
-
-                        const tripNameInput = document.getElementById('tripNameInput');
-                        if (tripNameInput) tripNameInput.value = data.tripName || "";
-
-                        if (typeof window.BARK.updateTripUI === 'function') window.BARK.updateTripUI();
-
-                        const plannerContainer = document.getElementById('planner-saved-routes-container');
-                        if (plannerContainer) plannerContainer.style.display = 'none';
-
-                        document.querySelector('[data-target="map-view"]')?.click();
-                        if (typeof window.BARK.showTripToast === 'function') window.BARK.showTripToast(`Route Loaded: ${data.tripName || "Untitled"}`);
-                    } catch (error) {
-                        console.error("[firebaseService] loadSavedRoute failed:", error);
-                    }
-                };
-            });
-
-            list.querySelectorAll('.delete-route-btn').forEach(btn => {
-                btn.onclick = async () => {
-                    if (!confirm('Delete this saved route?')) return;
-                    try {
-                        window.BARK.incrementRequestCount();
-                        await firebase.firestore()
-                            .collection('users').doc(uid)
-                            .collection('savedRoutes').doc(btn.getAttribute('data-id')).delete();
-                        loadSavedRoutes(uid);
-                    } catch (error) {
-                        console.error("[firebaseService] deleteSavedRoute failed:", error);
-                    }
-                };
-            });
-
-            if (snapshot.size === fetchLimit) {
-                const loadMoreBtn = document.createElement('button');
-                loadMoreBtn.className = 'load-more-routes-btn';
-                loadMoreBtn.textContent = 'Load More (+5)';
-                loadMoreBtn.style.cssText = 'width: 100%; background: rgba(0,0,0,0.05); border: 1px dashed rgba(0,0,0,0.2); border-radius: 8px; padding: 10px; font-size: 13px; cursor: pointer; color: #555; font-weight: 700; margin-top: 5px;';
-                loadMoreBtn.onclick = () => loadSavedRoutes(uid, true);
-                list.appendChild(loadMoreBtn);
-            }
+        return {
+            routes,
+            nextCursor: snapshot.empty ? null : snapshot.docs[snapshot.docs.length - 1],
+            hasMore: snapshot.size === fetchLimit
         };
-
-        populateList(savedList);
-        populateList(plannerList);
     } catch (error) {
         console.error("[firebaseService] loadSavedRoutes failed:", error);
+        throw error;
     }
 }
 
-function togglePlannerRoutes() {
-    const container = document.getElementById('planner-saved-routes-container');
-    if (!container) return;
+async function loadSavedRoute(uid, routeId) {
+    try {
+        window.BARK.incrementRequestCount();
+        const docSnap = await firebase.firestore()
+            .collection('users').doc(uid)
+            .collection('savedRoutes').doc(routeId).get();
+        return docSnap.exists ? { id: docSnap.id, ...docSnap.data() } : null;
+    } catch (error) {
+        console.error("[firebaseService] loadSavedRoute failed:", error);
+        throw error;
+    }
+}
 
-    if (container.style.display === 'none') {
-        container.style.display = 'block';
-        const user = getCurrentUser();
-        if (user) {
-            loadSavedRoutes(user.uid);
-        } else {
-            const list = document.getElementById('planner-saved-routes-list');
-            if (list) list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Please log in to see saved routes.</p>';
-        }
-    } else {
-        container.style.display = 'none';
+async function deleteSavedRoute(uid, routeId) {
+    try {
+        window.BARK.incrementRequestCount();
+        await firebase.firestore()
+            .collection('users').doc(uid)
+            .collection('savedRoutes').doc(routeId).delete();
+    } catch (error) {
+        console.error("[firebaseService] deleteSavedRoute failed:", error);
+        throw error;
     }
 }
 
@@ -309,7 +196,8 @@ const firebaseService = {
     updateVisitDate,
     removeVisitedPlace,
     loadSavedRoutes,
-    togglePlannerRoutes,
+    loadSavedRoute,
+    deleteSavedRoute,
     adminEditPoints
 };
 
@@ -319,6 +207,4 @@ window.BARK.syncUserProgress = syncUserProgress;
 window.BARK.updateCurrentUserVisitedPlaces = updateCurrentUserVisitedPlaces;
 window.BARK.updateVisitDate = updateVisitDate;
 window.BARK.removeVisitedPlace = removeVisitedPlace;
-window.BARK.loadSavedRoutes = loadSavedRoutes;
-window.togglePlannerRoutes = togglePlannerRoutes;
 window.adminEditPoints = adminEditPoints;
