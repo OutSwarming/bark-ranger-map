@@ -5,6 +5,8 @@
 window.BARK = window.BARK || {};
 
 window.BARK.initUI = function initUI() {
+let keyboardFocusContext = null;
+
 // ====== iOS SAFARI MAGNIFIER PROTECTION ======
 document.addEventListener('contextmenu', function (e) {
     if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
@@ -34,6 +36,31 @@ function closeMapOnlySurfaces() {
     if (panel) panel.classList.remove('open');
 }
 
+function settleAppViewportAfterKeyboard() {
+    requestAnimationFrame(() => {
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+
+        const activeView = document.querySelector('.ui-view.active');
+        if (!activeView) return;
+
+        const maxScroll = Math.max(0, activeView.scrollHeight - activeView.clientHeight);
+        if (keyboardFocusContext && keyboardFocusContext.view === activeView) {
+            activeView.scrollTop = Math.min(keyboardFocusContext.scrollTop, maxScroll);
+            return;
+        }
+
+        if (activeView.scrollTop > maxScroll) activeView.scrollTop = maxScroll;
+    });
+}
+
+function scheduleAppViewportSettle() {
+    settleAppViewportAfterKeyboard();
+    setTimeout(settleAppViewportAfterKeyboard, 120);
+    setTimeout(settleAppViewportAfterKeyboard, 320);
+}
+
 function dismissKeyboardTransientUi() {
     const activeElement = document.activeElement;
 
@@ -48,6 +75,7 @@ function dismissKeyboardTransientUi() {
     }
 
     if (isAppTabActive()) closeMapOnlySurfaces();
+    scheduleAppViewportSettle();
 }
 
 // ====== iOS KEYBOARD LAYOUT FIX ======
@@ -94,8 +122,20 @@ if (slidePanel && window.MutationObserver) {
 
 document.addEventListener('focusin', (e) => {
     if (!isTextEntryElement(e.target) || !isAppTabActive()) return;
+    const activeView = document.querySelector('.ui-view.active');
+    keyboardFocusContext = activeView
+        ? { view: activeView, scrollTop: activeView.scrollTop }
+        : null;
     closeMapOnlySurfaces();
 });
+
+document.addEventListener('focusout', (e) => {
+    if (!isTextEntryElement(e.target) || !isAppTabActive()) return;
+    setTimeout(() => {
+        if (isTextEntryElement(document.activeElement)) return;
+        scheduleAppViewportSettle();
+    }, 120);
+}, true);
 
 function initUIEventListeners() {
     const bindClick = (id, handler) => {
@@ -274,6 +314,8 @@ if (submitFeedbackBtn && typeof firebase !== 'undefined') {
         const textArea = document.getElementById('feedback-text');
         const text = textArea ? textArea.value : '';
         if (!text || text.trim() === '') return;
+        if (textArea && typeof textArea.blur === 'function') textArea.blur();
+        dismissKeyboardTransientUi();
 
         const user = firebase.auth().currentUser;
         const sender = user ? (user.displayName || user.uid) : 'Anonymous Guest';
