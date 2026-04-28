@@ -37,7 +37,7 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 
 - [x] **#3 — Cloud settings bypass the settings store** (`services/authService.js`, `handleCloudSettingsHydration`) ✅
 
-- [ ] **#4 — `expeditionEngine.js` calls `L.featureGroup()` at module scope** (`modules/expeditionEngine.js:22-23`): These lines run at parse time, before `initMap()`. If Leaflet CDN is slow, crashes with `L is not defined`. Move layer group creation inside `initTrainingUI()`.
+- [x] **#4 — `expeditionEngine.js` calls `L.featureGroup()` at module scope** (`modules/expeditionEngine.js`) ✅
 
 - [ ] **#5 — Request kill switch fires after ~75 minutes** (`modules/barkState.js`, `modules/dataService.js`): 600 req cap + 10s CSV poll (6/min) + 30s version poll (2/min) = kill switch at 75 min. Fix: raise cap to 2000 AND slow CSV poll to 5 minutes (fetch immediately on load + on tab re-focus, then every 5 min).
 
@@ -68,7 +68,7 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 - [ ] **#18 — User-visible degraded state when `initMap` fails**: When the map fails (Leaflet CDN down, DOM node missing, etc.), the user sees nothing — no error, no message, just a broken blank screen. Add a visible in-page message ("Map unavailable — try refreshing") that appears if `initMap` is not in `_bootErrors` within N seconds, or if `window.map` is still undefined after boot. This is distinct from Fix #2 (loader stuck) — the loader dismisses, but the user still has no signal that something is wrong.
 
 ## Current Work
-Fix #3 complete. Start with Fix #4 next session.
+Fix #4 complete. Start with Fix #5 next session.
 
 ---
 
@@ -190,6 +190,45 @@ Rewrote `handleCloudSettingsHydration` with one explicit path:
 **How much better:**
 - Before: 2–3 localStorage writes per setting, duplicate code paths, 20 hardcoded element IDs that drift out of sync when the registry changes.
 - After: 1 localStorage write per setting (via `persist()`), one code path, zero hardcoded element IDs for registry settings — new settings added to the registry are automatically hydrated.
+
+### Fix #4 — Expedition Trail Layers Initialized Too Early
+**File:** `modules/expeditionEngine.js`
+**Date:** 2026-04-28
+
+**What was wrong:**
+`expeditionEngine.js` created `virtualTrailLayerGroup` and `completedTrailsLayerGroup` with `L.featureGroup()` at module scope. That code ran as soon as the script tag was parsed, before `core/app.js` could wrap anything in `callInit()`. If the Leaflet CDN failed or `L` was unavailable, this file threw `L is not defined` during parse. That meant the expedition module never finished registering its functions, and the error happened outside the boot summary.
+
+**The fix:**
+- Replaced eager module-scope `L.featureGroup()` calls with `null` placeholders.
+- Added `ensureTrailLayerGroups()` to lazily create both Leaflet layer groups only after Leaflet exists.
+- Called `ensureTrailLayerGroups()` from `initTrainingUI()`, so normal boot still prepares the trail overlay groups during the expedition init step.
+- Added the same guard to trail overlay renderers, trail toggle buttons, and `flyToActiveTrail()` so direct calls degrade safely if Leaflet or the map is unavailable.
+- Switched touched map operations from the implicit global `map` identifier to a local `mapRef` from `window.map`, avoiding extra reference errors when map initialization fails.
+
+**Why this matters:**
+This moves a CDN-dependent operation out of parse time and into controlled runtime initialization. Parse-time crashes are especially bad in this app because script tag order is the dependency graph; if a module dies while loading, the boot orchestrator cannot name it, catch it, or summarize it. Runtime guards keep the app closer to the Fix #1 pattern: fail one feature, log it, keep the rest alive.
+
+**Pros of this approach:**
+- `expeditionEngine.js` can now load even when Leaflet is missing.
+- The expedition feature initializes its map layers only when the app reaches `initTrainingUI()`.
+- Cloud hydration or settings refresh calls into trail rendering no longer crash just because the map layer group was never created.
+- Trail toggles and "fly to active trail" use explicit `window.map` checks instead of assuming the global `map` binding exists.
+- Existing behavior is unchanged when Leaflet and the map load normally.
+- `ensureTrailLayerGroups()` is idempotent — the early-return guard prevents double-creation no matter how many times it is called before or after `initTrainingUI()` runs.
+
+**Cons / tradeoffs:**
+- Trail overlay functions now have a small guard path that silently returns after a console warning when Leaflet is unavailable.
+- If the map itself fails, expedition trail overlays still cannot render. This fix prevents a boot-time crash; it does not create the user-facing map failure message. That remains Fix #18.
+- `initTrailToggles()` still binds before `initTrainingUI()` in `core/app.js`; the click handlers are safe because they call `ensureTrailLayerGroups()`, but the actual layer creation still happens at `initTrainingUI()` during normal boot.
+- `turf.*` calls inside both render functions (`turf.length`, `turf.lineSliceAlong`, `turf.along`, `turf.pointOnFeature`) have no `typeof turf` guard. A failed turf CDN would not crash the parse (calls are inside try-catch), but it is the same category of CDN-dependency risk that was just fixed for Leaflet.
+- `flyToActiveTrail()` shows `"Trail map data is unavailable. Please refresh and try again."` when `ensureTrailLayerGroups()` returns false. The real cause is Leaflet missing, not trail data — the message is slightly misleading for that failure mode.
+
+**User-visible difference:**
+A user opening the app on bad campground Wi-Fi where Leaflet fails to load should no longer lose the expedition module to an uncaught `L is not defined` parse crash. The loader can dismiss, non-map UI can continue booting, and if they tap an expedition trail action the app gives a controlled unavailable state instead of exploding in the console.
+
+**How much better:**
+- Before: Leaflet missing = expedition module parse crash before boot error handling can see it.
+- After: Leaflet missing = expedition module loads, boot continues, trail overlays initialize lazily when possible, and map-dependent trail actions are guarded.
 
 ---
 

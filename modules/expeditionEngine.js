@@ -20,10 +20,28 @@ async function getTrailsData() {
 window.BARK.getTrailsData = getTrailsData;
 
 // ====== VIRTUAL TRAIL OVERLAY SYSTEM ======
-let virtualTrailLayerGroup = L.featureGroup();
-let completedTrailsLayerGroup = L.featureGroup();
+let virtualTrailLayerGroup = null;
+let completedTrailsLayerGroup = null;
+
+function getMapRef() {
+    return (typeof window.map !== 'undefined') ? window.map : null;
+}
+
+function ensureTrailLayerGroups() {
+    if (virtualTrailLayerGroup && completedTrailsLayerGroup) return true;
+
+    if (typeof L === 'undefined' || typeof L.featureGroup !== 'function') {
+        console.warn('[expeditionEngine] Leaflet is unavailable; trail overlays cannot initialize yet.');
+        return false;
+    }
+
+    if (!virtualTrailLayerGroup) virtualTrailLayerGroup = L.featureGroup();
+    if (!completedTrailsLayerGroup) completedTrailsLayerGroup = L.featureGroup();
+    return true;
+}
 
 async function renderCompletedTrailsOverlay(completedExpeditions) {
+    if (!ensureTrailLayerGroups()) return;
     completedTrailsLayerGroup.clearLayers();
     if (!completedExpeditions || completedExpeditions.length === 0) return;
 
@@ -54,8 +72,9 @@ async function renderCompletedTrailsOverlay(completedExpeditions) {
         });
 
         const toggleBtn = document.getElementById('toggle-completed-trails');
-        if (toggleBtn && toggleBtn.classList.contains('active')) {
-            completedTrailsLayerGroup.addTo(map);
+        const mapRef = getMapRef();
+        if (toggleBtn && toggleBtn.classList.contains('active') && mapRef) {
+            completedTrailsLayerGroup.addTo(mapRef);
         }
     } catch (error) {
         console.error("Error rendering completed trails:", error);
@@ -63,6 +82,7 @@ async function renderCompletedTrailsOverlay(completedExpeditions) {
 }
 
 async function renderVirtualTrailOverlay(trailId, milesCompleted) {
+    if (!ensureTrailLayerGroups()) return;
     virtualTrailLayerGroup.clearLayers();
     try {
         const trailsData = await getTrailsData();
@@ -104,8 +124,9 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
         window.lastMilesCompleted = milesCompleted;
 
         const toggleBtn = document.getElementById('toggle-virtual-trail');
-        if (toggleBtn && toggleBtn.classList.contains('active')) {
-            virtualTrailLayerGroup.addTo(map);
+        const mapRef = getMapRef();
+        if (toggleBtn && toggleBtn.classList.contains('active') && mapRef) {
+            virtualTrailLayerGroup.addTo(mapRef);
         }
     } catch (error) {
         console.error("Error rendering virtual trail:", error);
@@ -120,16 +141,20 @@ function initTrailToggles() {
     const toggleVirtualBtn = document.getElementById('toggle-virtual-trail');
     if (toggleVirtualBtn) {
         toggleVirtualBtn.addEventListener('click', function () {
+            if (!ensureTrailLayerGroups()) return;
+            const mapRef = getMapRef();
+            if (!mapRef) return;
+
             this.classList.toggle('active');
             if (this.classList.contains('active')) {
-                virtualTrailLayerGroup.addTo(map);
+                virtualTrailLayerGroup.addTo(mapRef);
                 if (virtualTrailLayerGroup.getLayers().length > 0) {
-                    map.fitBounds(virtualTrailLayerGroup.getBounds(), {
+                    mapRef.fitBounds(virtualTrailLayerGroup.getBounds(), {
                         padding: [50, 50], animate: !window.instantNav, duration: window.instantNav ? 0 : 0.5
                     });
                 }
             } else {
-                virtualTrailLayerGroup.removeFrom(map);
+                virtualTrailLayerGroup.removeFrom(mapRef);
             }
         });
     }
@@ -137,16 +162,20 @@ function initTrailToggles() {
     const toggleCompletedBtn = document.getElementById('toggle-completed-trails');
     if (toggleCompletedBtn) {
         toggleCompletedBtn.addEventListener('click', function () {
+            if (!ensureTrailLayerGroups()) return;
+            const mapRef = getMapRef();
+            if (!mapRef) return;
+
             this.classList.toggle('active');
             if (this.classList.contains('active')) {
-                completedTrailsLayerGroup.addTo(map);
+                completedTrailsLayerGroup.addTo(mapRef);
                 if (completedTrailsLayerGroup.getLayers().length > 0) {
-                    map.fitBounds(completedTrailsLayerGroup.getBounds(), {
+                    mapRef.fitBounds(completedTrailsLayerGroup.getBounds(), {
                         padding: [50, 50], animate: !window.instantNav, duration: window.instantNav ? 0 : 0.5
                     });
                 }
             } else {
-                completedTrailsLayerGroup.removeFrom(map);
+                completedTrailsLayerGroup.removeFrom(mapRef);
             }
         });
     }
@@ -156,16 +185,22 @@ window.BARK.initTrailToggles = initTrailToggles;
 
 // ====== TRAIL NAVIGATION & EDUCATION ======
 window.flyToActiveTrail = function () {
+    if (!ensureTrailLayerGroups()) {
+        alert("Trail map data is unavailable. Please refresh and try again.");
+        return;
+    }
+
     const mapNavBtn = document.querySelector('.nav-item[data-target="map-view"]');
     if (mapNavBtn) mapNavBtn.click();
 
     const toggleBtn = document.getElementById('toggle-virtual-trail');
     if (toggleBtn && !toggleBtn.classList.contains('active')) toggleBtn.click();
 
-    if (virtualTrailLayerGroup && virtualTrailLayerGroup.getLayers().length > 0) {
+    const mapRef = getMapRef();
+    if (mapRef && virtualTrailLayerGroup.getLayers().length > 0) {
         setTimeout(() => {
-            map.invalidateSize();
-            map.flyToBounds(virtualTrailLayerGroup.getBounds(), {
+            mapRef.invalidateSize();
+            mapRef.flyToBounds(virtualTrailLayerGroup.getBounds(), {
                 padding: [50, 50], maxZoom: 14, animate: !window.lowGfxEnabled, duration: window.lowGfxEnabled ? 0 : 1.5
             });
         }, 350);
@@ -670,6 +705,8 @@ window.cancelTrainingWalk = function () {
 };
 
 function initTrainingUI() {
+    ensureTrailLayerGroups();
+
     const btn = document.getElementById('training-action-btn');
     const cancelBtn = document.getElementById('cancel-training-btn');
     const descEl = document.getElementById('training-desc');
