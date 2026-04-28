@@ -6,6 +6,8 @@ window.BARK = window.BARK || {};
 window.BARK.services = window.BARK.services || {};
 
 let visitedSnapshotUnsubscribe = null;
+let authenticatedSessionSeen = false;
+let lastAuthenticatedUid = null;
 
 const STANDALONE_CLOUD_SETTING_CONTROLS = {
     rememberMapPosition: 'remember-map-toggle',
@@ -246,6 +248,162 @@ function handlePremiumGating(isLoggedIn) {
     }
 }
 
+function setGuestDefaultSetting(key, value) {
+    const store = window.BARK.settings;
+    try {
+        if (store && typeof store.set === 'function') {
+            store.set(key, value);
+        } else {
+            window[key] = value;
+        }
+    } catch (error) {
+        console.warn(`[authService] failed to reset setting "${key}" on logout:`, error);
+    }
+}
+
+function resetGuestSettingsToDefaults() {
+    const registry = window.BARK.SETTINGS_REGISTRY || {};
+
+    setGuestDefaultSetting('ultraLowEnabled', false);
+    if (registry.lowGfxEnabled) setGuestDefaultSetting('lowGfxEnabled', registry.lowGfxEnabled.defaultValue === true);
+
+    Object.entries(registry).forEach(([settingKey, setting]) => {
+        if (settingKey === 'lowGfxEnabled') return;
+        setGuestDefaultSetting(settingKey, setting.defaultValue === true);
+    });
+
+    setGuestDefaultSetting('rememberMapPosition', false);
+    setGuestDefaultSetting('startNationalView', false);
+
+    if (typeof window.BARK.syncSettingsControls === 'function') window.BARK.syncSettingsControls();
+    if (typeof window.BARK.applyGlobalStyles === 'function') window.BARK.applyGlobalStyles();
+    if (typeof window.BARK.applyMapPerformancePolicy === 'function') window.BARK.applyMapPerformancePolicy();
+
+    const mapRef = window.map || (typeof map !== 'undefined' ? map : null);
+    if (mapRef) {
+        if (mapRef.dragging && typeof mapRef.dragging.enable === 'function') mapRef.dragging.enable();
+        if (mapRef.touchZoom && typeof mapRef.touchZoom.enable === 'function') mapRef.touchZoom.enable();
+    }
+}
+
+function resetMapStyleToDefault() {
+    localStorage.setItem('barkMapStyle', 'default');
+
+    const mapStyleSelect = document.getElementById('map-style-select');
+    if (mapStyleSelect) mapStyleSelect.value = 'default';
+    if (typeof window.BARK.loadLayer === 'function') window.BARK.loadLayer('default');
+}
+
+function resetSearchAndFilterState() {
+    window.BARK.activeSearchQuery = '';
+    window.BARK.activeTypeFilter = 'all';
+    if (window.BARK.activeSwagFilters && typeof window.BARK.activeSwagFilters.clear === 'function') {
+        window.BARK.activeSwagFilters.clear();
+    } else {
+        window.BARK.activeSwagFilters = new Set();
+    }
+
+    window.BARK._searchResultCache = {
+        query: '',
+        matchedIds: null,
+        complete: true,
+        processedCount: 0,
+        totalCount: 0
+    };
+    window._lastFilterState = null;
+
+    localStorage.setItem('barkVisitedFilter', 'all');
+    window.BARK.visitedFilterState = 'all';
+
+    const searchInput = document.getElementById('park-search');
+    const clearSearchBtn = document.getElementById('clear-search-btn');
+    const searchSuggestions = document.getElementById('search-suggestions');
+    const typeFilter = document.getElementById('type-filter');
+    const visitedFilter = document.getElementById('visited-filter');
+
+    if (searchInput) searchInput.value = '';
+    if (clearSearchBtn) clearSearchBtn.style.display = 'none';
+    if (searchSuggestions) {
+        searchSuggestions.style.display = 'none';
+        searchSuggestions.innerHTML = '';
+    }
+    if (typeFilter) typeFilter.value = 'all';
+    if (visitedFilter) visitedFilter.value = 'all';
+
+    document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+}
+
+function resetVisitedAndPanelState() {
+    window.BARK.userVisitedPlaces = new Map();
+
+    if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+        window.BARK.invalidateVisitedIdsCache();
+    } else if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
+        window.BARK.invalidateMarkerVisibility();
+    }
+
+    if (typeof window.BARK.clearActivePin === 'function') window.BARK.clearActivePin();
+
+    const slidePanel = document.getElementById('slide-panel');
+    const visitedSection = document.getElementById('panel-visited-section');
+    if (slidePanel) slidePanel.classList.remove('open');
+    if (visitedSection) visitedSection.style.display = 'none';
+}
+
+function resetSavedRouteLists() {
+    const savedList = document.getElementById('saved-routes-list');
+    const plannerList = document.getElementById('planner-saved-routes-list');
+    const savedCount = document.getElementById('saved-routes-count');
+    const plannerContainer = document.getElementById('planner-saved-routes-container');
+
+    if (savedList) savedList.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Sign in to view saved routes.</p>';
+    if (plannerList) plannerList.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Please log in to see saved routes.</p>';
+    if (savedCount) savedCount.textContent = '0';
+    if (plannerContainer) plannerContainer.style.display = 'none';
+}
+
+function resetAdminUi() {
+    const adminContainer = document.getElementById('admin-controls-container');
+    if (adminContainer) adminContainer.innerHTML = '';
+}
+
+function resetMapViewToGuestDefault() {
+    const mapRef = window.map || (typeof map !== 'undefined' ? map : null);
+    if (!mapRef || typeof mapRef.setView !== 'function') return;
+
+    localStorage.removeItem('mapLat');
+    localStorage.removeItem('mapLng');
+    localStorage.removeItem('mapZoom');
+    mapRef.setView([39.8283, -98.5795], 4, { animate: false });
+}
+
+function resetLoggedOutRuntimeState() {
+    window._cloudSettingsLoaded = false;
+    window._leaderboardLoadedOnce = false;
+    window.currentWalkPoints = 0;
+    window.isAdmin = false;
+    resetAdminUi();
+
+    resetGuestSettingsToDefaults();
+    resetMapStyleToDefault();
+    resetSearchAndFilterState();
+    resetVisitedAndPanelState();
+
+    if (typeof window.BARK.resetTripPlannerRuntime === 'function') {
+        window.BARK.resetTripPlannerRuntime();
+    }
+    if (typeof window.BARK.resetExpeditionRuntimeState === 'function') {
+        window.BARK.resetExpeditionRuntimeState();
+    }
+
+    resetSavedRouteLists();
+    resetMapViewToGuestDefault();
+
+    if (typeof window.BARK.invalidateMarkerVisibility === 'function') window.BARK.invalidateMarkerVisibility();
+    if (typeof window.syncState === 'function') window.syncState();
+    if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
+}
+
 function initFirebase() {
     if (typeof firebase === 'undefined') return;
 
@@ -296,6 +454,11 @@ function initFirebase() {
             });
 
             if (user) {
+                if (lastAuthenticatedUid !== user.uid) {
+                    window._cloudSettingsLoaded = false;
+                }
+                authenticatedSessionSeen = true;
+                lastAuthenticatedUid = user.uid;
                 window._serverPayloadSettled = false;
                 window._firstServerPayloadReceived = false;
                 window._lastSyncedScore = -1;
@@ -309,6 +472,9 @@ function initFirebase() {
                     window.BARK.incrementRequestCount();
                     visitedSnapshotUnsubscribe = firebase.firestore().collection('users').doc(user.uid)
                         .onSnapshot((doc) => {
+                            const currentUser = firebase.auth().currentUser;
+                            if (!currentUser || currentUser.uid !== user.uid) return;
+
                             if (!doc.metadata.fromCache && !window._firstServerPayloadReceived) {
                                 window._firstServerPayloadReceived = true;
                                 setTimeout(() => { window._serverPayloadSettled = true; }, 1000);
@@ -380,27 +546,34 @@ function initFirebase() {
                 if (typeof loadSavedRoutes === 'function') loadSavedRoutes(user.uid);
                 handlePremiumGating(true);
             } else {
-                if (loginContainer) loginContainer.style.display = 'block';
-                if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
-                if (logoutBtn) logoutBtn.style.display = 'none';
-                window.BARK.userVisitedPlaces.clear();
-                if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-                    window.BARK.invalidateVisitedIdsCache();
-                }
+                const shouldResetRuntime = authenticatedSessionSeen || lastAuthenticatedUid !== null;
+                authenticatedSessionSeen = false;
+                lastAuthenticatedUid = null;
+
                 if (visitedSnapshotUnsubscribe) {
                     visitedSnapshotUnsubscribe();
                     visitedSnapshotUnsubscribe = null;
                 }
-                window.syncState();
-                if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
+
+                if (loginContainer) loginContainer.style.display = 'block';
+                if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
+                if (logoutBtn) logoutBtn.style.display = 'none';
+
+                if (shouldResetRuntime) {
+                    resetLoggedOutRuntimeState();
+                } else {
+                    window.BARK.userVisitedPlaces.clear();
+                    if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+                        window.BARK.invalidateVisitedIdsCache();
+                    }
+                    window.syncState();
+                    if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
+                }
 
                 window.dismissBarkLoader();
                 if (typeof window.BARK.loadLeaderboard === 'function') window.BARK.loadLeaderboard();
 
-                const savedList = document.getElementById('saved-routes-list');
-                const savedCount = document.getElementById('saved-routes-count');
-                if (savedList) savedList.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Sign in to view saved routes.</p>';
-                if (savedCount) savedCount.textContent = '0';
+                resetSavedRouteLists();
 
                 handlePremiumGating(false);
             }

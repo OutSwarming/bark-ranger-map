@@ -27,6 +27,49 @@ function getMapRef() {
     return (typeof window.map !== 'undefined') ? window.map : null;
 }
 
+function removeTrailLayerGroup(layerGroup) {
+    const mapRef = getMapRef();
+    if (!layerGroup || !mapRef || typeof layerGroup.removeFrom !== 'function') return;
+
+    try {
+        layerGroup.removeFrom(mapRef);
+    } catch (error) {
+        console.warn('[expeditionEngine] failed to remove trail layer group:', error);
+    }
+}
+
+function resetExpeditionRuntimeState() {
+    removeTrailLayerGroup(virtualTrailLayerGroup);
+    removeTrailLayerGroup(completedTrailsLayerGroup);
+
+    if (virtualTrailLayerGroup && typeof virtualTrailLayerGroup.clearLayers === 'function') {
+        virtualTrailLayerGroup.clearLayers();
+    }
+    if (completedTrailsLayerGroup && typeof completedTrailsLayerGroup.clearLayers === 'function') {
+        completedTrailsLayerGroup.clearLayers();
+    }
+
+    const virtualToggle = document.getElementById('toggle-virtual-trail');
+    const completedToggle = document.getElementById('toggle-completed-trails');
+    if (virtualToggle) virtualToggle.classList.remove('active');
+    if (completedToggle) completedToggle.classList.remove('active');
+
+    window.lastActiveTrailId = null;
+    window.lastMilesCompleted = 0;
+
+    const introState = document.getElementById('expedition-intro-state');
+    const activeState = document.getElementById('expedition-active-state');
+    const completeState = document.getElementById('expedition-complete-state');
+    const nameEl = document.getElementById('expedition-name');
+    if (introState) introState.style.display = 'block';
+    if (activeState) activeState.style.display = 'none';
+    if (completeState) completeState.style.display = 'none';
+    if (nameEl) {
+        nameEl.textContent = '';
+        delete nameEl.dataset.trailName;
+    }
+}
+
 function ensureTrailLayerGroups() {
     if (virtualTrailLayerGroup && completedTrailsLayerGroup) return true;
 
@@ -135,6 +178,7 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
 
 window.BARK.renderVirtualTrailOverlay = renderVirtualTrailOverlay;
 window.BARK.renderCompletedTrailsOverlay = renderCompletedTrailsOverlay;
+window.BARK.resetExpeditionRuntimeState = resetExpeditionRuntimeState;
 
 // ====== TRAIL TOGGLE BUTTONS ======
 function initTrailToggles() {

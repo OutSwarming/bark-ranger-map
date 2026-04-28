@@ -6,6 +6,27 @@ window.BARK = window.BARK || {};
 
 let draftTripLines = [];
 
+function removeTripMapLayer(layer) {
+    const mapRef = window.map || (typeof map !== 'undefined' ? map : null);
+    if (!layer || !mapRef || typeof mapRef.removeLayer !== 'function') return;
+
+    try {
+        mapRef.removeLayer(layer);
+    } catch (error) {
+        console.warn('[tripPlannerCore] failed to remove trip map layer:', error);
+    }
+}
+
+function clearDraftTripMapVisuals() {
+    document.querySelectorAll('.trip-stop-badge').forEach(el => el.remove());
+    draftTripLines.forEach(removeTripMapLayer);
+    draftTripLines = [];
+    window.draftBookendMarkers.forEach(removeTripMapLayer);
+    window.draftBookendMarkers = [];
+    window.draftCustomMarkers.forEach(removeTripMapLayer);
+    window.draftCustomMarkers = [];
+}
+
 function showTripToast(message) {
     let toast = window.BARK.DOM.tripActionToast();
     if (!toast) {
@@ -25,13 +46,7 @@ window.draftBookendMarkers = window.draftBookendMarkers || [];
 window.draftCustomMarkers = window.draftCustomMarkers || [];
 
 function updateTripMapVisuals() {
-    document.querySelectorAll('.trip-stop-badge').forEach(el => el.remove());
-    draftTripLines.forEach(line => map.removeLayer(line));
-    draftTripLines = [];
-    window.draftBookendMarkers.forEach(m => map.removeLayer(m));
-    window.draftBookendMarkers = [];
-    window.draftCustomMarkers.forEach(m => map.removeLayer(m));
-    window.draftCustomMarkers = [];
+    clearDraftTripMapVisuals();
 
     const tripDays = window.BARK.tripDays;
     let startLatLng = window.tripStartNode ? [window.tripStartNode.lat, window.tripStartNode.lng] : null;
@@ -462,6 +477,42 @@ function initTripPlanner() {
     const saveRouteBtn = window.BARK.DOM.saveRouteBtn();
     const optimizeTripBtn = window.BARK.DOM.optimizeTripBtn();
     let currentRouteLayers = [];
+    let routeRenderGeneration = 0;
+
+    function resetTripPlannerRuntime(options = {}) {
+        const resetName = options.resetName !== false;
+
+        window.BARK.tripDays = [{ color: window.BARK.DAY_COLORS[0], stops: [], notes: "" }];
+        window.BARK.activeDayIdx = 0;
+        window.tripStartNode = null;
+        window.tripEndNode = null;
+        window.isTripEditMode = false;
+        routeRenderGeneration++;
+
+        currentRouteLayers.forEach(removeTripMapLayer);
+        currentRouteLayers = [];
+        clearDraftTripMapVisuals();
+
+        if (resetName) {
+            const nameInput = window.BARK.DOM.tripNameInput();
+            if (nameInput) nameInput.value = '';
+        }
+
+        const telemetryEl = window.BARK.DOM.routeTelemetry();
+        if (telemetryEl) {
+            telemetryEl.style.display = 'none';
+            telemetryEl.innerHTML = '';
+        }
+
+        document.querySelectorAll('[id^="inline-suggest-"]').forEach(el => {
+            el.style.display = 'none';
+            el.innerHTML = '';
+        });
+
+        updateTripUI();
+    }
+
+    window.BARK.resetTripPlannerRuntime = resetTripPlannerRuntime;
 
     if (optimizeTripBtn) {
         optimizeTripBtn.onclick = () => { window.BARK.DOM.optimizerModal().style.display = 'flex'; };
@@ -469,19 +520,10 @@ function initTripPlanner() {
 
     if (clearTripBtn) {
         clearTripBtn.onclick = () => {
-            if (getTotalStops() > 0) { if (!confirm("Are you sure you want to clear your trip?")) return; }
-            window.BARK.tripDays = [{ color: window.BARK.DAY_COLORS[0], stops: [] }];
-            window.BARK.activeDayIdx = 0;
-            window.tripStartNode = null; window.tripEndNode = null;
-            currentRouteLayers.forEach(layer => map.removeLayer(layer));
-            currentRouteLayers = [];
-            draftTripLines.forEach(line => map.removeLayer(line));
-            draftTripLines = [];
-            const nameInput = window.BARK.DOM.tripNameInput();
-            if (nameInput) nameInput.value = '';
-            const telemetryEl = window.BARK.DOM.routeTelemetry();
-            if (telemetryEl) { telemetryEl.style.display = 'none'; telemetryEl.innerHTML = ''; }
-            updateTripUI();
+            if (getTotalStops() > 0 || window.tripStartNode || window.tripEndNode) {
+                if (!confirm("Are you sure you want to clear your trip?")) return;
+            }
+            resetTripPlannerRuntime();
         };
     }
 
@@ -522,13 +564,14 @@ function initTripPlanner() {
     async function generateAndRenderTripRoute() {
         const user = (typeof firebase !== 'undefined') ? firebase.auth().currentUser : null;
         if (!user) { alert("Please sign in to generate routes."); return; }
+        const routeRunId = ++routeRenderGeneration;
         window.BARK.incrementRequestCount();
         const tripDays = window.BARK.tripDays;
         const daysWithStops = tripDays.filter(d => d.stops.length >= 2);
         if (daysWithStops.length === 0) { alert("Each day needs at least 2 stops."); return; }
 
-        currentRouteLayers.forEach(layer => map.removeLayer(layer)); currentRouteLayers = [];
-        draftTripLines.forEach(line => map.removeLayer(line)); draftTripLines = [];
+        currentRouteLayers.forEach(removeTripMapLayer); currentRouteLayers = [];
+        draftTripLines.forEach(removeTripMapLayer); draftTripLines = [];
 
         if (startRouteBtn) { startRouteBtn.textContent = 'Calculating...'; startRouteBtn.disabled = true; }
 
@@ -544,6 +587,8 @@ function initTripPlanner() {
             try {
                 const orsCoordinates = dayStops.map(s => [Number(s.lng), Number(s.lat)]);
                 const geoJSONData = await window.BARK.services.ors.directions(orsCoordinates, { radiuses: new Array(orsCoordinates.length).fill(-1) });
+                const stillSignedIn = typeof firebase !== 'undefined' && firebase.auth().currentUser;
+                if (routeRunId !== routeRenderGeneration || !stillSignedIn) break;
                 const layer = L.geoJSON(geoJSONData, { style: () => ({ color: day.color, weight: 5, opacity: 0.85, dashArray: '10, 8' }) }).addTo(map);
                 currentRouteLayers.push(layer); allBounds.push(layer.getBounds()); anySucceeded = true;
                 const summary = geoJSONData.features[0].properties.summary;
