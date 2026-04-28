@@ -7,6 +7,41 @@ window.BARK.services = window.BARK.services || {};
 
 let visitedSnapshotUnsubscribe = null;
 
+const STANDALONE_CLOUD_SETTING_CONTROLS = {
+    rememberMapPosition: 'remember-map-toggle',
+    startNationalView: 'national-view-toggle',
+    ultraLowEnabled: 'ultra-low-toggle'
+};
+
+function syncCheckboxControl(settingKey, elementId) {
+    const input = document.getElementById(elementId);
+    if (!input || !('checked' in input)) return;
+    input.checked = Boolean(window[settingKey]);
+}
+
+function syncRegistrySettingControls(registry) {
+    Object.entries(registry || {}).forEach(([settingKey, setting]) => {
+        if (!setting || !setting.elementId) return;
+        syncCheckboxControl(settingKey, setting.elementId);
+    });
+}
+
+function syncStandaloneCloudSettingControls() {
+    Object.entries(STANDALONE_CLOUD_SETTING_CONTROLS).forEach(([settingKey, elementId]) => {
+        syncCheckboxControl(settingKey, elementId);
+    });
+}
+
+function syncCloudSettingsControls(registry) {
+    if (typeof window.BARK.syncSettingsControls === 'function') {
+        window.BARK.syncSettingsControls();
+    } else {
+        syncRegistrySettingControls(registry);
+    }
+
+    syncStandaloneCloudSettingControls();
+}
+
 function handleCloudSettingsHydration(data, metadata = {}) {
     try {
         if (!(data.settings && !window._cloudSettingsLoaded)) return;
@@ -61,13 +96,7 @@ function handleCloudSettingsHydration(data, metadata = {}) {
             store.set('startNationalView', s.startNationalView === true);
         }
 
-        // These toggles have no onChange listener in settingsController — update their DOM directly.
-        const rememberMapToggleEl = document.getElementById('remember-map-toggle');
-        const nationalViewToggleEl = document.getElementById('national-view-toggle');
-        const ultraLowToggleEl = document.getElementById('ultra-low-toggle');
-        if (rememberMapToggleEl) rememberMapToggleEl.checked = window.rememberMapPosition;
-        if (nationalViewToggleEl) nationalViewToggleEl.checked = window.startNationalView;
-        if (ultraLowToggleEl) ultraLowToggleEl.checked = window.ultraLowEnabled;
+        syncCloudSettingsControls(registry);
 
         if (s.mapStyle) {
             localStorage.setItem('barkMapStyle', s.mapStyle);

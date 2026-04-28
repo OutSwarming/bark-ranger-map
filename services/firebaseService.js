@@ -17,6 +17,14 @@ function getLocalDateKey(date = new Date()) {
     return `${year}-${month}-${day}`;
 }
 
+function readCompletedExpeditionsFromUserData(data) {
+    if (!data || typeof data !== 'object') return [];
+
+    if (Array.isArray(data.completed_expeditions)) return data.completed_expeditions;
+    if (Array.isArray(data.completedExpeditions)) return data.completedExpeditions;
+    return [];
+}
+
 async function attemptDailyStreakIncrement() {
     try {
         const user = getCurrentUser();
@@ -176,6 +184,33 @@ async function deleteSavedRoute(uid, routeId) {
     }
 }
 
+async function getCompletedExpeditions(uid) {
+    try {
+        if (!uid) return [];
+
+        window.BARK.incrementRequestCount();
+        const docSnap = await firebase.firestore().collection('users').doc(uid).get();
+        if (!docSnap.exists) return [];
+
+        return readCompletedExpeditionsFromUserData(docSnap.data());
+    } catch (error) {
+        console.error("[firebaseService] getCompletedExpeditions failed:", error);
+        throw error;
+    }
+}
+
+async function saveUserSettings(uid, settingsPayload) {
+    try {
+        if (!uid) throw new Error("Cannot save settings without a user id.");
+
+        window.BARK.incrementRequestCount();
+        await firebase.firestore().collection('users').doc(uid).set({ settings: settingsPayload }, { merge: true });
+    } catch (error) {
+        console.error("[firebaseService] saveUserSettings failed:", error);
+        throw error;
+    }
+}
+
 async function adminEditPoints() {
     if (!window.isAdmin) return alert("Unauthorized: Admin credentials required.");
 
@@ -208,6 +243,8 @@ const firebaseService = {
     loadSavedRoutes,
     loadSavedRoute,
     deleteSavedRoute,
+    getCompletedExpeditions,
+    saveUserSettings,
     adminEditPoints
 };
 
@@ -217,4 +254,6 @@ window.BARK.syncUserProgress = syncUserProgress;
 window.BARK.updateCurrentUserVisitedPlaces = updateCurrentUserVisitedPlaces;
 window.BARK.updateVisitDate = updateVisitDate;
 window.BARK.removeVisitedPlace = removeVisitedPlace;
+window.BARK.getCompletedExpeditions = getCompletedExpeditions;
+window.BARK.saveUserSettings = saveUserSettings;
 window.adminEditPoints = adminEditPoints;

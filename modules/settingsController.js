@@ -16,6 +16,82 @@ window.BARK.initSettings = function initSettings() {
     const settingsStore = window.BARK.settings;
     const settingsRegistry = window.BARK.SETTINGS_REGISTRY || {};
     const performanceSettingKeys = window.BARK.PERFORMANCE_SETTING_KEYS || [];
+    const settingsScrollLock = {
+        locked: false,
+        scrollY: 0,
+        activeView: null,
+        activeViewScrollTop: 0,
+        bodyStyles: null,
+        activeViewStyles: null
+    };
+
+    const getPageScrollY = () => (
+        window.scrollY ||
+        window.pageYOffset ||
+        document.documentElement.scrollTop ||
+        document.body.scrollTop ||
+        0
+    );
+
+    const lockSettingsScroll = () => {
+        if (settingsScrollLock.locked) return;
+
+        const activeView = document.querySelector('.ui-view.active');
+        const bodyStyle = document.body.style;
+
+        settingsScrollLock.locked = true;
+        settingsScrollLock.scrollY = getPageScrollY();
+        settingsScrollLock.activeView = activeView;
+        settingsScrollLock.activeViewScrollTop = activeView ? activeView.scrollTop : 0;
+        settingsScrollLock.bodyStyles = {
+            overflow: bodyStyle.overflow,
+            position: bodyStyle.position,
+            top: bodyStyle.top,
+            left: bodyStyle.left,
+            right: bodyStyle.right,
+            width: bodyStyle.width
+        };
+        settingsScrollLock.activeViewStyles = activeView ? {
+            overflowY: activeView.style.overflowY
+        } : null;
+
+        bodyStyle.overflow = 'hidden';
+        bodyStyle.position = 'fixed';
+        bodyStyle.top = `-${settingsScrollLock.scrollY}px`;
+        bodyStyle.left = '0';
+        bodyStyle.right = '0';
+        bodyStyle.width = '100%';
+
+        if (activeView) activeView.style.overflowY = 'hidden';
+    };
+
+    const restoreSettingsScroll = () => {
+        if (!settingsScrollLock.locked) return;
+
+        const bodyStyles = settingsScrollLock.bodyStyles || {};
+        const activeView = settingsScrollLock.activeView;
+        const activeViewStyles = settingsScrollLock.activeViewStyles || {};
+        const restorePageY = settingsScrollLock.scrollY;
+        const restoreActiveViewY = settingsScrollLock.activeViewScrollTop;
+
+        Object.keys(bodyStyles).forEach((styleName) => {
+            document.body.style[styleName] = bodyStyles[styleName];
+        });
+
+        if (activeView) {
+            activeView.style.overflowY = activeViewStyles.overflowY || '';
+            activeView.scrollTop = restoreActiveViewY;
+        }
+
+        window.scrollTo(0, restorePageY);
+
+        settingsScrollLock.locked = false;
+        settingsScrollLock.scrollY = 0;
+        settingsScrollLock.activeView = null;
+        settingsScrollLock.activeViewScrollTop = 0;
+        settingsScrollLock.bodyStyles = null;
+        settingsScrollLock.activeViewStyles = null;
+    };
 
     const syncRegisteredControls = () => {
         const lowGraphicsActive = Boolean(window.lowGfxEnabled);
@@ -73,14 +149,22 @@ window.BARK.initSettings = function initSettings() {
         if (window.lastActiveTrailId && typeof window.BARK.renderVirtualTrailOverlay === 'function') {
             window.BARK.renderVirtualTrailOverlay(window.lastActiveTrailId, window.lastMilesCompleted || 0);
         }
-        if (typeof window.BARK.renderCompletedTrailsOverlay === 'function' && typeof firebase !== 'undefined') {
-            const user = firebase.auth().currentUser;
+        const firebaseService = window.BARK.services && window.BARK.services.firebase;
+        if (
+            typeof window.BARK.renderCompletedTrailsOverlay === 'function' &&
+            firebaseService &&
+            typeof firebaseService.getCurrentUser === 'function' &&
+            typeof firebaseService.getCompletedExpeditions === 'function'
+        ) {
+            const user = firebaseService.getCurrentUser();
             if (user) {
-                firebase.firestore().collection('users').doc(user.uid).get().then(doc => {
-                    if (doc.exists && doc.data().completedExpeditions) {
-                        window.BARK.renderCompletedTrailsOverlay(doc.data().completedExpeditions);
-                    }
-                });
+                firebaseService.getCompletedExpeditions(user.uid)
+                    .then((completedExpeditions) => {
+                        window.BARK.renderCompletedTrailsOverlay(completedExpeditions);
+                    })
+                    .catch((error) => {
+                        console.error("[settingsController] refresh completed trails failed:", error);
+                    });
             }
         }
     };
@@ -193,15 +277,15 @@ window.BARK.initSettings = function initSettings() {
         settingsGearBtn.addEventListener('click', () => {
             if (typeof window.BARK.populateTrailWarpGrid === 'function') window.BARK.populateTrailWarpGrid();
             settingsOverlay.classList.add('active');
-            document.body.style.overflow = 'hidden';
+            lockSettingsScroll();
         });
 
         const closeSettings = () => {
             settingsOverlay.classList.remove('active');
-            document.body.style.overflow = '';
+            restoreSettingsScroll();
         };
 
-        closeSettingsBtn.addEventListener('click', closeSettings);
+        if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettings);
         settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) closeSettings(); });
 
         if (motionToggle) {
@@ -299,7 +383,16 @@ window.BARK.initSettings = function initSettings() {
         const saveSettingsBtn = document.getElementById('save-settings-cloud-btn');
         if (saveSettingsBtn) {
             saveSettingsBtn.addEventListener('click', async () => {
-                if (typeof firebase === 'undefined' || !firebase.auth().currentUser) { alert("You must be logged in."); return; }
+                const firebaseService = window.BARK.services && window.BARK.services.firebase;
+                const currentUser = firebaseService && typeof firebaseService.getCurrentUser === 'function'
+                    ? firebaseService.getCurrentUser()
+                    : null;
+
+                if (!currentUser || !firebaseService || typeof firebaseService.saveUserSettings !== 'function') {
+                    alert("You must be logged in.");
+                    return;
+                }
+
                 const originalText = saveSettingsBtn.innerHTML;
                 saveSettingsBtn.innerHTML = '⏳ SAVING...';
                 saveSettingsBtn.disabled = true;
@@ -316,7 +409,7 @@ window.BARK.initSettings = function initSettings() {
                 });
 
                 try {
-                    await firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid).set({ settings: settingsPayload }, { merge: true });
+                    await firebaseService.saveUserSettings(currentUser.uid, settingsPayload);
                     saveSettingsBtn.innerHTML = '✅ SAVED TO CLOUD';
                     setTimeout(() => { saveSettingsBtn.innerHTML = originalText; saveSettingsBtn.disabled = false; }, 2000);
                 } catch (error) {

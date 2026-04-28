@@ -10,5 +10,30 @@
         "firebase-debug.*.log"
       ]
     }
-  ]
+  ],
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      "**/.*",
+      "**/.DS_Store",
+      "**/node_modules/**",
+      "functions/**",
+      "raw_trails/**",
+      "data/**",
+      "scripts/**",
+      "legacy/**",
+      "tests/**",
+      "plans/**",
+      "docs/**",
+      "**/*.md",
+      "package.json",
+      "package-lock.json",
+      "*Service Account*.json",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "*.log"
+    ]
+  }
 }
