@@ -8,6 +8,7 @@ window.BARK.services = window.BARK.services || {};
 // ====== CSV PARSING ENGINE ======
 let isRendering = false;
 let pendingCSV = null;
+let pendingCSVOptions = null;
 
 const CSV_COLUMNS = {
     PARK_ID: 'Park ID',
@@ -83,9 +84,18 @@ function getParkId(item) {
     return parkId ? String(parkId) : '';
 }
 
+function isLegacyParkId(id) {
+    return /^-?\d+\.\d{2}_-?\d+\.\d{2}$/.test(cleanCSVValue(id));
+}
+
+function isCanonicalParkId(id) {
+    const value = cleanCSVValue(id);
+    return Boolean(value && value.toLowerCase() !== 'unknown' && !isLegacyParkId(value));
+}
+
 function processParsedResults(results) {
-    window.BARK.allPoints = [];
-    const newAllPoints = window.BARK.allPoints;
+    const previousPoints = Array.isArray(window.BARK.allPoints) ? window.BARK.allPoints : [];
+    const newAllPoints = [];
     const seenParkIds = new Set();
     let missingParkIdCount = 0;
     let duplicateParkIdCount = 0;
@@ -116,6 +126,10 @@ function processParsedResults(results) {
 
             const id = getParkId(item);
             if (!id) {
+                missingParkIdCount++;
+                return;
+            }
+            if (!isCanonicalParkId(id)) {
                 missingParkIdCount++;
                 return;
             }
@@ -153,6 +167,24 @@ function processParsedResults(results) {
         console.warn(`[dataService] Skipped ${duplicateParkIdCount} duplicate Park ID row(s). Check the sheet before publishing.`);
     }
 
+    const nextIds = new Set(newAllPoints.map(point => point.id));
+    const droppedCanonicalIds = previousPoints
+        .map(point => point && point.id)
+        .filter(isCanonicalParkId)
+        .filter(id => !nextIds.has(id));
+
+    if (droppedCanonicalIds.length > 0) {
+        console.warn('[dataService] Rejected destructive data refresh. A background CSV poll attempted to drop existing Park IDs.', {
+            previousCount: previousPoints.length,
+            nextCount: newAllPoints.length,
+            droppedCount: droppedCanonicalIds.length,
+            sampleDroppedIds: droppedCanonicalIds.slice(0, 10)
+        });
+        return false;
+    }
+
+    window.BARK.allPoints = newAllPoints;
+
     // Hydrate canonical counts for gamification
     if (window.gamificationEngine && newAllPoints.length > 0) {
         window.gamificationEngine.updateCanonicalCountsFromPoints(newAllPoints);
@@ -165,11 +197,19 @@ function processParsedResults(results) {
     window.BARK._markerDataRevision = (window.BARK._markerDataRevision || 0) + 1;
 
     window.syncState();
+    return true;
 }
 
-function parseCSVString(csvString) {
+function commitCSVCache(csvString, options = {}) {
+    if (!options.cacheTime) return;
+    localStorage.setItem('barkCSV', csvString);
+    localStorage.setItem('barkCSV_time', String(options.cacheTime));
+}
+
+function parseCSVString(csvString, options = {}) {
     if (isRendering) {
         pendingCSV = csvString;
+        pendingCSVOptions = options;
         return;
     }
     isRendering = true;
@@ -183,12 +223,20 @@ function parseCSVString(csvString) {
             if (results.errors && results.errors.length) {
                 console.warn('[dataService] CSV parse completed with recoverable row issues:', results.errors);
             }
-            processParsedResults(results);
+            const accepted = processParsedResults(results);
+            if (accepted) {
+                commitCSVCache(csvString, options);
+                if (typeof options.onAccepted === 'function') options.onAccepted();
+            } else if (typeof options.onRejected === 'function') {
+                options.onRejected();
+            }
             isRendering = false;
             if (pendingCSV) {
                 const next = pendingCSV;
+                const nextOptions = pendingCSVOptions || {};
                 pendingCSV = null;
-                parseCSVString(next);
+                pendingCSVOptions = null;
+                parseCSVString(next, nextOptions);
             }
         },
         error: function (err) {
@@ -255,10 +303,10 @@ function pollForUpdates() {
 
                 if (lastDataHash !== null && newHashTime < currentHashTime) return;
 
-                lastDataHash = newHash;
-                localStorage.setItem('barkCSV', newCsv);
-                localStorage.setItem('barkCSV_time', newHashTime.toString());
-                parseCSVString(newCsv);
+                parseCSVString(newCsv, {
+                    cacheTime: newHashTime,
+                    onAccepted: () => { lastDataHash = newHash; }
+                });
             }
         })
         .catch(err => {

@@ -7,10 +7,74 @@ window.BARK.SETTING_IMPACTS = Object.freeze({
     MARKER_LAYER: 'marker-layer',
     MARKER_STYLE: 'marker-style',
     MAP_BEHAVIOR: 'map-behavior',
+    MAP_GESTURE: 'map-gesture',
     TRAIL_RENDER: 'trail-render'
 });
 
 window.BARK.SETTINGS_REGISTRY = Object.freeze({
+    allowUncheck: {
+        storageKey: 'barkAllowUncheck',
+        cloudKey: 'allowUncheck',
+        defaultValue: false,
+        elementId: 'allow-uncheck-setting',
+        impact: window.BARK.SETTING_IMPACTS.MAP_BEHAVIOR
+    },
+    instantNav: {
+        storageKey: 'barkInstantNav',
+        cloudKey: 'instantNav',
+        defaultValue: false,
+        elementId: 'instant-nav-toggle',
+        impact: window.BARK.SETTING_IMPACTS.MAP_BEHAVIOR
+    },
+    stopAutoMovements: {
+        storageKey: 'barkStopAutoMove',
+        cloudKey: 'stopAutoMovements',
+        defaultValue: false,
+        elementId: 'toggle-stop-auto-move',
+        impact: window.BARK.SETTING_IMPACTS.MAP_BEHAVIOR
+    },
+    standardClusteringEnabled: {
+        storageKey: 'barkStandardClustering',
+        cloudKey: 'standardClustering',
+        defaultValue: true,
+        elementId: 'standard-cluster-toggle',
+        impact: window.BARK.SETTING_IMPACTS.MARKER_LAYER
+    },
+    premiumClusteringEnabled: {
+        storageKey: 'barkPremiumClustering',
+        cloudKey: 'premiumClustering',
+        defaultValue: false,
+        elementId: 'premium-cluster-toggle',
+        impact: window.BARK.SETTING_IMPACTS.MARKER_LAYER
+    },
+    lockMapPanning: {
+        storageKey: 'barkLockMapPanning',
+        cloudKey: 'lockMapPanning',
+        defaultValue: false,
+        elementId: 'toggle-lock-map-panning',
+        impact: window.BARK.SETTING_IMPACTS.MAP_GESTURE
+    },
+    disable1fingerZoom: {
+        storageKey: 'barkDisable1Finger',
+        cloudKey: 'disable1fingerZoom',
+        defaultValue: false,
+        elementId: 'toggle-disable-1finger',
+        impact: window.BARK.SETTING_IMPACTS.MAP_GESTURE
+    },
+    disablePinchZoom: {
+        storageKey: 'barkDisablePinchZoom',
+        cloudKey: 'disablePinchZoom',
+        defaultValue: false,
+        elementId: 'toggle-disable-pinch',
+        impact: window.BARK.SETTING_IMPACTS.MAP_GESTURE
+    },
+    disableDoubleTap: {
+        storageKey: 'barkDisableDoubleTap',
+        cloudKey: 'disableDoubleTap',
+        defaultValue: false,
+        elementId: 'toggle-disable-double-tap',
+        impact: window.BARK.SETTING_IMPACTS.MAP_GESTURE
+    },
     lowGfxEnabled: {
         storageKey: 'barkLowGfxEnabled',
         cloudKey: 'lowGfxEnabled',

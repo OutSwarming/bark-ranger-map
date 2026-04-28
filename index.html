@@ -606,7 +606,9 @@
                         <!-- 🔬 ADVANCED OPTIMIZATION -->
                         <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; margin-bottom: 15px;">Advanced Optimization</div>
 
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                        <div id="performance-settings-master" style="display: flex; flex-direction: column; gap: 15px;"></div>
+
+                        <div data-cluster-setting="premium" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
                                 <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Premium Bubble Mode</div>
                                 <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
@@ -619,7 +621,7 @@
                             </label>
                         </div>
 
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                        <div data-cluster-setting="standard" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
                                 <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Standard Bubble Mode</div>
                                 <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">

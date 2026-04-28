@@ -8,12 +8,8 @@ window.BARK.initSettings = function initSettings() {
     const settingsGearBtn = document.getElementById('settings-gear-btn');
     const settingsOverlay = document.getElementById('settings-overlay');
     const closeSettingsBtn = document.getElementById('close-settings-btn');
-    const allowUncheckToggle = document.getElementById('allow-uncheck-setting');
     const standardToggle = document.getElementById('standard-cluster-toggle');
     const premiumToggle = document.getElementById('premium-cluster-toggle');
-    const lowGfxToggle = document.getElementById('low-gfx-toggle');
-    const simplifyTrailToggle = document.getElementById('simplify-trail-toggle');
-    const instantNavToggle = document.getElementById('instant-nav-toggle');
     const rememberMapToggle = document.getElementById('remember-map-toggle');
     const motionToggle = document.getElementById('reduce-motion-toggle');
     const ultraLowToggle = document.getElementById('ultra-low-toggle');
@@ -21,9 +17,10 @@ window.BARK.initSettings = function initSettings() {
     const settingsRegistry = window.BARK.SETTINGS_REGISTRY || {};
     const performanceSettingKeys = window.BARK.PERFORMANCE_SETTING_KEYS || [];
 
-    const syncPerformanceControls = () => {
+    const syncRegisteredControls = () => {
         const lowGraphicsActive = Boolean(window.lowGfxEnabled);
-        performanceSettingKeys.forEach((key) => {
+        const lowGraphicsPreset = window.BARK.LOW_GRAPHICS_PRESET || {};
+        Object.keys(settingsRegistry).forEach((key) => {
             const setting = settingsRegistry[key];
             if (!setting) return;
 
@@ -32,16 +29,18 @@ window.BARK.initSettings = function initSettings() {
             if (!input) return;
 
             input.checked = Boolean(window[key]);
-            input.disabled = lowGraphicsActive && !setting.master;
+            input.disabled = lowGraphicsActive && !setting.master && Object.prototype.hasOwnProperty.call(lowGraphicsPreset, key);
             if (row) row.style.opacity = input.disabled ? '0.62' : '1';
         });
+        syncClusterToggles();
     };
 
     const renderPerformanceSettings = () => {
+        const masterContainer = document.getElementById('performance-settings-master');
         const container = document.getElementById('performance-settings-registry');
         if (!container || container.dataset.rendered === 'true') return;
 
-        container.innerHTML = performanceSettingKeys.map((key) => {
+        const renderRows = (keys) => keys.map((key) => {
             const setting = settingsRegistry[key];
             if (!setting) return '';
 
@@ -63,6 +62,10 @@ window.BARK.initSettings = function initSettings() {
             `;
         }).join('');
 
+        if (masterContainer) {
+            masterContainer.innerHTML = renderRows(performanceSettingKeys.filter((key) => settingsRegistry[key] && settingsRegistry[key].master));
+        }
+        container.innerHTML = renderRows(performanceSettingKeys.filter((key) => settingsRegistry[key] && !settingsRegistry[key].master));
         container.dataset.rendered = 'true';
     };
 
@@ -82,24 +85,46 @@ window.BARK.initSettings = function initSettings() {
         }
     };
 
-    const applyRegistrySettingEffects = (setting) => {
-        if (!setting) return;
+    const applyGestureSettings = () => {
+        if (!window.map) return;
+        if (window.lockMapPanning) window.map.dragging.disable();
+        else window.map.dragging.enable();
 
-        if (typeof window.BARK.applyGlobalStyles === 'function') window.BARK.applyGlobalStyles();
-        if (setting.impact === window.BARK.SETTING_IMPACTS.MAP_BEHAVIOR && typeof window.BARK.applyMapPerformancePolicy === 'function') {
-            window.BARK.applyMapPerformancePolicy();
+        if (window.map.touchZoom) {
+            if (window.disablePinchZoom) window.map.touchZoom.disable();
+            else window.map.touchZoom.enable();
         }
-        if (setting.impact === window.BARK.SETTING_IMPACTS.MARKER_LAYER && typeof window.BARK.rebuildMarkerLayer === 'function') {
-            window.BARK.rebuildMarkerLayer();
-        }
-        if (setting.impact === window.BARK.SETTING_IMPACTS.TRAIL_RENDER) {
-            refreshTrailRendering();
-        }
-        if (typeof window.syncState === 'function') window.syncState();
     };
 
-    const setupRegistryPerformanceToggles = () => {
-        performanceSettingKeys.forEach((key) => {
+    let effectFrame = null;
+    const pendingImpacts = new Set();
+    const scheduleRegistrySettingEffects = (setting) => {
+        if (!setting) return;
+        pendingImpacts.add(setting.impact);
+        if (effectFrame) return;
+
+        effectFrame = requestAnimationFrame(() => {
+            effectFrame = null;
+            const impacts = new Set(pendingImpacts);
+            pendingImpacts.clear();
+
+            if (typeof window.BARK.applyGlobalStyles === 'function') window.BARK.applyGlobalStyles();
+            if (impacts.has(window.BARK.SETTING_IMPACTS.MAP_GESTURE)) applyGestureSettings();
+            if (impacts.has(window.BARK.SETTING_IMPACTS.MAP_BEHAVIOR) && typeof window.BARK.applyMapPerformancePolicy === 'function') {
+                window.BARK.applyMapPerformancePolicy();
+            }
+            if (impacts.has(window.BARK.SETTING_IMPACTS.MARKER_LAYER) && typeof window.BARK.rebuildMarkerLayer === 'function') {
+                window.BARK.rebuildMarkerLayer();
+            }
+            if (impacts.has(window.BARK.SETTING_IMPACTS.TRAIL_RENDER)) {
+                refreshTrailRendering();
+            }
+            if (typeof window.syncState === 'function') window.syncState();
+        });
+    };
+
+    const setupRegistryToggles = () => {
+        Object.keys(settingsRegistry).forEach((key) => {
             const setting = settingsRegistry[key];
             const input = setting ? document.getElementById(setting.elementId) : null;
             if (!setting || !input || input.dataset.bound === 'true') return;
@@ -112,67 +137,49 @@ window.BARK.initSettings = function initSettings() {
                 } else {
                     window[key] = e.target.checked;
                     if (setting.storageKey) localStorage.setItem(setting.storageKey, window[key] ? 'true' : 'false');
-                    syncPerformanceControls();
-                    applyRegistrySettingEffects(setting);
+                    syncRegisteredControls();
+                    scheduleRegistrySettingEffects(setting);
                 }
             });
 
             if (settingsStore && typeof settingsStore.onChange === 'function') {
                 settingsStore.onChange(key, () => {
-                    syncPerformanceControls();
-                    applyRegistrySettingEffects(setting);
+                    syncRegisteredControls();
+                    scheduleRegistrySettingEffects(setting);
                 });
             }
         });
 
-        syncPerformanceControls();
+        syncRegisteredControls();
     };
 
     window.BARK.syncSettingsControls = function syncSettingsControls() {
-        syncPerformanceControls();
+        syncRegisteredControls();
     };
 
     const syncClusterToggles = () => {
-        if (standardToggle) standardToggle.checked = window.standardClusteringEnabled;
-        if (premiumToggle) premiumToggle.checked = window.premiumClusteringEnabled;
-    };
-    let clusterRefreshScheduled = false;
-    const scheduleClusterRefresh = () => {
-        if (clusterRefreshScheduled) return;
-        clusterRefreshScheduled = true;
-        requestAnimationFrame(() => {
-            clusterRefreshScheduled = false;
-            if (typeof window.BARK.rebuildMarkerLayer === 'function') window.BARK.rebuildMarkerLayer();
-            if (typeof window.syncState === 'function') window.syncState();
-        });
-    };
+        const lowGraphicsActive = Boolean(window.lowGfxEnabled);
+        const preset = window.BARK.LOW_GRAPHICS_PRESET || {};
+        const standardRow = standardToggle ? standardToggle.closest('[data-cluster-setting]') : null;
+        const premiumRow = premiumToggle ? premiumToggle.closest('[data-cluster-setting]') : null;
 
-    if (settingsStore && typeof settingsStore.onChange === 'function') {
-        settingsStore.onChange('clusteringEnabled', () => {
-            syncClusterToggles();
-            scheduleClusterRefresh();
-        });
-        settingsStore.onChange('standardClusteringEnabled', () => {
-            syncClusterToggles();
-            scheduleClusterRefresh();
-        });
-        settingsStore.onChange('premiumClusteringEnabled', () => {
-            syncClusterToggles();
-            scheduleClusterRefresh();
-        });
-    }
+        if (standardToggle) {
+            standardToggle.checked = lowGraphicsActive ? preset.standardClusteringEnabled === true : window.standardClusteringEnabled;
+            standardToggle.disabled = lowGraphicsActive;
+        }
+        if (premiumToggle) {
+            premiumToggle.checked = lowGraphicsActive ? preset.premiumClusteringEnabled === true : window.premiumClusteringEnabled;
+            premiumToggle.disabled = lowGraphicsActive;
+        }
+        if (standardRow) standardRow.style.opacity = lowGraphicsActive ? '0.62' : '1';
+        if (premiumRow) premiumRow.style.opacity = lowGraphicsActive ? '0.62' : '1';
+    };
 
     if (settingsGearBtn && settingsOverlay) {
         renderPerformanceSettings();
-        setupRegistryPerformanceToggles();
+        setupRegistryToggles();
 
         // Sync visuals to state
-        if (allowUncheckToggle) allowUncheckToggle.checked = window.allowUncheck;
-        if (lowGfxToggle) lowGfxToggle.checked = window.lowGfxEnabled;
-        if (standardToggle) standardToggle.checked = window.standardClusteringEnabled;
-        if (premiumToggle) premiumToggle.checked = window.premiumClusteringEnabled;
-        if (simplifyTrailToggle) simplifyTrailToggle.checked = window.simplifyTrails;
-        if (instantNavToggle) instantNavToggle.checked = window.instantNav;
         if (rememberMapToggle) rememberMapToggle.checked = window.rememberMapPosition;
         if (motionToggle) motionToggle.checked = window.reducePinMotion;
         if (ultraLowToggle) ultraLowToggle.checked = window.ultraLowEnabled;
@@ -194,39 +201,6 @@ window.BARK.initSettings = function initSettings() {
         closeSettingsBtn.addEventListener('click', closeSettings);
         settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) closeSettings(); });
 
-        if (allowUncheckToggle) {
-            allowUncheckToggle.addEventListener('change', (e) => {
-                window.allowUncheck = e.target.checked;
-                localStorage.setItem('barkAllowUncheck', window.allowUncheck ? 'true' : 'false');
-            });
-        }
-
-        if (standardToggle) {
-            standardToggle.checked = window.standardClusteringEnabled;
-            standardToggle.addEventListener('change', (e) => {
-                if (settingsStore && typeof settingsStore.set === 'function') {
-                    settingsStore.set('standardClusteringEnabled', e.target.checked);
-                } else {
-                    window.standardClusteringEnabled = e.target.checked;
-                    if (typeof window.BARK.rebuildMarkerLayer === 'function') window.BARK.rebuildMarkerLayer();
-                    if (typeof window.syncState === 'function') window.syncState();
-                }
-            });
-        }
-
-        if (premiumToggle) {
-            premiumToggle.checked = window.premiumClusteringEnabled;
-            premiumToggle.addEventListener('change', (e) => {
-                if (settingsStore && typeof settingsStore.set === 'function') {
-                    settingsStore.set('premiumClusteringEnabled', e.target.checked);
-                } else {
-                    window.premiumClusteringEnabled = e.target.checked;
-                    if (typeof window.BARK.rebuildMarkerLayer === 'function') window.BARK.rebuildMarkerLayer();
-                    if (typeof window.syncState === 'function') window.syncState();
-                }
-            });
-        }
-
         if (motionToggle) {
             motionToggle.checked = window.reducePinMotion;
             motionToggle.addEventListener('change', (e) => {
@@ -242,44 +216,6 @@ window.BARK.initSettings = function initSettings() {
                         e.target.checked = window.reducePinMotion;
                     }
                 }
-            });
-        }
-
-        const disableDoubleTapEl = document.getElementById('toggle-disable-double-tap');
-        if (disableDoubleTapEl) {
-            disableDoubleTapEl.checked = window.disableDoubleTap;
-            disableDoubleTapEl.addEventListener('change', (e) => {
-                window.disableDoubleTap = e.target.checked;
-                localStorage.setItem('barkDisableDoubleTap', window.disableDoubleTap ? 'true' : 'false');
-            });
-        }
-
-        const disablePinchEl = document.getElementById('toggle-disable-pinch');
-        if (disablePinchEl) {
-            disablePinchEl.checked = window.disablePinchZoom;
-            disablePinchEl.addEventListener('change', (e) => {
-                window.disablePinchZoom = e.target.checked;
-                localStorage.setItem('barkDisablePinchZoom', window.disablePinchZoom ? 'true' : 'false');
-                if (window.disablePinchZoom) map.touchZoom.disable(); else map.touchZoom.enable();
-            });
-        }
-
-        const disable1FingerEl = document.getElementById('toggle-disable-1finger');
-        if (disable1FingerEl) {
-            disable1FingerEl.checked = window.disable1fingerZoom;
-            disable1FingerEl.addEventListener('change', (e) => {
-                window.disable1fingerZoom = e.target.checked;
-                localStorage.setItem('barkDisable1Finger', window.disable1fingerZoom ? 'true' : 'false');
-            });
-        }
-
-        const lockMapPanningEl = document.getElementById('toggle-lock-map-panning');
-        if (lockMapPanningEl) {
-            lockMapPanningEl.checked = window.lockMapPanning;
-            lockMapPanningEl.addEventListener('change', (e) => {
-                window.lockMapPanning = e.target.checked;
-                localStorage.setItem('barkLockMapPanning', window.lockMapPanning ? 'true' : 'false');
-                if (window.lockMapPanning) map.dragging.disable(); else map.dragging.enable();
             });
         }
 
@@ -311,13 +247,6 @@ window.BARK.initSettings = function initSettings() {
             });
         }
 
-        if (instantNavToggle) {
-            instantNavToggle.addEventListener('change', (e) => {
-                window.instantNav = e.target.checked;
-                localStorage.setItem('barkInstantNav', window.instantNav ? 'true' : 'false');
-            });
-        }
-
         const nationalViewToggle = document.getElementById('national-view-toggle');
         if (rememberMapToggle) {
             rememberMapToggle.addEventListener('change', (e) => {
@@ -341,15 +270,6 @@ window.BARK.initSettings = function initSettings() {
                     window.rememberMapPosition = false;
                     localStorage.setItem('remember-map-toggle', 'false');
                 }
-            });
-        }
-
-        const stopAutoMoveEl = document.getElementById('toggle-stop-auto-move');
-        if (stopAutoMoveEl) {
-            stopAutoMoveEl.checked = window.stopAutoMovements;
-            stopAutoMoveEl.addEventListener('change', (e) => {
-                window.stopAutoMovements = e.target.checked;
-                localStorage.setItem('barkStopAutoMove', window.stopAutoMovements ? 'true' : 'false');
             });
         }
 
@@ -382,24 +302,9 @@ window.BARK.initSettings = function initSettings() {
                 saveSettingsBtn.disabled = true;
 
                 const settingsPayload = {
-                    allowUncheck: window.allowUncheck || false,
                     rememberMapPosition: window.rememberMapPosition || false,
                     startNationalView: window.startNationalView || false,
-                    instantNav: window.instantNav || false,
-                    premiumClustering: window.premiumClusteringEnabled || false,
-                    standardClustering: window.standardClusteringEnabled !== false,
-                    simplifyTrails: window.simplifyTrails || false,
-                    stopAutoMovements: window.stopAutoMovements || false,
-                    lowGfxEnabled: window.lowGfxEnabled || false,
-                    removeShadows: window.removeShadows || false,
-                    stopResizing: window.stopResizing || false,
-                    viewportCulling: window.viewportCulling || false,
-                    forcePlainMarkers: window.forcePlainMarkers || false,
                     ultraLowEnabled: window.ultraLowEnabled || false,
-                    lockMapPanning: window.lockMapPanning || false,
-                    disablePinchZoom: window.disablePinchZoom || false,
-                    disable1fingerZoom: window.disable1fingerZoom || false,
-                    disableDoubleTap: window.disableDoubleTap || false,
                     mapStyle: localStorage.getItem('barkMapStyle') || 'default',
                     visitedFilter: localStorage.getItem('barkVisitedFilter') || 'all'
                 };
