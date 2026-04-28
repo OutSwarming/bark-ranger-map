@@ -20,14 +20,7 @@ class MapMarkerConfig {
         const stateClass = 'unvisited-marker';
         const catClass = isNational ? 'cat-national' : 'cat-state';
 
-        // Create the DivIcon HTML string
-        // The wrapper handles the geometry (50% border radius) and the premium halo (via padding+box-shadow)
-        // The img scales to fill the circle identically.
-        const markerHtml = `
-            <div class="enamel-pin-wrapper">
-                <img src="${iconUrl}" alt="Park Pin" loading="lazy" />
-            </div>
-        `;
+        const markerHtml = `<div class="enamel-pin-wrapper"><img src="${iconUrl}" alt="Park Pin" loading="lazy" /></div>`;
 
         // Initialize Leaflet divIcon
         const divIcon = L.divIcon({

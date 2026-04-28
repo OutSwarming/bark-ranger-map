@@ -194,6 +194,9 @@ function handleVisitedPlacesSync(placeList) {
             placeList.forEach(obj => {
                 if (obj && obj.id) window.BARK.userVisitedPlaces.set(obj.id, obj);
             });
+            if (typeof window.BARK.migrateLegacyVisitedPlaces === 'function') {
+                window.BARK.migrateLegacyVisitedPlaces();
+            }
         }
     } catch (error) {
         console.error("[authService] visited places sync failed:", error);

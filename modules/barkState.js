@@ -67,6 +67,7 @@ if (window.ultraLowEnabled) {
 }
 
 // ====== GLOBAL LOOKUP ENGINE (v25 Performance) ======
+// Populated by dataService with canonical Park IDs from the source sheet.
 window.parkLookup = new Map();
 
 // ====== SAFETY & COST CONTROLS ======

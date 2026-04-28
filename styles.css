@@ -775,32 +775,40 @@ textarea,
 }
 
 .visited-pin {
-    filter: brightness(1.35) drop-shadow(0 0 10px #4CAF50);
+    --ring-color: #4CAF50;
+    --pin-color: #4CAF50;
+    filter: brightness(1.35) drop-shadow(0 0 10px var(--pin-color));
     z-index: 500 !important;
 }
 
 .visited-pin img {
-    border: 3px solid #4CAF50;
+    border: 3px solid var(--ring-color);
     border-radius: 50%;
 }
 
 /* Unvisited National Parks — same green ring style but in BLACK */
 .cat-national:not(.visited-pin) {
-    filter: drop-shadow(0 0 7px rgba(0, 0, 0, 0.4));
+    --ring-color: #000;
+    --pin-color: #000;
+    --pin-shadow-color: rgba(0, 0, 0, 0.4);
+    filter: drop-shadow(0 0 7px var(--pin-shadow-color));
 }
 
 .cat-national:not(.visited-pin) img {
-    border: 3px solid #000;
+    border: 3px solid var(--ring-color);
     border-radius: 50%;
 }
 
 /* Unvisited State/Other Parks — same green ring style but in BLUE */
 .cat-state:not(.visited-pin) {
-    filter: drop-shadow(0 0 7px rgba(33, 150, 243, 0.4));
+    --ring-color: #2196F3;
+    --pin-color: #2196F3;
+    --pin-shadow-color: rgba(33, 150, 243, 0.4);
+    filter: drop-shadow(0 0 7px var(--pin-shadow-color));
 }
 
 .cat-state:not(.visited-pin) img {
-    border: 3px solid #2196F3;
+    border: 3px solid var(--ring-color);
     border-radius: 50%;
 }
 

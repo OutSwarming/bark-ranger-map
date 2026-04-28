@@ -17,6 +17,7 @@ let isRendering = false;
 let pendingCSV = null;
 
 const CSV_COLUMNS = {
+    PARK_ID: 'Park ID',
     LOCATION: 'Location',
     STATE: 'State',
     SWAG_COST: 'Swag Cost',
@@ -68,6 +69,7 @@ function normalizeCSVRow(rawItem) {
     const explicitSwag = getFirstPresentCSVValue(row, SWAG_TYPE_COLUMNS);
 
     return {
+        parkId: getCSVValue(row, CSV_COLUMNS.PARK_ID),
         name: getCSVValue(row, CSV_COLUMNS.LOCATION),
         state: getCSVValue(row, CSV_COLUMNS.STATE),
         cost: getCSVValue(row, CSV_COLUMNS.SWAG_COST),
@@ -80,6 +82,64 @@ function normalizeCSVRow(rawItem) {
         lng: getCSVValue(row, CSV_COLUMNS.LNG),
         swagType: explicitSwag.found ? normalizeSwagType(explicitSwag.value) : window.BARK.getSwagType(info)
     };
+}
+
+function getParkId(item, lat, lng) {
+    const parkId = cleanCSVValue(item && item.parkId);
+    return parkId ? String(parkId) : window.BARK.generatePinId(lat, lng);
+}
+
+function createMigratedVisitRecord(legacyVisit, parkData, legacyId) {
+    return {
+        ...legacyVisit,
+        id: parkData.id,
+        name: parkData.name,
+        lat: parkData.lat,
+        lng: parkData.lng,
+        migratedFromLegacyId: legacyVisit.migratedFromLegacyId || legacyId,
+        migratedAt: legacyVisit.migratedAt || Date.now()
+    };
+}
+
+function migrateLegacyVisitForPark(parkData, visitedPlaces = window.BARK.userVisitedPlaces) {
+    if (!parkData || !visitedPlaces || typeof visitedPlaces.has !== 'function') return false;
+
+    const legacyId = parkData._legacyPinId || window.BARK.generatePinId(parkData.lat, parkData.lng);
+    if (!legacyId || legacyId === parkData.id) return false;
+    if (!visitedPlaces.has(legacyId) || visitedPlaces.has(parkData.id)) return false;
+
+    const legacyVisit = visitedPlaces.get(legacyId);
+    if (!legacyVisit) return false;
+
+    visitedPlaces.set(parkData.id, createMigratedVisitRecord(legacyVisit, parkData, legacyId));
+    return true;
+}
+
+async function persistVisitedPlaceMigrations() {
+    try {
+        const firebaseService = window.BARK.services && window.BARK.services.firebase;
+        if (!firebaseService || typeof firebaseService.updateCurrentUserVisitedPlaces !== 'function') return;
+
+        await firebaseService.updateCurrentUserVisitedPlaces(Array.from(window.BARK.userVisitedPlaces.values()));
+        console.log('[dataService] Migrated legacy lat/lng check-ins to Park ID records.');
+    } catch (error) {
+        console.error('[dataService] Failed to persist migrated check-ins:', error);
+    }
+}
+
+function migrateLegacyVisitedPlaces() {
+    const points = window.BARK.allPoints || [];
+    const migrated = points.reduce((count, parkData) => {
+        return count + (migrateLegacyVisitForPark(parkData) ? 1 : 0);
+    }, 0);
+
+    if (migrated > 0) {
+        persistVisitedPlaceMigrations();
+        if (typeof window.BARK.invalidateMarkerVisibility === 'function') window.BARK.invalidateMarkerVisibility();
+        window.syncState();
+    }
+
+    return migrated;
 }
 
 function bindMarkerEvents(marker) {
@@ -134,6 +194,8 @@ function hasMarkerDataChanged(currentData, nextData) {
         'lat',
         'lng',
         'parkCategory',
+        'id',
+        '_legacyPinId',
         '_cachedNormalizedName'
     ].some(key => currentData[key] !== nextData[key]);
 }
@@ -191,6 +253,7 @@ function processParsedResults(results) {
     window.BARK.allPoints = [];
     const newAllPoints = window.BARK.allPoints;
     const incomingParkIds = new Set();
+    let migratedVisitCount = 0;
 
     results.data.forEach((rawItem, rowIndex) => {
         try {
@@ -216,12 +279,14 @@ function processParsedResults(results) {
             const swagType = item.swagType;
             const parkCategory = window.BARK.getParkCategory(category);
 
-            const id = window.BARK.generatePinId(lat, lng);
-            const parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng, parkCategory };
+            const legacyId = window.BARK.generatePinId(lat, lng);
+            const id = getParkId(item, lat, lng);
+            const parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng, parkCategory, _legacyPinId: legacyId };
 
             // v25: Pre-Normalized Name
             parkData._cachedNormalizedName = window.BARK.normalizeText(name);
 
+            if (migrateLegacyVisitForPark(parkData, userVisitedPlaces)) migratedVisitCount++;
             incomingParkIds.add(id);
 
             let marker = markerCache.get(id);
@@ -281,7 +346,8 @@ function processParsedResults(results) {
 
     // Restore the previously active pin
     if (activeId !== null || (activeLat !== null && activeLng !== null)) {
-        const match = window.parkLookup.get(activeId) || window.parkLookup.get(window.BARK.generatePinId(activeLat, activeLng));
+        const activeLegacyId = activeLat !== null && activeLng !== null ? window.BARK.generatePinId(activeLat, activeLng) : null;
+        const match = window.parkLookup.get(activeId) || newAllPoints.find(point => point._legacyPinId === activeId || point._legacyPinId === activeLegacyId);
         if (match) {
             window.BARK.activePinMarker = match.marker;
             if (window.BARK.activePinMarker._icon) {
@@ -290,6 +356,10 @@ function processParsedResults(results) {
         } else {
             if (slidePanel) slidePanel.classList.remove('open');
         }
+    }
+
+    if (migratedVisitCount > 0) {
+        persistVisitedPlaceMigrations();
     }
 }
 
@@ -325,6 +395,7 @@ function parseCSVString(csvString) {
 }
 
 window.BARK.parseCSVString = parseCSVString;
+window.BARK.migrateLegacyVisitedPlaces = migrateLegacyVisitedPlaces;
 
 // ====== DATA POLLING ======
 function quickHash(str) {
