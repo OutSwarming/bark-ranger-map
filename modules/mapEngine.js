@@ -374,16 +374,22 @@ const markerClusterGroup = L.markerClusterGroup({
         return 80;
     },
     iconCreateFunction: function (cluster) {
-        const childCount = cluster.getChildCount();
+        const childMarkers = typeof cluster.getAllChildMarkers === 'function'
+            ? cluster.getAllChildMarkers()
+            : [];
+        const visibleChildCount = childMarkers.length
+            ? childMarkers.reduce((count, marker) => count + (marker && marker._barkIsVisible !== false ? 1 : 0), 0)
+            : cluster.getChildCount();
+        const hiddenClass = visibleChildCount > 0 ? '' : ' marker-filter-hidden';
         const markerHtml = `
             <div class="cluster-enamel-wrapper">
                 <img src="assets/images/bark-logo.jpeg" alt="B.A.R.K. Cluster" loading="lazy" />
-                <div class="cluster-count-badge">${childCount}</div>
+                <div class="cluster-count-badge">${visibleChildCount}</div>
             </div>
         `;
         return L.divIcon({
             html: markerHtml,
-            className: 'bark-cluster-marker',
+            className: `bark-cluster-marker${hiddenClass}`,
             iconSize: [46, 46],
             iconAnchor: [23, 23]
         });

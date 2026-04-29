@@ -189,7 +189,8 @@ class MarkerLayerManager {
             if (!marker) return;
 
             const shouldRemove = marker._barkIsVisible === false &&
-                (targetLayerType === 'cluster' || (targetLayerType === 'plain' && policy.cullPlainMarkers));
+                targetLayerType === 'plain' &&
+                policy.cullPlainMarkers;
 
             if (shouldRemove) {
                 if (marker._layerAdded) {
@@ -228,6 +229,9 @@ class MarkerLayerManager {
         if (targetLayerType === 'cluster') {
             if (!this.map.hasLayer(this.clusterLayer)) this.map.addLayer(this.clusterLayer);
             if (markersToAdd.length) this.clusterLayer.addLayers(markersToAdd);
+            if (typeof this.clusterLayer.refreshClusters === 'function') {
+                this.clusterLayer.refreshClusters();
+            }
             if (this.map.hasLayer(this.plainLayer)) this.map.removeLayer(this.plainLayer);
         } else {
             markersToAdd.forEach(marker => this.plainLayer.addLayer(marker));
