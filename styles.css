@@ -1741,6 +1741,24 @@ body.viewport-culling .leaflet-marker-icon {
     user-select: none;
 }
 
+.trip-overlay-popup {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 120px;
+}
+.trip-overlay-popup strong {
+    color: #1e293b;
+    font-size: 13px;
+    line-height: 1.25;
+}
+.trip-overlay-popup span {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
 /* Hide the inner park pin shape at trip stops so the badge becomes the only
  * visible marker at that location. Class is applied by MarkerLayerManager;
  * TripLayerManager never touches park marker DOM. */

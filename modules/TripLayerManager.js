@@ -93,14 +93,48 @@ window.BARK = window.BARK || {};
         });
     }
 
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function showTripPopup(marker, title, subtitle) {
+        if (!marker || typeof marker.bindPopup !== 'function') return;
+        const safeTitle = escapeHtml(title || 'Trip stop');
+        const safeSubtitle = escapeHtml(subtitle || 'Trip stop');
+        marker
+            .bindPopup(
+                `<div class="trip-overlay-popup"><strong>${safeTitle}</strong><span>${safeSubtitle}</span></div>`,
+                { autoPan: true, closeButton: true, className: 'trip-overlay-popup-shell' }
+            )
+            .openPopup();
+    }
+
     function forwardClickToParkPanel(parkId) {
-        if (!parkId) return;
+        if (!parkId) return false;
         const point = window.parkLookup ? window.parkLookup.get(parkId) : null;
-        if (!point || !point.marker) return;
+        if (!point || !point.marker) return false;
         const manager = window.BARK.markerManager;
         if (manager && typeof manager.renderMarkerPanel === 'function') {
             manager.renderMarkerPanel(point.marker);
+            return true;
         }
+        return false;
+    }
+
+    function handleBadgeClick(marker) {
+        if (forwardClickToParkPanel(marker._tripParkId)) return;
+        showTripPopup(marker, marker._tripStopName, 'Trip stop');
+    }
+
+    function handleBookendClick(marker) {
+        if (forwardClickToParkPanel(marker._tripParkId)) return;
+        const label = marker._tripBookendRole === 'end' ? 'Trip end' : 'Trip start';
+        showTripPopup(marker, marker._tripBookendName, label);
     }
 
     function createBadgeMarker(stop, number, color, parkId) {
@@ -112,9 +146,10 @@ window.BARK = window.BARK || {};
             zIndexOffset: 800
         });
         marker._tripParkId = parkId || null;
+        marker._tripStopName = stop.name || 'Trip stop';
         marker._tripNumber = number;
         marker._tripColor = color;
-        marker.on('click', () => forwardClickToParkPanel(marker._tripParkId));
+        marker.on('click', () => handleBadgeClick(marker));
         return marker;
     }
 
@@ -129,6 +164,7 @@ window.BARK = window.BARK || {};
             marker._tripColor = color;
         }
         marker._tripParkId = parkId || null;
+        marker._tripStopName = stop.name || 'Trip stop';
     }
 
     function syncBadges(tripDays) {
@@ -230,8 +266,22 @@ window.BARK = window.BARK || {};
         );
 
         const want = new Map();
-        if (start) want.set('start', { latlng: [start.lat, start.lng], isRoundTrip });
-        if (end && !isRoundTrip) want.set('end', { latlng: [end.lat, end.lng], isRoundTrip });
+        if (start) {
+            want.set('start', {
+                latlng: [start.lat, start.lng],
+                isRoundTrip,
+                name: start.name || 'Trip start',
+                parkId: start.id || null
+            });
+        }
+        if (end && !isRoundTrip) {
+            want.set('end', {
+                latlng: [end.lat, end.lng],
+                isRoundTrip,
+                name: end.name || 'Trip end',
+                parkId: end.id || null
+            });
+        }
 
         bookendMarkers.forEach((marker, role) => {
             if (want.has(role)) return;
@@ -250,15 +300,21 @@ window.BARK = window.BARK || {};
                     existing.setIcon(buildBookendIcon(role, spec.isRoundTrip));
                     existing._tripBookendRoundTrip = spec.isRoundTrip;
                 }
+                existing._tripBookendName = spec.name;
+                existing._tripParkId = spec.parkId;
                 return;
             }
             const marker = L.marker(spec.latlng, {
                 icon: buildBookendIcon(role, spec.isRoundTrip),
-                interactive: false,
+                interactive: true,
                 keyboard: false,
                 zIndexOffset: 700
             });
             marker._tripBookendRoundTrip = spec.isRoundTrip;
+            marker._tripBookendRole = role;
+            marker._tripBookendName = spec.name;
+            marker._tripParkId = spec.parkId;
+            marker.on('click', () => handleBookendClick(marker));
             if (tripLayerGroup) tripLayerGroup.addLayer(marker);
             bookendMarkers.set(role, marker);
         });

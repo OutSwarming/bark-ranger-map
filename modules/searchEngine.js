@@ -209,6 +209,25 @@ function appendInlineStatus(suggestBox, text, cssText) {
     suggestBox.appendChild(statusDiv);
 }
 
+function bindSuggestionSelection(element, onSelect) {
+    if (!element || typeof onSelect !== 'function') return;
+    element.setAttribute('role', 'button');
+    element.tabIndex = 0;
+
+    element.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect(e);
+    });
+
+    element.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect(e);
+    });
+}
+
 function appendInlineGlobalSearchButton(type, query, suggestBox) {
     if (!suggestBox || query.trim().length < SEARCH_GLOBAL_MIN_LENGTH) return;
 
@@ -241,9 +260,7 @@ function appendInlineGlobalSearchButton(type, query, suggestBox) {
     globalBtn.appendChild(iconSpan);
     globalBtn.appendChild(textWrap);
 
-    globalBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+    bindSuggestionSelection(globalBtn, () => {
         if (!isPremium) {
             alert('Searching for custom towns and locations is a Premium feature. Please log in via the Profile tab.');
             return;
@@ -269,9 +286,7 @@ function renderInlinePlannerSuggestions(type, query, matches) {
         const div = document.createElement('div');
         div.className = 'suggestion-item';
         div.textContent = getSearchResultLabel(match);
-        div.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
+        bindSuggestionSelection(div, () => {
             const input = DOM.inlineInput(type);
             if (input) input.value = match.name;
             hideInlineSuggestions(type);
@@ -518,15 +533,13 @@ function initSearchEngine() {
             } else {
                 const isPremium = isPremiumGlobalSearchUnlocked();
 
-                if (topMatches.length === 0 && isPremium) {
+                if (topMatches.length === 0) {
                     appendSearchStatus(
-                        `Searching for "${activeQuery}"...`,
-                        'background: #fdf4ff; color: #c026d3; font-weight: 700; border-top: 1px solid #f0abfc;'
+                        `No local B.A.R.K. matches for "${activeQuery}".`,
+                        'background: #f8fafc; color: #475569; font-weight: 700; border-top: 1px solid #e2e8f0;'
                     );
-                    executeGeocode(activeQuery, 'stop');
-                } else {
-                    appendFederatedButton(activeQuery, isPremium);
                 }
+                appendFederatedButton(activeQuery, isPremium);
             }
         }
 
@@ -742,92 +755,60 @@ async function executeGeocode(query, targetType) {
             : DOM.inlineSuggest(targetType);
 
         if (data.features && data.features.length > 0) {
-            if (data.features.length === 1) {
-                const coords = data.features[0].geometry.coordinates;
-                const node = { name: data.features[0].properties.label || query, lat: coords[1], lng: coords[0] };
-                if (!applyTripNodeSelection(targetType, node, { alertOnFailure: true })) {
-                    clearGeocodeSearchStatus(DOM, targetType);
-                    return;
-                }
+            if (disambiguationContainer) {
+                let actionText = targetType === 'start' ? 'TRIP START' : (targetType === 'end' ? 'TRIP END' : 'ADD STOP');
+                disambiguationContainer.innerHTML = `
+                    <div style="background: #f0fdf4; border-bottom: 1px solid #bbf7d0; padding: 10px; font-size: 11px; color: #15803d; font-weight: 800; text-transform: uppercase; display: flex; align-items: center; gap: 8px;">
+                        SELECT FOR ${actionText}
+                    </div>`;
 
-                const mainSearch = DOM.parkSearch();
-                const clearBtn = DOM.clearSearchBtn();
-                const inlineInput = targetType !== 'stop' ? DOM.inlineInput(targetType) : null;
-                const inlineSuggest = targetType !== 'stop' ? DOM.inlineSuggest(targetType) : null;
+                data.features.forEach(f => {
+                    const div = document.createElement('div');
+                    div.className = 'suggestion-item';
+                    div.style.cssText = 'padding: 12px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.2s;';
 
-                if (targetType === 'stop') {
-                    if (mainSearch) mainSearch.value = '';
-                    if (typeof window.BARK.activeSearchQuery !== 'undefined') window.BARK.activeSearchQuery = '';
-                    if (clearBtn) clearBtn.style.display = 'none';
-                } else {
-                    if (inlineInput) inlineInput.value = node.name;
-                    if (inlineSuggest) inlineSuggest.style.display = 'none';
-                }
+                    const label = document.createElement('span');
+                    label.style.cssText = 'font-weight: 700; color: #1e293b;';
+                    label.textContent = f.properties.label || query;
+                    div.appendChild(label);
 
-                window.syncState();
-
-                const movementMap = getSearchMovementMap(targetType);
-                if (movementMap) {
-                    movementMap.setView([node.lat, node.lng], 10, {
-                        animate: !window.instantNav,
-                        duration: window.instantNav ? 0 : 0.4
-                    });
-                }
-
-            } else {
-                if (disambiguationContainer) {
-                    let actionText = targetType === 'start' ? '🟢 TRIP START' : (targetType === 'end' ? '🔴 TRIP END' : '➕ ADD STOP');
-                    disambiguationContainer.innerHTML = `
-                        <div style="background: #f0fdf4; border-bottom: 1px solid #bbf7d0; padding: 10px; font-size: 11px; color: #15803d; font-weight: 800; text-transform: uppercase; display: flex; align-items: center; gap: 8px;">
-                            📍 SELECT FOR ${actionText}
-                        </div>`;
-
-                    data.features.forEach(f => {
-                        const div = document.createElement('div');
-                        div.className = 'suggestion-item';
-                        div.style.cssText = 'padding: 12px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.2s;';
-                        div.innerHTML = `<span style="font-weight: 700; color: #1e293b;">${f.properties.label}</span>`;
-
-                        div.addEventListener('click', (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const coords = f.geometry.coordinates;
-                            const node = { name: f.properties.label, lat: coords[1], lng: coords[0] };
-                            if (!applyTripNodeSelection(targetType, node, { alertOnFailure: true })) {
-                                clearGeocodeSearchStatus(DOM, targetType);
-                                disambiguationContainer.style.display = 'none';
-                                return;
-                            }
-
-                            const mainSearch = DOM.parkSearch();
-                            const clearBtn = DOM.clearSearchBtn();
-                            const inlineInput = targetType !== 'stop' ? DOM.inlineInput(targetType) : null;
-
-                            if (targetType === 'stop') {
-                                if (mainSearch) mainSearch.value = '';
-                                if (typeof window.BARK.activeSearchQuery !== 'undefined') window.BARK.activeSearchQuery = '';
-                                if (clearBtn) clearBtn.style.display = 'none';
-                            } else if (inlineInput) {
-                                inlineInput.value = node.name;
-                            }
-
-                            window.syncState();
-
-                            const movementMap = getSearchMovementMap(targetType);
-                            if (movementMap) {
-                                movementMap.setView([node.lat, node.lng], 10, {
-                                    animate: !window.lowGfxEnabled,
-                                    duration: window.lowGfxEnabled ? 0 : 1.5
-                                });
-                            }
-
+                    bindSuggestionSelection(div, () => {
+                        const coords = f.geometry.coordinates;
+                        const node = { name: f.properties.label || query, lat: coords[1], lng: coords[0] };
+                        if (!applyTripNodeSelection(targetType, node, { alertOnFailure: true })) {
+                            clearGeocodeSearchStatus(DOM, targetType);
                             disambiguationContainer.style.display = 'none';
-                        });
-                        disambiguationContainer.appendChild(div);
-                    });
+                            return;
+                        }
 
-                    disambiguationContainer.style.display = 'block';
-                }
+                        const mainSearch = DOM.parkSearch();
+                        const clearBtn = DOM.clearSearchBtn();
+                        const inlineInput = targetType !== 'stop' ? DOM.inlineInput(targetType) : null;
+
+                        if (targetType === 'stop') {
+                            if (mainSearch) mainSearch.value = '';
+                            if (typeof window.BARK.activeSearchQuery !== 'undefined') window.BARK.activeSearchQuery = '';
+                            if (clearBtn) clearBtn.style.display = 'none';
+                        } else if (inlineInput) {
+                            inlineInput.value = node.name;
+                        }
+
+                        window.syncState();
+
+                        const movementMap = getSearchMovementMap(targetType);
+                        if (movementMap) {
+                            movementMap.setView([node.lat, node.lng], 10, {
+                                animate: !window.lowGfxEnabled,
+                                duration: window.lowGfxEnabled ? 0 : 1.5
+                            });
+                        }
+
+                        disambiguationContainer.style.display = 'none';
+                    });
+                    disambiguationContainer.appendChild(div);
+                });
+
+                disambiguationContainer.style.display = 'block';
             }
         } else {
             if (disambiguationContainer) {
