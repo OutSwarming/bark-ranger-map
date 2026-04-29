@@ -1686,7 +1686,7 @@ body.viewport-culling .leaflet-marker-icon {
  * Performance toggles inherit from existing body classes.
  * ============================================================ */
 
-/* Badge: round 22x22 numbered pip in the day color. Fits 1- and 2-digit numbers. */
+/* Badge: official round BARK route pin. Orange ring, centered logo, bottom number. */
 .trip-overlay-badge-wrapper {
     background: transparent !important;
     border: none !important;
@@ -1698,27 +1698,69 @@ body.viewport-culling .leaflet-marker-icon {
 }
 .trip-overlay-badge {
     box-sizing: border-box;
-    width: 22px;
-    height: 22px;
-    min-width: 22px;
+    position: relative;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
     border-radius: 50%;
-    background: var(--badge-color, #475569);
+    background: #f97316;
+    border: 2px solid #111827;
     color: #fff;
-    font-size: 12px;
-    font-weight: 800;
     line-height: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px solid #fff;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
-    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
-    letter-spacing: -0.02em;
+    box-shadow:
+        0 3px 7px rgba(0, 0, 0, 0.36),
+        0 0 0 1px rgba(249, 115, 22, 0.42);
     user-select: none;
-    transition: transform 120ms ease;
 }
-.trip-overlay-badge-wrapper:hover .trip-overlay-badge {
-    transform: scale(1.08);
+.trip-overlay-badge-face {
+    position: relative;
+    z-index: 2;
+    box-sizing: border-box;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #05070b;
+    border: 2px solid #111827;
+    overflow: hidden;
+}
+.trip-overlay-badge-face img {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+}
+.trip-overlay-badge-number {
+    position: absolute;
+    left: 50%;
+    bottom: 1px;
+    z-index: 3;
+    display: inline-flex;
+    min-width: 20px;
+    height: 16px;
+    padding: 0 3px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #172033;
+    border: 1px solid #f97316;
+    color: #fffdf5;
+    font-size: 11px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+    transform: translateX(-50%);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.34);
+    text-shadow:
+        0 1px 1px rgba(0, 0, 0, 0.45),
+        0 0 5px rgba(255, 255, 255, 0.18);
 }
 
 /* Bookend: A / B / 🔄, owned by trip overlay (replaces inline-styled bookend-icon). */
@@ -1762,6 +1804,33 @@ body.viewport-culling .leaflet-marker-icon {
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
+}
+.trip-overlay-popup-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+.trip-overlay-popup-btn {
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #334155;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+    padding: 7px 8px;
+}
+.trip-overlay-popup-details {
+    border-color: #fed7aa;
+    background: #fff7ed;
+    color: #c2410c;
+}
+.trip-overlay-popup-remove {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #dc2626;
 }
 
 /* Hide the inner park pin shape at trip stops so the badge becomes the only

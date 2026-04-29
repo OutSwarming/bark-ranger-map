@@ -70,6 +70,11 @@ function getTotalStops() {
     return window.BARK.tripDays.reduce((sum, d) => sum + d.stops.length, 0);
 }
 
+function getTripStopKey(stop) {
+    if (!stop) return '';
+    return stop.id || `${stop.lat},${stop.lng}`;
+}
+
 function removeTripDay(dayIdx) {
     const tripDays = window.BARK.tripDays;
     if (!Array.isArray(tripDays) || tripDays.length <= 1) return;
@@ -90,6 +95,28 @@ function removeTripDay(dayIdx) {
     }
     updateTripUI();
 }
+
+window.BARK.removeTripStopByKey = function removeTripStopByKey(stopKey) {
+    if (!stopKey) return false;
+
+    const tripDays = window.BARK.tripDays;
+    for (let dayIdx = 0; dayIdx < tripDays.length; dayIdx++) {
+        const day = tripDays[dayIdx];
+        const stopIdx = (day.stops || []).findIndex(stop => getTripStopKey(stop) === stopKey);
+        if (stopIdx === -1) continue;
+
+        const stop = day.stops[stopIdx];
+        const name = stop && stop.name ? stop.name : 'this stop';
+        if (!confirm(`Remove "${name}" from Day ${dayIdx + 1}?`)) return false;
+
+        day.stops.splice(stopIdx, 1);
+        updateTripUI();
+        showTripToast('Stop removed.');
+        return true;
+    }
+
+    return false;
+};
 
 window.addStopToTrip = function (stopData) {
     const tripDays = window.BARK.tripDays;
