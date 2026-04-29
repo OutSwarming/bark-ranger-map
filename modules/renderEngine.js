@@ -314,7 +314,7 @@ function updateMarkers() {
     const markerClassUpdates = [];
 
     if (window.BARK.markerManager) {
-        window.BARK.markerManager.sync(allPoints);
+        window.BARK.markerManager.sync(allPoints, { applyLayers: false });
     }
 
     allPoints.forEach(item => {

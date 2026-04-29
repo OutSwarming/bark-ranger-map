@@ -182,22 +182,48 @@ class MarkerLayerManager {
             ? window.BARK.getMarkerLayerPolicy(this.map ? this.map.getZoom() : 0)
             : { cullPlainMarkers: false };
 
+        const clusterMarkersToRemove = [];
+
         points.forEach(point => {
             const marker = point.marker;
             if (!marker) return;
 
-            if (targetLayerType === 'plain' && policy.cullPlainMarkers && marker._barkIsVisible === false) {
-                this.removeMarker(marker);
+            const shouldRemove = marker._barkIsVisible === false &&
+                (targetLayerType === 'cluster' || (targetLayerType === 'plain' && policy.cullPlainMarkers));
+
+            if (shouldRemove) {
+                if (marker._layerAdded) {
+                    if (marker._barkLayerType === 'cluster') {
+                        clusterMarkersToRemove.push(marker);
+                        marker._layerAdded = false;
+                        marker._barkLayerType = null;
+                    } else {
+                        this.removeMarker(marker);
+                    }
+                }
                 return;
             }
 
             if (marker._layerAdded && marker._barkLayerType === targetLayerType) return;
 
-            this.removeMarker(marker);
+            if (marker._layerAdded) {
+                if (marker._barkLayerType === 'cluster') {
+                    clusterMarkersToRemove.push(marker);
+                    marker._layerAdded = false;
+                    marker._barkLayerType = null;
+                } else {
+                    this.removeMarker(marker);
+                }
+            }
+
             marker._layerAdded = true;
             marker._barkLayerType = targetLayerType;
             markersToAdd.push(marker);
         });
+
+        if (clusterMarkersToRemove.length > 0) {
+            this.clusterLayer.removeLayers(clusterMarkersToRemove);
+        }
 
         if (targetLayerType === 'cluster') {
             if (!this.map.hasLayer(this.clusterLayer)) this.map.addLayer(this.clusterLayer);
@@ -216,9 +242,10 @@ class MarkerLayerManager {
         this.moveMarkersToLayer(points, this.getTargetLayerType());
     }
 
-    sync(points = window.BARK.allPoints || []) {
+    sync(points = window.BARK.allPoints || [], options = {}) {
         const incomingIds = new Set();
-        const targetLayerType = this.getTargetLayerType();
+        const shouldApplyLayers = options.applyLayers !== false;
+        const targetLayerType = shouldApplyLayers ? this.getTargetLayerType() : null;
         const slidePanel = document.getElementById('slide-panel');
 
         points.forEach(point => {
@@ -255,10 +282,13 @@ class MarkerLayerManager {
             if (!incomingIds.has(id)) window.parkLookup.delete(id);
         });
 
-        this.moveMarkersToLayer(points, targetLayerType);
+        if (shouldApplyLayers) {
+            this.moveMarkersToLayer(points, targetLayerType);
+        }
+
         return {
             markerCount: this.markers.size,
-            layerType: targetLayerType
+            layerType: shouldApplyLayers ? targetLayerType : this.getTargetLayerType()
         };
     }
 }

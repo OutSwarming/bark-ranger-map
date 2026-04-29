@@ -217,7 +217,7 @@ function processParsedResults(results) {
     }
 
     if (window.BARK.markerManager) {
-        window.BARK.markerManager.sync(newAllPoints);
+        window.BARK.markerManager.sync(newAllPoints, { applyLayers: false });
     }
 
     window.BARK._markerDataRevision = (window.BARK._markerDataRevision || 0) + 1;
