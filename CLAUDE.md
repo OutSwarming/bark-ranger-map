@@ -72,8 +72,14 @@ Before major feature work, refactors, payment work, Passport/journal/photos/even
 
 - [x] **#19 — Trip route pins disappear in bubble mode at high zoom** (`modules/TripLayerManager.js` NEW, `engines/tripPlannerCore.js`, `modules/renderEngine.js`, `modules/MarkerLayerManager.js`, `state/appState.js`, `index.html`, `styles.css`, `styles/mapStyles.css`, `core/app.js`) ✅
 
+- [x] **#20 — Hardcoded API keys in Cloud Functions moved to Firebase secrets (Phase 1 of 3)** (`functions/index.js`) ✅
+
+- [x] **#21 — Server proxy for ORS, client switched to callables (Phase 2 of 3)** (`functions/index.js`, `services/orsService.js`, `index.html`) ✅
+
+- [ ] **#22 — Remove client-side ORS key + rotate exposed keys (Phase 3 of 3)** (`modules/barkConfig.js`, provider dashboards)
+
 ## Current Work
-Fix #19 complete. Primary queue #1-#19 complete.
+Fix #21 complete (Phase 2 of API key cleanup). Client now calls `getPremiumRoute` and the new `getPremiumGeocode` callables via `services/orsService.js`; server enforces signed-in user. Pending user actions before deploy: ensure `ORS_API_KEY` secret is set (from Fix #20), then `firebase deploy --only functions` and re-deploy hosting. After verifying directions and global geocode search both work for a signed-in user, proceed to Fix #22 (remove client-side ORS key + rotate keys on provider dashboards).
 
 ---
 
@@ -2461,6 +2467,223 @@ The map is the app. A bug class where route stops vanish during interaction is e
 | Reliability | 10 | Cluster/cull/zoom transitions cannot destroy trip overlay DOM by construction; no defensive listeners to maintain |
 | Code growth | 9 | Ownership boundaries are explicit; managers do not reach into each other's DOM; tripPlannerCore is now a thin orchestrator |
 | Mobile UX | 9 | Performance-toggle CSS chains extend cleanly; no new event listeners on the main thread |
+
+### Fix #20 — Hardcoded API Keys Moved to Firebase Secrets (Phase 1 of 3)
+**File:** `functions/index.js`
+**Date:** 2026-04-29
+
+**Scope note:**
+This is **Phase 1 of a 3-phase migration**. The audit identified four key-handling problems: (1) ORS key shipped to every browser via `barkConfig.js`, (2) ORS key duplicated and hardcoded in `getPremiumRoute`, (3) paid Gemini key hardcoded in `extractParkData`, (4) client `tripPlannerCore.js` calls ORS directly instead of going through `getPremiumRoute`. A previous attempt to hide keys broke functionality, so the migration is sequenced to keep ORS working for users at every step:
+
+- **Phase 1 (this fix, #20):** Move all server-side hardcoded keys to Firebase secrets. **Zero client-side changes.** Client still uses its own ORS key from `barkConfig.js`. Server stops carrying secrets in source.
+- **Phase 2 (Fix #21):** Wire `services/orsService.js` to call `getPremiumRoute` via `firebase.functions().httpsCallable(...)` instead of hitting ORS directly. Add a parallel `getPremiumGeocode` callable for `searchEngine.js`. Both require a signed-in user and reuse the existing rate-limit pattern.
+- **Phase 3 (Fix #22):** After Phase 2 is deployed and verified, delete `window.BARK.config.ORS_API_KEY` from `barkConfig.js`. Then rotate the exposed ORS key and the paid Gemini key on each provider's dashboard. The old keys remain in git history; rotation is what actually invalidates them.
+
+**What was wrong:**
+Three API keys lived in `functions/index.js` source, committed to git history:
+- ORS key in `getPremiumRoute` (line ~99) — duplicate of the client-side key.
+- Paid pay-as-you-go Gemini key in `extractParkData` `paid-3` engine route (line ~191) — billable on every call.
+- A `process.env.GOOGLE_MAPS_API_KEY || "AIzaSy..."` placeholder fallback in `syncToSpreadsheet` geocoding (line ~358) — silently broken if the env var was ever missing in production, and the placeholder string itself looked like an exposed key in audits.
+
+`extractParkData` was already declaring `secrets: ["GEMINI_API_KEY"]` for the free Gemini routes, so the secret pattern was partially in use — the paid key was the one slipping through.
+
+**The fix:**
+- `getPremiumRoute` now declares `.runWith({ secrets: ["ORS_API_KEY"] })` and reads `process.env.ORS_API_KEY`. If the secret is missing, it throws `failed-precondition` with a clean message instead of sending an empty Authorization header.
+- `extractParkData`'s `runWith` adds `"GEMINI_PAID_API_KEY"` to its secrets array. The `paid-3` branch now reads `process.env.GEMINI_PAID_API_KEY`. Added a single `failed-precondition` guard after the routing block so any unset key (free or paid) fails clean instead of `GoogleGenerativeAI` throwing on an empty string.
+- `syncToSpreadsheet` now declares `.runWith({ ...ADMIN_CALLABLE_OPTIONS, secrets: ["GOOGLE_MAPS_API_KEY"] })`. The geocoding branch reads `process.env.GOOGLE_MAPS_API_KEY` once into a local, logs a warning and skips geocoding if it's unset, and only builds the geocode URL when the key is present. The misleading `"AIzaSy..."` placeholder is gone.
+- All three callables remain v1 (`firebase-functions/v1`) for consistency with the rest of the file. No new dependencies, no behavior change for the client.
+
+**Why this matters:**
+Keys in source are a recurring breach class even for solo projects: anyone with read access to git history has them, and they're trivially scraped by tooling. Firebase secrets bind keys to the deployed function's runtime only — they never appear in source control, never appear in deployed function code, and rotating them is a one-command operation (`firebase functions:secrets:set`).
+
+The reason this is sequenced as "server first, client last" is that the client currently has its own ORS key. If we removed the client-side key first (or rotated keys before Phase 2 lands), routing and global geocode search would break for users. By moving server-side first, we (a) stop bleeding new exposure on every commit, (b) prove the secrets system works against real production traffic for `getPremiumRoute` even though it's not yet called from the client, and (c) leave the client untouched until Phase 2 has a working server proxy to point at.
+
+**Pre-deploy actions required (cannot deploy without these):**
+The user must set each secret before `firebase deploy --only functions`:
+- `firebase functions:secrets:set ORS_API_KEY` — paste the current ORS key when prompted.
+- `firebase functions:secrets:set GEMINI_PAID_API_KEY` — paste the current pay-as-you-go Gemini key.
+- `firebase functions:secrets:set GOOGLE_MAPS_API_KEY` — paste the current Google Maps geocoding key (this one was already env-var, but the secret needs to actually exist now that the placeholder fallback is gone).
+
+If any secret is unset at runtime, the corresponding code path fails clean: `getPremiumRoute` throws `failed-precondition`, `extractParkData` throws `failed-precondition`, `syncToSpreadsheet` logs a warning and skips geocoding (rest of the sync continues).
+
+**Pros of this approach:**
+- Removes three plaintext keys from the deployed Cloud Function source.
+- Reuses the existing v1 secrets pattern (`extractParkData` already had `secrets: ["GEMINI_API_KEY"]`).
+- Each callable's secret list is explicit at the `.runWith()` boundary — no global secrets coupling.
+- Client behavior is identical; ORS routing/geocode for users is untouched.
+- Failure mode for a missing secret is a clean `HttpsError` or a logged warning, not a confusing 401 from ORS or a `GoogleGenerativeAI` throw on empty string.
+- The misleading `"AIzaSy..."` placeholder is gone — future audits won't flag it as an exposed key.
+- Each key now rotates independently via `firebase functions:secrets:set`. No source edit required to rotate.
+- Sets up Phase 2: `getPremiumRoute` is now production-ready as a proxy; only the client switch is missing.
+
+**Cons / tradeoffs:**
+- Old keys remain in git history. Rotation in Phase 3 is what actually invalidates them. Until then, anyone who has cloned the repo before today still has working keys.
+- Client `barkConfig.js:35` still ships an ORS key to every browser. This is the headline exposure and is intentionally deferred to Phase 3 — touching it now would break ORS for users until Phase 2 lands.
+- If the user deploys this fix without setting the secrets first, `getPremiumRoute` and the `paid-3` Gemini route will return `failed-precondition`. `getPremiumRoute` is currently uncalled by the client, so users see no impact — but admin-side AI extraction on the paid route would fail until the secret is set. Free Gemini routes (`free-3`, `free-25`, etc.) already had their secret set and continue to work.
+- No automated test coverage for missing-secret paths. The guards are correct by inspection.
+- Setting Firebase secrets requires Blaze plan; this project is presumably already on Blaze since Cloud Functions are deployed.
+
+**Alternative solution A — Use `defineSecret()` from `firebase-functions/v2/params`:**
+
+Pros: more ergonomic, type-safe, integrates with the param-config system. Cons: would mix v1 and v2 syntax in one file, where every other callable is v1. Larger blast radius for one fix.
+
+**Verdict:** Rejected for now. Migrating the whole file to v2 is a separate workstream worth doing later, but inconsistency mid-file would be worse than the v1 string-array approach.
+
+**Alternative solution B — Use `functions.config()`:**
+
+Pros: simplest historical pattern. Cons: deprecated by Firebase in favor of secrets and env vars; new projects get warned away from it. Would create technical debt instead of removing it.
+
+**Verdict:** Rejected. Secrets are the modern, recommended path.
+
+**Alternative solution C — Move only the paid Gemini key, leave ORS in place since it's the same as the client key:**
+
+Pros: less code change. Cons: leaves a key in source that's just as scrapeable as any other. The audit explicitly flagged it. Future `getPremiumRoute` rotation would require a code edit + redeploy.
+
+**Verdict:** Rejected. Even if the value is duplicated client-side today, the server copy needs to exit source so Phase 3 rotation is a one-command operation.
+
+**User-visible difference:**
+None for end users. Phase 1 is a server-side hygiene change. The client still calls ORS directly with its own key. The benefit accrues at the next deploy: the deployed function code stops carrying secrets, and rotating keys becomes a CLI command instead of a code commit.
+
+**Verification:**
+- `node --check functions/index.js` passes.
+- `grep -nE "AIzaSyD57|eyJvcmciOiI1YjN" functions/index.js` returns nothing — both hardcoded key prefixes are gone from the file.
+- The Gemini free key (`process.env.GEMINI_API_KEY`) was already a secret and continues to work unchanged.
+- Did not run `firebase deploy` from this session — that's the user's action after setting the three secrets.
+
+**Rating: 8.5 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 9 | Server-side keys live only in secrets; rotation is a CLI command; matches the existing pattern already used for `GEMINI_API_KEY` |
+| Speed | 10 | Zero runtime cost; secrets are loaded into env at function cold start |
+| Code efficiency | 9 | Three small `.runWith()` edits and three local key reads; no new abstractions |
+| Reliability | 8 | Missing-secret paths fail clean with named errors; Phase 1 alone does not yet protect the client-side ORS key |
+| Security | 8 | Removes three plaintext keys from deployed function source; old keys remain valid in provider dashboards until Phase 3 rotation |
+| Debuggability | 9 | Each callable's secret list is explicit at the `runWith` boundary; failure modes are named `HttpsError` types, not raw 401s |
+
+### Fix #21 — Server Proxy for ORS, Client Switched to Callables (Phase 2 of 3)
+**Files:** `functions/index.js`, `services/orsService.js`, `index.html`
+**Date:** 2026-04-29
+
+**Scope note:**
+This is Phase 2 of the 3-phase API key cleanup. Fix #20 (Phase 1) moved server-side keys into Firebase secrets without changing the client. Fix #22 (Phase 3) will remove the client-side ORS key from `barkConfig.js` and rotate the exposed keys on provider dashboards.
+
+**What was wrong:**
+After Fix #20, the server side was clean, but the client was still hitting ORS directly using `window.BARK.config.ORS_API_KEY`. That meant:
+- The paid ORS key still shipped to every browser via `modules/barkConfig.js:35`.
+- The existing `getPremiumRoute` callable was deployed but never called — `services/orsService.js` bypassed it entirely with raw `fetch()`.
+- There was no callable for geocoding, so the global town/city search in `searchEngine.js` had no clean server path either.
+- Server-side `getPremiumRoute` had no auth check — anyone with App Check turned off (or a forged token) could theoretically have called it.
+
+**The fix:**
+- **`functions/index.js`:**
+  - Added `requireAuthCallable(context)` helper that throws `unauthenticated` if `context.auth.uid` is missing. Sibling to the existing admin variant; reusable for any future user-gated callable.
+  - `getPremiumRoute` now calls `requireAuthCallable(context)` first. Also forwards an optional `radiuses` array to ORS when the client provides one (the original client implementation always sent `radiuses: [-1, -1, ...]` to disable snap-radius limits, and the previous server function silently dropped this field — preserving the behavior matters because some routes failed without it).
+  - Added new `getPremiumGeocode` callable. Same shape: signed-in user only, reads `ORS_API_KEY` secret, hits `/geocode/search`. Validates `text` is a non-empty string, clamps `size` to `[1, 10]` (defaults to 5), and forwards optional `country` as `boundary.country`. Returns ORS's raw GeoJSON response.
+- **`services/orsService.js`:**
+  - Replaced raw `fetch()` calls with `firebase.functions().httpsCallable(...)` invocations.
+  - `directions(coordinates, options)` calls `getPremiumRoute`. Forwards `coordinates` and (when matched-length) `radiuses`.
+  - `geocode(query, options)` calls `getPremiumGeocode`. Forwards `text`, `size`, optional `country`.
+  - `getApiKey()` helper deleted — the client no longer reads the key for any purpose.
+  - Both functions still throw on error so callers' existing `try/catch` and `alert()` paths work unchanged.
+  - File header updated to reflect the new architecture.
+- **`index.html`:**
+  - Bumped `services/orsService.js?v=1` → `?v=2` so cached browsers pick up the new transport on next load.
+
+**Why this matters:**
+This is the structural change that makes Phase 3 (key removal + rotation) safe. After this fix:
+- Two real consumers (`tripPlannerCore.js:657` directions, `searchEngine.js:751` geocode) now go through the proxy. Verified by `rg services.ors` — no other callers exist.
+- The function signatures of `services.ors.directions` and `services.ors.geocode` are unchanged, so no caller code changes. The transport switched, the contract didn't.
+- ORS billing is now gated behind Firebase Auth. An anonymous browser cannot trigger a paid call.
+- The Cloud Function is the single chokepoint for any future ORS work — rate limits, caching, premium gating, fallback providers all land in one file instead of being smeared across the client.
+
+**Why auth-only (no separate premium check):**
+Looking at the existing client gates: `tripPlannerCore.js` already requires `firebase.auth().currentUser` before generating routes. `searchEngine.js`'s `isPremiumGlobalSearchUnlocked()` is — despite the name — an auth-only check (`Boolean(firebase.auth().currentUser)`). So "premium" in this app is currently a synonym for "signed in." Server-enforced auth is the equivalent guarantee. If a real premium tier ships later (Stripe-gated, Firestore flag, custom claim), it lands as one extra check inside `requireAuthCallable` or as a sibling helper — touching one file.
+
+**Pros of this approach:**
+- ORS key is no longer needed on the client. Phase 3 can remove it cleanly.
+- Single transport boundary preserved (`services/orsService.js` is still the only file in the client that knows about ORS endpoints — and now it doesn't even know about the URLs).
+- Function contract for callers is identical: `await window.BARK.services.ors.directions(coords, { radiuses })` returns the same GeoJSON shape; `await window.BARK.services.ors.geocode(q, { size, country })` returns the same features array.
+- Server-side auth is real (`context.auth.uid` is verified by Firebase before our code runs); cannot be spoofed by a hostile client.
+- Re-uses Phase 1's `ORS_API_KEY` secret — no new secrets to provision.
+- The `radiuses` forwarding fixes a latent server-side gap: the previous `getPremiumRoute` silently dropped the field even though the client transport was sending it. This was hidden because `getPremiumRoute` was never actually called.
+- New `requireAuthCallable` helper is reusable for any future user-gated callable — keeps the auth pattern consistent across the file.
+- Caller error handling unchanged: callable errors arrive as `firebase.functions.HttpsError` instances, which have `.message` (used by `tripPlannerCore.js:664`'s `alert`) and don't break the existing `console.error` patterns.
+
+**Cons / tradeoffs:**
+- One extra hop per ORS request (browser → Cloud Function → ORS). Cold starts add ~1-2 seconds the first time after deploy or after a long idle. Warm function latency is typically under 200ms — acceptable for a route generation that already takes seconds.
+- Cloud Function invocations are billable on Blaze. At expected usage (single-digit routes per session, infrequent global geocode searches) this is negligible compared to the cost of leaking the ORS key. If ORS usage scales 10–100×, monitor function billing.
+- No rate limiting yet. The existing `enforceAdminRateLimit` is admin-specific (different limits, different collection). A user-tier rate limiter is straightforward to add (mirror the admin pattern with a `_userRateLimits` collection) but deferred to a separate fix to avoid scope creep. Auth alone gates the worst abuse vector (anonymous botting); a malicious signed-in user could still rack up our quota, but they'd burn their own Firebase Auth account in the process and we have their UID.
+- No App Check. Admin callables already have `enforceAppCheck: true`; user callables don't. App Check across a no-bundler PWA is a separate setup task.
+- Phase 3 still pending. The ORS key is still in `modules/barkConfig.js`. Phase 2 alone does not stop the client from leaking the key — it just stops the client from *needing* it. Until the line is deleted and the key rotated, the exposure remains.
+- Callables require `firebase-functions-compat.js` to be loaded before `orsService.js`. Verified in `index.html` line 1221 (already loaded). If a future load-order change moves `firebase-functions-compat.js`, geocode/directions break with a clear error from `getCallable()`.
+
+**Alternative solution A — Use raw HTTP function instead of callable:**
+
+Pros: simpler client code (raw `fetch`), no callable response unwrapping. Cons: would need to handle Firebase Auth ID token verification manually on the server (callables do it for free), and would add CORS handling. Not worth the complexity.
+
+**Verdict:** Rejected. Callables are the right primitive for authed RPC.
+
+**Alternative solution B — Keep the client-side ORS key, just add a "premium gate" Cloud Function:**
+
+Pros: zero client refactor, fastest. Cons: doesn't solve the actual problem (key is still exposed), just adds a meaningless gate. The audit's whole point was that the key being client-side is the bug.
+
+**Verdict:** Rejected outright.
+
+**Alternative solution C — Add user-tier rate limiting in this fix:**
+
+Pros: closes the abuse-via-signed-in-account hole now. Cons: requires a new Firestore collection, schema, cleanup policy, and tuning the limits without real-traffic data. Adding it without baseline metrics risks blocking legitimate users (a user generating a multi-day route hits directions 5–10 times in a minute by design).
+
+**Verdict:** Defer. Auth + Firebase's own per-project quotas are enough for the current scale. Add when there's a reason.
+
+**Alternative solution D — Cache geocode results server-side:**
+
+Pros: cuts ORS costs significantly for popular queries. Cons: requires Firestore/Memorystore, TTL handling, cache key normalization. Premature without metrics.
+
+**Verdict:** Defer. Note as a future optimization in `plans/AI_TECHNICAL_NORTH_STAR.md` if and when geocode billing becomes notable.
+
+**Use cases and what the user sees:**
+
+*Use case 1 — Signed-in user generates a multi-day trip route:*
+`tripPlannerCore.js:625` checks signed-in (passes). Calls `services.ors.directions(coords, { radiuses })`. The service builds the callable payload `{ coordinates, radiuses }` and invokes `getPremiumRoute`. Server verifies auth, reads `ORS_API_KEY` secret, posts to ORS, returns GeoJSON. Client renders the dashed driving route as before. User sees no behavioral change.
+
+*Use case 2 — Signed-in user types a town name into search:*
+`searchEngine.js:716`'s premium-search path runs. After local fuzzy results return empty, the global fallback fires `executeGeocode()` which calls `services.ors.geocode(query, { size: 5, country: 'US' })`. Service invokes `getPremiumGeocode` callable. Server verifies auth, reads `ORS_API_KEY`, hits ORS geocode, returns features. User sees the same disambiguation list of city/town suggestions as before.
+
+*Use case 3 — Anonymous user opens trip planner and tries to add a stop by global geocode:*
+Client-side `isPremiumGlobalSearchUnlocked()` returns false because `firebase.auth().currentUser` is null. The global search button never triggers `executeGeocode()`. Server is never reached. (If a malicious page somehow invoked the callable directly, server returns `unauthenticated` instantly.)
+
+*Use case 4 — `ORS_API_KEY` secret is unset (e.g., new environment without secret provisioned):*
+Server returns `failed-precondition` with message "Routing service is not configured." or "Geocoding service is not configured." Client's existing catch block alerts "A day's route failed: ..." or "Search service unavailable." User can still browse the map; routing/global-geocode degrade gracefully.
+
+*Use case 5 — Cold start after long idle:*
+First call adds ~1-2 seconds while the function spins up. Subsequent calls within ~15 minutes are warm. The `tripPlannerCore` UI already shows "Calculating..." during route generation, which absorbs the delay.
+
+*Use case 6 — Network drops mid-request:*
+Callable rejects with a network-class error. Existing `try/catch` blocks in `tripPlannerCore.js` and `searchEngine.js` log and alert. No infinite loading state.
+
+**User-visible difference:**
+Intentionally none. All ORS-backed features (multi-day route generation, global town/city search) should work exactly as before for signed-in users. The behind-the-scenes change: the ORS API key is no longer needed by the client to make these requests — it just rides along on the (still-exposed) `barkConfig.js` value until Phase 3 deletes it.
+
+**Verification:**
+- `node --check functions/index.js` — passes.
+- `node --check services/orsService.js` — passes.
+- `rg services.ors` — confirmed only two callers (`tripPlannerCore.js:657`, `searchEngine.js:751`); neither needs to change because the function signatures are identical.
+- `grep firebase-functions-compat index.html` — confirmed Firebase Functions compat SDK loaded at line 1221, before the deferred `orsService.js` script at line 1237.
+- Confirmed the existing `tripPlannerCore.js` already requires signed-in user before generating routes (line 626-627), so no regression for the routing flow when the server adds the same check.
+- Confirmed `isPremiumGlobalSearchUnlocked()` in `searchEngine.js:84` is auth-only, so the geocode flow's existing client gate already matches the server's new auth requirement.
+- Did not run a live deploy from this session — that's the user's action (`firebase deploy --only functions` for the new callable, then re-deploy hosting for the bumped `?v=2`).
+
+**Rating: 9 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 9 | Callable-based proxy is the canonical Firebase pattern; future ORS work (rate limits, caching, fallback providers, premium gating) all land in one file |
+| Speed | 8 | One extra network hop per request; warm-function latency is acceptable; cold-start on first request after deploy adds 1–2s |
+| Code efficiency | 9 | `services/orsService.js` is shorter and clearer; new `requireAuthCallable` helper is one focused function reusable for future user-gated callables |
+| Reliability | 9 | Function signatures unchanged for callers; auth enforced server-side; missing-secret path fails clean; existing error handling paths still work |
+| Security | 9 | Server-enforced auth replaces client-only gating; ORS key never required client-side after Phase 3; App Check and per-user rate limits remain as future hardening |
+| Debuggability | 9 | Callable errors are named `HttpsError`s with stable codes (`unauthenticated`, `invalid-argument`, `failed-precondition`, `internal`); single chokepoint for ORS observability |
 
 ---
 

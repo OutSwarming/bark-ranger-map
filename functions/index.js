@@ -78,6 +78,14 @@ async function requireAdminCallable(context, action) {
     await enforceAdminRateLimit(uid, action);
 }
 
+function requireAuthCallable(context) {
+    const uid = getCallableUid(context);
+    if (!uid) {
+        throw new functions.https.HttpsError("unauthenticated", "Sign in is required.");
+    }
+    return uid;
+}
+
 function throwHttpsError(error, fallbackMessage) {
     if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError("internal", fallbackMessage);
@@ -87,31 +95,82 @@ function throwHttpsError(error, fallbackMessage) {
 // 1. LEGACY MAP FUNCTIONS (ROUTING & LEADERBOARD)
 // ============================================================================
 
-exports.getPremiumRoute = functions.https.onCall(async (requestOrData, context) => {
-    const payload = requestOrData.data ? requestOrData.data : requestOrData;
-    const coordinates = payload.coordinates;
+exports.getPremiumRoute = functions
+    .runWith({ secrets: ["ORS_API_KEY"] })
+    .https.onCall(async (requestOrData, context) => {
+        requireAuthCallable(context);
 
-    if (!Array.isArray(coordinates) || coordinates.length < 2) {
-        throw new functions.https.HttpsError("invalid-argument", "Payload mismatch!");
-    }
+        const payload = requestOrData.data ? requestOrData.data : requestOrData;
+        const coordinates = payload.coordinates;
+        const radiuses = payload.radiuses;
 
-    const url = "https://api.openrouteservice.org/v2/directions/driving-car/geojson";
-    const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
+        if (!Array.isArray(coordinates) || coordinates.length < 2) {
+            throw new functions.https.HttpsError("invalid-argument", "Payload mismatch!");
+        }
 
-    try {
-        const response = await axios.post(url, { coordinates: coordinates }, {
-            headers: {
-                "Authorization": hardcodedApiKey,
-                "Content-Type": "application/json",
-                "Accept": "application/json, application/geo+json; charset=utf-8"
-            }
+        const apiKey = process.env.ORS_API_KEY;
+        if (!apiKey) {
+            throw new functions.https.HttpsError("failed-precondition", "Routing service is not configured.");
+        }
+
+        const url = "https://api.openrouteservice.org/v2/directions/driving-car/geojson";
+        const body = { coordinates };
+        if (Array.isArray(radiuses) && radiuses.length === coordinates.length) {
+            body.radiuses = radiuses;
+        }
+
+        try {
+            const response = await axios.post(url, body, {
+                headers: {
+                    "Authorization": apiKey,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, application/geo+json; charset=utf-8"
+                }
+            });
+            return response.data;
+        } catch (error) {
+            console.error("Networking/ORS Error:", error.message);
+            throw new functions.https.HttpsError("internal", "Failed to calculate route.");
+        }
+    });
+
+exports.getPremiumGeocode = functions
+    .runWith({ secrets: ["ORS_API_KEY"] })
+    .https.onCall(async (requestOrData, context) => {
+        requireAuthCallable(context);
+
+        const payload = requestOrData.data ? requestOrData.data : requestOrData;
+        const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+
+        if (!text) {
+            throw new functions.https.HttpsError("invalid-argument", "Search query is required.");
+        }
+
+        const apiKey = process.env.ORS_API_KEY;
+        if (!apiKey) {
+            throw new functions.https.HttpsError("failed-precondition", "Geocoding service is not configured.");
+        }
+
+        const requestedSize = parseInt(payload.size, 10);
+        const size = Number.isFinite(requestedSize) ? Math.min(Math.max(requestedSize, 1), 10) : 5;
+
+        const params = new URLSearchParams({
+            api_key: apiKey,
+            text,
+            size: String(size)
         });
-        return response.data;
-    } catch (error) {
-        console.error("Networking/ORS Error:", error.message);
-        throw new functions.https.HttpsError("internal", "Failed to calculate route.");
-    }
-});
+        if (payload.country) {
+            params.set('boundary.country', String(payload.country));
+        }
+
+        try {
+            const response = await axios.get(`https://api.openrouteservice.org/geocode/search?${params.toString()}`);
+            return response.data;
+        } catch (error) {
+            console.error("Networking/ORS Geocode Error:", error.message);
+            throw new functions.https.HttpsError("internal", "Failed to perform geocode.");
+        }
+    });
 
 exports.generateHourlyLeaderboard = functions.pubsub.schedule("0 * * * *")
     .timeZone("America/New_York")
@@ -149,7 +208,7 @@ exports.generateHourlyLeaderboard = functions.pubsub.schedule("0 * * * *")
 // 1. DATA REFINERY: GEMINI AI EXTRACTION (The "Bouncer")
 // ============================================================================
 exports.extractParkData = functions
-    .runWith({ ...ADMIN_CALLABLE_OPTIONS, secrets: ["GEMINI_API_KEY"], memory: '1GB' })
+    .runWith({ ...ADMIN_CALLABLE_OPTIONS, secrets: ["GEMINI_API_KEY", "GEMINI_PAID_API_KEY"], memory: '1GB' })
     .https.onCall(async (data, context) => {
         await requireAdminCallable(context, "extractParkData");
 
@@ -187,9 +246,12 @@ exports.extractParkData = functions
                 targetModelName = "gemini-2.0-flash-lite";
             }
             else if (engineRoute === "paid-3") {
-                // Account 2 - Unlimited Pay-As-You-Go Key
-                targetApiKey = "AIzaSyD57GI_72OIRhsz3Ccnl7r_J4znhWsxMLM"; 
+                targetApiKey = process.env.GEMINI_PAID_API_KEY;
                 targetModelName = "gemini-3-flash-preview";
+            }
+
+            if (!targetApiKey) {
+                throw new functions.https.HttpsError("failed-precondition", "AI extraction key is not configured for the selected engine.");
             }
 
             // Initialize the AI with the dynamically selected key and model
@@ -267,7 +329,7 @@ exports.extractParkData = functions
 // 2. SPREADSHEET BRIDGE: THE NEW SITE GUARDRAIL
 // ============================================================================
 exports.syncToSpreadsheet = functions
-    .runWith(ADMIN_CALLABLE_OPTIONS)
+    .runWith({ ...ADMIN_CALLABLE_OPTIONS, secrets: ["GOOGLE_MAPS_API_KEY"] })
     .https.onCall(async (data, context) => {
         await requireAdminCallable(context, "syncToSpreadsheet");
 
@@ -354,15 +416,19 @@ exports.syncToSpreadsheet = functions
         // Only Geocode if missing OR forceGeocode is true
         if (!existingLat || !existingLng || newPark.forceGeocode === true) {
             try {
-                console.log(`Geocoding: ${newPark.parkName}...`);
-                const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(newPark.parkName)}&key=${process.env.GOOGLE_MAPS_API_KEY || "AIzaSy..."}`; // Placeholder for key safety
-                // Using axios since it's already imported
-                const geoResponse = await axios.get(geoUrl);
-                if (geoResponse.data.results && geoResponse.data.results.length > 0) {
-                    const location = geoResponse.data.results[0].geometry.location;
-                    newPark.lat = location.lat;
-                    newPark.lng = location.lng;
-                    console.log(`Found Coords: ${newPark.lat}, ${newPark.lng}`);
+                const googleMapsKey = process.env.GOOGLE_MAPS_API_KEY;
+                if (!googleMapsKey) {
+                    console.warn(`GOOGLE_MAPS_API_KEY not configured; skipping geocoding for ${newPark.parkName}`);
+                } else {
+                    console.log(`Geocoding: ${newPark.parkName}...`);
+                    const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(newPark.parkName)}&key=${googleMapsKey}`;
+                    const geoResponse = await axios.get(geoUrl);
+                    if (geoResponse.data.results && geoResponse.data.results.length > 0) {
+                        const location = geoResponse.data.results[0].geometry.location;
+                        newPark.lat = location.lat;
+                        newPark.lng = location.lng;
+                        console.log(`Found Coords: ${newPark.lat}, ${newPark.lng}`);
+                    }
                 }
             } catch (e) {
                 console.error("Geocoding failed:", e.message);
