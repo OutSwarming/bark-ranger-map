@@ -70,6 +70,27 @@ function getTotalStops() {
     return window.BARK.tripDays.reduce((sum, d) => sum + d.stops.length, 0);
 }
 
+function removeTripDay(dayIdx) {
+    const tripDays = window.BARK.tripDays;
+    if (!Array.isArray(tripDays) || tripDays.length <= 1) return;
+
+    const day = tripDays[dayIdx];
+    if (!day) return;
+
+    if (day.stops && day.stops.length > 0) {
+        const label = `Day ${dayIdx + 1}`;
+        if (!confirm(`${label} has ${day.stops.length} stop${day.stops.length === 1 ? '' : 's'}. Delete this day?`)) return;
+    }
+
+    tripDays.splice(dayIdx, 1);
+    if (window.BARK.activeDayIdx >= tripDays.length) {
+        window.BARK.activeDayIdx = tripDays.length - 1;
+    } else if (window.BARK.activeDayIdx > dayIdx) {
+        window.BARK.activeDayIdx--;
+    }
+    updateTripUI();
+}
+
 window.addStopToTrip = function (stopData) {
     const tripDays = window.BARK.tripDays;
     let activeDayIdx = window.BARK.activeDayIdx;
@@ -339,11 +360,11 @@ function updateTripUI() {
         label.textContent = `Day ${di + 1} (${day.stops.length})`;
         tab.appendChild(swatch); tab.appendChild(label);
 
-        if (tripDays.length > 1 && day.stops.length === 0) {
+        if (tripDays.length > 1 && (window.isTripEditMode || day.stops.length === 0)) {
             const delBtn = document.createElement('span');
             delBtn.textContent = '×'; delBtn.title = 'Remove day';
-            delBtn.style.cssText = 'font-size:14px; cursor:pointer; margin-left:2px;';
-            delBtn.onclick = (e) => { e.stopPropagation(); tripDays.splice(di, 1); if (window.BARK.activeDayIdx >= tripDays.length) window.BARK.activeDayIdx = tripDays.length - 1; updateTripUI(); };
+            delBtn.style.cssText = 'font-size:14px; cursor:pointer; margin-left:2px; line-height:1; padding:1px 3px; border-radius:999px;';
+            delBtn.onclick = (e) => { e.stopPropagation(); removeTripDay(di); };
             tab.appendChild(delBtn);
         }
         tab.onclick = () => { window.BARK.activeDayIdx = di; updateTripUI(); };
