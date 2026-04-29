@@ -31,8 +31,10 @@ window.BARK.firebaseConfig = {
 };
 
 // ====== SERVICE CONFIG ======
+// ORS access is proxied through Firebase callables (getPremiumRoute,
+// getPremiumGeocode). The key is held server-side as a Firebase secret;
+// the client must never carry it. See services/orsService.js.
 window.BARK.config = window.BARK.config || {};
-window.BARK.config.ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
 window.BARK.config.CHECKIN_RADIUS_KM = 25;
 
 // ====== VIRTUAL EXPEDITION TRAILS ======

@@ -76,10 +76,10 @@ Before major feature work, refactors, payment work, Passport/journal/photos/even
 
 - [x] **#21 — Server proxy for ORS, client switched to callables (Phase 2 of 3)** (`functions/index.js`, `services/orsService.js`, `index.html`) ✅
 
-- [ ] **#22 — Remove client-side ORS key + rotate exposed keys (Phase 3 of 3)** (`modules/barkConfig.js`, provider dashboards)
+- [x] **#22 — Removed client-side ORS key + key rotation (Phase 3 of 3)** (`modules/barkConfig.js`, `index.html`, provider dashboards) ✅
 
 ## Current Work
-Fix #21 complete (Phase 2 of API key cleanup). Client now calls `getPremiumRoute` and the new `getPremiumGeocode` callables via `services/orsService.js`; server enforces signed-in user. Pending user actions before deploy: ensure `ORS_API_KEY` secret is set (from Fix #20), then `firebase deploy --only functions` and re-deploy hosting. After verifying directions and global geocode search both work for a signed-in user, proceed to Fix #22 (remove client-side ORS key + rotate keys on provider dashboards).
+Fix #22 complete. The client no longer ships any paid API key. Pending user actions on provider dashboards: rotate the old ORS key at openrouteservice.org (issue a new key, set it as the `ORS_API_KEY` Firebase secret with `firebase functions:secrets:set ORS_API_KEY`, redeploy functions, then revoke the old key); rotate the paid Gemini key at console.cloud.google.com (mirror the same set/redeploy/revoke order using `GEMINI_PAID_API_KEY`). Until rotation completes, the old keys remain valid in git history. Primary security queue (#20–#22) complete.
 
 ---
 
@@ -2684,6 +2684,81 @@ Intentionally none. All ORS-backed features (multi-day route generation, global 
 | Reliability | 9 | Function signatures unchanged for callers; auth enforced server-side; missing-secret path fails clean; existing error handling paths still work |
 | Security | 9 | Server-enforced auth replaces client-only gating; ORS key never required client-side after Phase 3; App Check and per-user rate limits remain as future hardening |
 | Debuggability | 9 | Callable errors are named `HttpsError`s with stable codes (`unauthenticated`, `invalid-argument`, `failed-precondition`, `internal`); single chokepoint for ORS observability |
+
+### Fix #22 — Removed Client-Side ORS Key + Rotation Plan (Phase 3 of 3)
+**Files:** `modules/barkConfig.js`, `index.html`
+**Date:** 2026-04-29
+
+**Scope note:**
+Final phase of the 3-phase API key cleanup that began in Fix #20 (server-side secrets) and Fix #21 (server proxy + client switch to callables). Phase 3 deletes the now-unused client-side ORS key and documents the key rotation that must happen on provider dashboards.
+
+**What was wrong:**
+After Fix #21, the client no longer needed `window.BARK.config.ORS_API_KEY` for any call path — `services/orsService.js` had been switched to Firebase callables. But the line was still in `modules/barkConfig.js:35`, still being shipped to every browser, and still scrapeable from `window.BARK.config` in DevTools. Until that line was deleted, Phase 1 and Phase 2 produced no security improvement on the client side — they just made deletion safe.
+
+**The fix:**
+- **`modules/barkConfig.js`:** Removed the `window.BARK.config.ORS_API_KEY = "..."` line. Replaced with a comment pointing to `services/orsService.js` and noting that ORS access is proxied through Firebase callables. The `window.BARK.config` object remains because `CHECKIN_RADIUS_KM` lives there and `services/checkinService.js` reads it.
+- **`index.html`:** Bumped `modules/barkConfig.js?v=1` → `?v=2` so cached browsers pull the keyless config on next load.
+
+**Why this matters:**
+Phases 1 and 2 set up the infrastructure for safe key removal but did not themselves reduce the client-side attack surface. Phase 3 is the actual security improvement: the deployed app, post-deploy, no longer carries the ORS key in any form a browser can read. Combined with the rotation step below, the previously-leaked key value loses all power.
+
+**Critical follow-up: key rotation (user action, not code):**
+The keys removed from source in Fixes #20 and #22 are still valid until rotated on each provider's dashboard. Anyone who has cloned the repo before today still has working keys via git history. The deploy alone does not invalidate them.
+
+Recommended rotation order (each step verified before moving to the next):
+1. **ORS key** — at openrouteservice.org/dev/#/home: issue a new key. Run `firebase functions:secrets:set ORS_API_KEY` and paste the new value. Run `firebase deploy --only functions`. Verify a signed-in user can still generate routes and run a global geocode search. Once verified, revoke the old key on the ORS dashboard.
+2. **Paid Gemini key** — at console.cloud.google.com (the project that owns the pay-as-you-go account): create a new API key. Run `firebase functions:secrets:set GEMINI_PAID_API_KEY`. Redeploy functions. Verify the admin Data Refinery's `paid-3` engine route still extracts. Revoke the old key.
+3. **Google Maps geocoding key** — same pattern if it was ever exposed in source. Looking at the code, this one was already env-var-only with a `"AIzaSy..."` placeholder fallback (no real key in source), so rotation here is optional unless you suspect the env var leaked elsewhere.
+
+The order is "set new → deploy → verify → revoke old" so there is no window where the secret is stale and the function is calling a dead key.
+
+**Pros of this approach:**
+- Client-side bundle no longer carries any paid API key. DevTools `window.BARK.config` shows only `CHECKIN_RADIUS_KM`.
+- The migration sequence (Phase 1 → 2 → 3) means at no point did ORS routing or global geocode search break for users. Each phase was independently safe.
+- `barkConfig.js` is now a pure config file — runtime constants only, no secrets.
+- Rotation becomes the user's clear next step. Until rotation, the old keys in git history remain valid; after rotation, even a full repo clone is useless for hitting paid APIs.
+- The pattern is now reusable for any future paid API: server-side secret, callable proxy, no client-side key.
+
+**Cons / tradeoffs:**
+- Old keys in git history remain valid until manually rotated on provider dashboards. Deploying this fix without rotating gives a **false sense of security** — the key is still out there. The Current Work block in CLAUDE.md and this entry both call this out explicitly.
+- Rewriting git history to scrub the key strings is technically possible (`git filter-repo`) but breaks every existing clone, every PR base, every fork. Rotation is a much cleaner answer: the key value still exists in history but is no longer accepted by the provider, making it a dead string.
+- If a future engineer needs an ad-hoc ORS test from a script, they cannot pull the key from `window.BARK.config` anymore — they'd need to either go through the callable (correct) or pull the key from Firebase secrets (`firebase functions:secrets:access ORS_API_KEY`). This is a feature, not a bug.
+- The `Bark Ranger Map Auth Service Account.json` at the repo root is a separate exposure (Firebase Admin service account credentials). It is excluded from hosting deploys via `firebase.json` (Fix #16) and from git via expected `.gitignore` patterns, but if it was ever committed it should also be rotated. Out of scope for Fix #22 but worth a separate audit pass.
+
+**Use cases and what the user sees:**
+
+*Use case 1 — Returning user opens the deployed app:*
+Browser fetches `barkConfig.js?v=2` (cache bust). `window.BARK.config.ORS_API_KEY` is `undefined`. `services/orsService.js` never reads it. Routing and global geocode search continue to work via the callables from Fix #21. User sees no behavioral change.
+
+*Use case 2 — Curious developer inspects `window.BARK.config` in DevTools:*
+Sees `{ CHECKIN_RADIUS_KM: 25 }`. No paid keys present.
+
+*Use case 3 — Old key is rotated on ORS dashboard before the new key is set as a Firebase secret:*
+Routing breaks because the function calls a revoked key. Mitigation: follow the recommended order — set new secret first, deploy, verify, then revoke old. The rotation runbook in this entry makes that order explicit.
+
+*Use case 4 — Someone has an old clone of the repo:*
+They have the old key strings. Until rotation, those keys still work. After rotation, the strings are dead. This is the entire point of the rotation step.
+
+**User-visible difference:**
+None. All ORS-backed features (multi-day route generation, global town/city search) continue to work exactly as in Phase 2 because the only thing that changed is the deletion of an unused config field.
+
+**Verification:**
+- `node --check modules/barkConfig.js` — passes.
+- `grep -rn "ORS_API_KEY\|eyJvcmciOiI1YjN" --include="*.js" --include="*.html"` outside `legacy/` — only matches in `functions/index.js` reading `process.env.ORS_API_KEY`. The hardcoded key string is gone from all deployed surfaces.
+- `services/orsService.js` no longer references `window.BARK.config` for any purpose (verified by reading the file after Fix #21).
+- Cache version bumped on `barkConfig.js` so the keyless version actually reaches users on next load.
+- Did not run a live key rotation from this session — that's the user's action on each provider's dashboard.
+
+**Rating: 9 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 10 | `barkConfig.js` is now secret-free; the migration pattern (server secret + callable proxy + client key removal) is the template for any future paid API |
+| Speed | 10 | Trivial config edit; one fewer line shipped to every browser |
+| Code efficiency | 10 | Two lines deleted, one explanatory comment added, one cache-bust |
+| Reliability | 10 | All ORS flows already verified working through callables in Phase 2; this fix only removes a now-unused field |
+| Security | 8 | Client surface is fully clean; final 8 point gap is the unrotated keys in git history — closes to 10 once rotation completes |
+| Debuggability | 9 | `window.BARK.config` is now self-documenting; the comment in `barkConfig.js` points future readers at `services/orsService.js` |
 
 ---
 
