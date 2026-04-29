@@ -7,6 +7,82 @@ const { google } = require('googleapis');
 // Initialize Firebase Admin SDK
 admin.initializeApp();
 
+const ADMIN_CALLABLE_OPTIONS = {
+    enforceAppCheck: true
+};
+
+const ADMIN_RATE_LIMITS = {
+    extractParkData: { maxRequests: 20, windowMs: 60 * 1000 },
+    syncToSpreadsheet: { maxRequests: 10, windowMs: 60 * 1000 }
+};
+
+function getCallableUid(context) {
+    return context && context.auth && context.auth.uid ? context.auth.uid : null;
+}
+
+async function isAdminUser(uid, token = {}) {
+    if (token.admin === true || token.isAdmin === true) return true;
+
+    const userDoc = await admin.firestore().collection("users").doc(uid).get();
+    return userDoc.exists && userDoc.data() && userDoc.data().isAdmin === true;
+}
+
+async function enforceAdminRateLimit(uid, action) {
+    const limit = ADMIN_RATE_LIMITS[action];
+    if (!limit) return;
+
+    const now = Date.now();
+    const windowStart = Math.floor(now / limit.windowMs) * limit.windowMs;
+    const windowEndsAt = windowStart + limit.windowMs;
+    const safeUid = encodeURIComponent(uid);
+    const safeAction = encodeURIComponent(action);
+    const ref = admin.firestore()
+        .collection("_adminRateLimits")
+        .doc(`${safeAction}_${safeUid}_${windowStart}`);
+
+    await admin.firestore().runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(ref);
+        const currentCount = snapshot.exists ? Number(snapshot.data().count || 0) : 0;
+
+        if (currentCount >= limit.maxRequests) {
+            const retrySeconds = Math.max(1, Math.ceil((windowEndsAt - now) / 1000));
+            throw new functions.https.HttpsError(
+                "resource-exhausted",
+                `Rate limit exceeded. Try again in ${retrySeconds} seconds.`
+            );
+        }
+
+        transaction.set(ref, {
+            uid,
+            action,
+            count: currentCount + 1,
+            windowStart: admin.firestore.Timestamp.fromMillis(windowStart),
+            windowEndsAt: admin.firestore.Timestamp.fromMillis(windowEndsAt),
+            expiresAt: admin.firestore.Timestamp.fromMillis(windowEndsAt + 24 * 60 * 60 * 1000),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    });
+}
+
+async function requireAdminCallable(context, action) {
+    const uid = getCallableUid(context);
+    if (!uid) {
+        throw new functions.https.HttpsError("unauthenticated", "Sign in is required.");
+    }
+
+    const adminAllowed = await isAdminUser(uid, context.auth.token || {});
+    if (!adminAllowed) {
+        throw new functions.https.HttpsError("permission-denied", "Admin access is required.");
+    }
+
+    await enforceAdminRateLimit(uid, action);
+}
+
+function throwHttpsError(error, fallbackMessage) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError("internal", fallbackMessage);
+}
+
 // ============================================================================
 // 1. LEGACY MAP FUNCTIONS (ROUTING & LEADERBOARD)
 // ============================================================================
@@ -73,11 +149,14 @@ exports.generateHourlyLeaderboard = functions.pubsub.schedule("0 * * * *")
 // 1. DATA REFINERY: GEMINI AI EXTRACTION (The "Bouncer")
 // ============================================================================
 exports.extractParkData = functions
-    .runWith({ secrets: ["GEMINI_API_KEY"], memory: '1GB' })
+    .runWith({ ...ADMIN_CALLABLE_OPTIONS, secrets: ["GEMINI_API_KEY"], memory: '1GB' })
     .https.onCall(async (data, context) => {
+        await requireAdminCallable(context, "extractParkData");
+
         try {
+            const payload = data || {};
             // Read the route from the frontend, default to free-3
-            const engineRoute = data.engineRoute || "free-3";
+            const engineRoute = payload.engineRoute || "free-3";
             
             let targetApiKey = "";
             let targetModelName = "";
@@ -151,8 +230,8 @@ exports.extractParkData = functions
             let parts = [];
             
             // 1. TRUE BUNDLE BATCHING: Now with filenames
-            if (data.images && data.images.length > 0) {
-                data.images.forEach((imgObj) => {
+            if (payload.images && payload.images.length > 0) {
+                payload.images.forEach((imgObj) => {
                     const cleanBase64 = imgObj.data.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
                     
                     // We label the part so the AI knows which name belongs to which image
@@ -163,13 +242,13 @@ exports.extractParkData = functions
                 parts.push(prompt);
             } 
             // 2. Fallback for a single image
-            else if (data.image) {
-                const base64String = data.image.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
+            else if (payload.image) {
+                const base64String = payload.image.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
                 parts = [{ inlineData: { data: base64String, mimeType: "image/jpeg" } }, prompt];
             } 
             // 3. Fallback for raw text
             else {
-                parts = [data.text, prompt];
+                parts = [payload.text, prompt];
             }
 
             const result = await model.generateContent(parts);
@@ -180,31 +259,35 @@ exports.extractParkData = functions
             return aiData;
         } catch (error) {
             console.error("AI Error:", error);
-            throw new functions.https.HttpsError('internal', error.message);
+            throwHttpsError(error, error.message || "AI extraction failed.");
         }
     });
 
 // ============================================================================
 // 2. SPREADSHEET BRIDGE: THE NEW SITE GUARDRAIL
 // ============================================================================
-exports.syncToSpreadsheet = functions.https.onCall(async (data, context) => {
-    try {
-        const auth = new google.auth.GoogleAuth({
-            scopes: ['https://www.googleapis.com/auth/spreadsheets']
-        });
-        const sheets = google.sheets({ version: 'v4', auth });
+exports.syncToSpreadsheet = functions
+    .runWith(ADMIN_CALLABLE_OPTIONS)
+    .https.onCall(async (data, context) => {
+        await requireAdminCallable(context, "syncToSpreadsheet");
 
-        const spreadsheetId = '1fnlZfRbfQIy-o2Df6FgEdTMw9OWTR3-JX011s-7oWlE'; 
-        const sheetName = 'National B.A.R.K Ranger'; 
-        const newPark = data; 
+        try {
+            const auth = new google.auth.GoogleAuth({
+                scopes: ['https://www.googleapis.com/auth/spreadsheets']
+            });
+            const sheets = google.sheets({ version: 'v4', auth });
 
-        // 1. Fetch the ENTIRE row (A through O) so we can see existing data
-        const response = await sheets.spreadsheets.values.get({
-            spreadsheetId: spreadsheetId,
-            range: `'${sheetName}'!A:O`, 
-        });
+            const spreadsheetId = '1fnlZfRbfQIy-o2Df6FgEdTMw9OWTR3-JX011s-7oWlE'; 
+            const sheetName = 'National B.A.R.K Ranger'; 
+            const newPark = data; 
 
-        const rows = response.data.values || [];
+            // 1. Fetch the ENTIRE row (A through O) so we can see existing data
+            const response = await sheets.spreadsheets.values.get({
+                spreadsheetId: spreadsheetId,
+                range: `'${sheetName}'!A:O`, 
+            });
+
+            const rows = response.data.values || [];
         
         // --- HIGH-PRECISION MATCHING ENGINE ---
         const superNormalize = (str) => {
@@ -343,6 +426,6 @@ exports.syncToSpreadsheet = functions.https.onCall(async (data, context) => {
         }
     } catch (error) {
         console.error("Spreadsheet Error:", error);
-        throw new functions.https.HttpsError('internal', 'Failed to sync to Sheets');
+        throwHttpsError(error, 'Failed to sync to Sheets');
     }
 });
