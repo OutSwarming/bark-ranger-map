@@ -50,7 +50,7 @@ This is the working tracker for the 17 reported logic bugs. Keep this file curre
 | 14 | Medium | Fixed with latest-place lookup before Manage Portal removal | Done | Fixed |
 | 15 | Medium | Fixed with bounded recent CSV hash memory | Done | Fixed |
 | 16 | Low | Fixed with clearer map-default-view helper and compatibility alias | Done | Fixed |
-| 17 | Low | Confirmed for expedition history/completed expeditions; Manage Portal names are safe | P2 | Partially confirmed |
+| 17 | Low | Fixed by rendering expedition user-influenceable values as text nodes | Done | Fixed |
 
 ## Bug 1: God Mode Event Listeners Accumulate
 
@@ -1054,17 +1054,34 @@ Verification:
 
 ## Bug 17: Expedition Rendering Uses `innerHTML` With User-Influenceable Data
 
-Status: Partially confirmed
+Status: Fixed
 
 Files:
-- `modules/expeditionEngine.js:456`
-- `modules/expeditionEngine.js:459`
-- `modules/expeditionEngine.js:481`
-- `modules/expeditionEngine.js:485`
-- `modules/expeditionEngine.js:630`
-- `modules/expeditionEngine.js:636`
-- `modules/profileEngine.js:30`
-- `modules/profileEngine.js:31`
+- `modules/expeditionEngine.js:508`
+- `modules/expeditionEngine.js:533`
+- `modules/expeditionEngine.js:568`
+- `modules/expeditionEngine.js:605`
+- `modules/expeditionEngine.js:631`
+- `modules/expeditionEngine.js:794`
+- `modules/expeditionEngine.js:811`
+
+How a user can trigger it:
+- Open the Manage Walks portal after a walk has a user-edited trail name.
+- Use `editWalkMiles()` and set a trail name containing HTML, for example `<img src=x onerror=alert(1)>`.
+- Re-render expedition history or completed expeditions.
+
+What the user saw before:
+- User-influenceable walk trail names and log types were interpolated into HTML strings.
+- Completed expedition names were also interpolated into an HTML string.
+- Manage Portal park names were not affected because they already used `textContent`.
+
+Expected user result:
+- User-entered trail/log labels should display exactly as text.
+- No user-influenceable expedition value should become executable markup.
+
+What the user sees now:
+- Recent walk history, Manage Walks groups, edit/delete walk rows, and completed expedition cards render dynamic values with `textContent`.
+- The visible layout and controls remain the same.
 
 Evidence:
 - Completed expeditions render `exp.name || exp.trail_name` through `innerHTML`.
@@ -1075,9 +1092,38 @@ Correction to report:
 - Manage Portal park names are rendered with `textContent`, so that specific path is safe.
 - The stronger current issue is expedition walk history, because `trailName` can be user-edited.
 
-Likely fix:
-- Use DOM construction with `textContent`, or centralize an HTML escape helper.
-- Remove inline HTML for user-controlled trail/log values first.
+Fix options and tradeoffs:
+
+Option A: Escape dynamic values before template interpolation
+- Approach: Add an HTML escape helper and wrap `trail`, `log.type`, and completed expedition names before building strings.
+- Pros: Small patch; preserves existing template-string structure.
+- Cons: Easy for future fields to miss; still mixes trusted markup and untrusted text in the same string; inline `onclick` remains string-based.
+
+Option B: DOM construction for affected expedition UI
+- Approach: Build recent history rows, Manage Walks groups, action buttons, and completed expedition cards with DOM nodes and `textContent`.
+- Pros: Strongest local fix; removes HTML parsing for user-influenceable values; replaces inline walk action handlers with event listeners; keeps the current layout.
+- Cons: More code than a simple escape helper; static empty states still use controlled `innerHTML` elsewhere in the file.
+
+Option C: Shared safe rendering utility across the app
+- Approach: Create a reusable safe template/DOM helper and migrate every renderer that mixes markup and data.
+- Pros: Best long-term direction for all renderers.
+- Cons: Larger cross-app refactor; unnecessary blast radius for this specific bug.
+
+Chosen strategy:
+- Use Option B for the expedition surfaces that render user-influenceable values.
+- Leave static, controlled HTML snippets alone.
+
+User benefit:
+- User-edited walk names can no longer turn into hidden markup or script execution.
+- Expedition history remains trustworthy while preserving the same visible controls and organization.
+
+Fix applied:
+- Added small DOM helpers for clearing containers, empty states, walk mileage formatting, walk log labels, and action buttons.
+- `renderExpeditionHistory()` now builds recent walk rows with DOM nodes and `textContent`.
+- Manage Walks grouping now uses a `Map` and renders group headers, rows, and Edit/Delete buttons with DOM nodes and event listeners.
+- `renderCompletedExpeditions()` now builds trophy cards with DOM nodes and `textContent` for expedition names and dates.
 
 Verification:
-- A walk trail name like `<img src=x onerror=alert(1)>` displays as text and does not execute.
+- Fake-DOM smoke test confirms `<img src=x onerror=alert(1)>` displays as text in recent history, Manage Walks, and completed expeditions.
+- Smoke test confirms the affected dynamic containers are not written through `innerHTML`.
+- `node --check modules/expeditionEngine.js` passes.

@@ -505,55 +505,161 @@ function renderExpeditionProgress(current, total, lifetime) {
 window.BARK.renderExpeditionProgress = renderExpeditionProgress;
 
 // ====== EXPEDITION HISTORY ======
+function clearElement(element) {
+    while (element.firstChild) element.removeChild(element.firstChild);
+}
+
+function formatWalkMiles(value) {
+    const miles = Number(value);
+    return Number.isFinite(miles) ? miles.toFixed(2) : '0.00';
+}
+
+function getWalkLogIcon(type) {
+    return type === 'GPS Verified' ? '📍' : '✏️';
+}
+
+function getWalkLogTypeLabel(type) {
+    return typeof type === 'string' && type.trim() ? type : 'Manual Entry';
+}
+
+function appendExpeditionEmptyState(container, tagName, text, cssText) {
+    clearElement(container);
+    const empty = document.createElement(tagName);
+    empty.style.cssText = cssText;
+    empty.textContent = text;
+    container.appendChild(empty);
+}
+
+function createRecentWalkLogItem(log) {
+    const li = document.createElement('li');
+    li.className = 'log-item';
+
+    const left = document.createElement('div');
+    left.className = 'log-item-left';
+
+    const type = document.createElement('span');
+    type.className = 'log-item-type';
+    type.textContent = `${getWalkLogIcon(log.type)} ${getWalkLogTypeLabel(log.type)}`;
+
+    const date = document.createElement('span');
+    date.className = 'log-item-date';
+    date.textContent = new Date(log.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    const miles = document.createElement('div');
+    miles.className = 'log-item-miles';
+    miles.textContent = `+${formatWalkMiles(log.miles)} mi`;
+
+    left.appendChild(type);
+    left.appendChild(date);
+    li.appendChild(left);
+    li.appendChild(miles);
+    return li;
+}
+
+function createWalkActionButton(label, color, handler) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.style.cssText = `background: none; border: none; color: ${color}; font-size: 10px; font-weight: 800; cursor: pointer; padding: 4px; letter-spacing: 0.5px;`;
+    button.addEventListener('click', handler);
+    return button;
+}
+
+function createManageWalkLogItem(log) {
+    const li = document.createElement('li');
+    li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #f8fafc;';
+
+    const left = document.createElement('div');
+    left.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+    const icon = document.createElement('span');
+    icon.style.cssText = 'font-size: 14px;';
+    icon.textContent = getWalkLogIcon(log.type);
+
+    const details = document.createElement('div');
+    details.style.cssText = 'display: flex; flex-direction: column;';
+
+    const miles = document.createElement('span');
+    miles.style.cssText = 'font-weight: 700; color: #1e293b; font-size: 13px;';
+    miles.textContent = `${formatWalkMiles(log.miles)} mi`;
+
+    const date = document.createElement('span');
+    date.style.cssText = 'font-size: 10px; color: #64748b;';
+    date.textContent = new Date(log.ts).toLocaleString([], { month: 'short', day: 'numeric' });
+
+    details.appendChild(miles);
+    details.appendChild(date);
+    left.appendChild(icon);
+    left.appendChild(details);
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display: flex; gap: 12px;';
+    actions.appendChild(createWalkActionButton('EDIT', '#3b82f6', () => window.editWalkMiles(log.ts)));
+    actions.appendChild(createWalkActionButton('DELETE', '#ef4444', () => window.deleteWalkLog(log.ts)));
+
+    li.appendChild(left);
+    li.appendChild(actions);
+    return li;
+}
+
+function createWalkGroup(trail, logs) {
+    const group = document.createElement('div');
+    group.style.cssText = 'margin-bottom: 20px;';
+
+    const totalTrailMiles = logs.reduce((sum, log) => sum + (Number(log.miles) || 0), 0);
+    const header = document.createElement('div');
+    header.style.cssText = 'font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; margin-bottom: 10px; display: flex; justify-content: space-between; padding: 0 4px;';
+
+    const trailName = document.createElement('span');
+    trailName.textContent = trail;
+
+    const total = document.createElement('span');
+    total.textContent = `${totalTrailMiles.toFixed(2)} mi`;
+
+    header.appendChild(trailName);
+    header.appendChild(total);
+
+    const list = document.createElement('ul');
+    list.style.cssText = 'list-style: none; padding: 0; margin: 0; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #f1f5f9;';
+    logs.forEach(log => list.appendChild(createManageWalkLogItem(log)));
+
+    group.appendChild(header);
+    group.appendChild(list);
+    return group;
+}
+
 function renderExpeditionHistory(historyArray, activeTrailName = "Expedition") {
     const list = document.getElementById('expedition-history-list');
+    const safeHistory = Array.isArray(historyArray) ? historyArray : [];
     if (list) {
-        const currentTrailLogs = historyArray.filter(log => log.trailName && log.trailName === activeTrailName);
+        const currentTrailLogs = safeHistory.filter(log => log.trailName && log.trailName === activeTrailName);
         if (!currentTrailLogs || currentTrailLogs.length === 0) {
-            list.innerHTML = '<li style="color: #94a3b8; font-size: 11px; text-align: center; padding: 10px 0; font-style: italic;">No miles logged yet.</li>';
+            appendExpeditionEmptyState(list, 'li', 'No miles logged yet.', 'color: #94a3b8; font-size: 11px; text-align: center; padding: 10px 0; font-style: italic;');
         } else {
-            list.innerHTML = currentTrailLogs.slice(0, 5).map(log => {
-                const dateStr = new Date(log.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-                const icon = log.type === 'GPS Verified' ? '📍' : '✏️';
-                return `<li class="log-item"><div class="log-item-left"><span class="log-item-type">${icon} ${log.type}</span><span class="log-item-date">${dateStr}</span></div><div class="log-item-miles">+${log.miles.toFixed(2)} mi</div></li>`;
-            }).join('');
+            clearElement(list);
+            currentTrailLogs.slice(0, 5).forEach(log => list.appendChild(createRecentWalkLogItem(log)));
         }
     }
 
     const masterList = document.getElementById('manage-walks-list');
     const masterCount = document.getElementById('manage-walks-count');
     if (masterList) {
-        if (masterCount) masterCount.textContent = historyArray.length;
-        if (!historyArray || historyArray.length === 0) {
-            masterList.innerHTML = '<div style="color: #94a3b8; font-size: 12px; text-align: center; padding: 20px; font-style: italic;">No walks logged yet.</div>';
+        if (masterCount) masterCount.textContent = safeHistory.length;
+        if (!safeHistory || safeHistory.length === 0) {
+            appendExpeditionEmptyState(masterList, 'div', 'No walks logged yet.', 'color: #94a3b8; font-size: 12px; text-align: center; padding: 20px; font-style: italic;');
             return;
         }
 
-        const grouped = historyArray.reduce((acc, log) => {
+        const grouped = safeHistory.reduce((acc, log) => {
             const isGeneric = !log.trailName || log.trailName === "Expedition" || log.trailName === "Active Trail";
             const trail = isGeneric ? (activeTrailName || "Expedition") : log.trailName;
-            if (!acc[trail]) acc[trail] = [];
-            acc[trail].push(log);
+            if (!acc.has(trail)) acc.set(trail, []);
+            acc.get(trail).push(log);
             return acc;
-        }, {});
+        }, new Map());
 
-        masterList.innerHTML = Object.keys(grouped).map(trail => {
-            const logs = grouped[trail];
-            const totalTrailMiles = logs.reduce((sum, l) => sum + l.miles, 0);
-            return `<div style="margin-bottom: 20px;">
-                <div style="font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; margin-bottom: 10px; display: flex; justify-content: space-between; padding: 0 4px;"><span>${trail}</span><span>${totalTrailMiles.toFixed(2)} mi</span></div>
-                <ul style="list-style: none; padding: 0; margin: 0; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #f1f5f9;">
-                    ${logs.map(log => {
-                const dateStr = new Date(log.ts).toLocaleString([], { month: 'short', day: 'numeric' });
-                const icon = log.type === 'GPS Verified' ? '📍' : '✏️';
-                return `<li style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #f8fafc;">
-                            <div style="display: flex; align-items: center; gap: 8px;"><span style="font-size: 14px;">${icon}</span><div style="display: flex; flex-direction: column;"><span style="font-weight: 700; color: #1e293b; font-size: 13px;">${log.miles.toFixed(2)} mi</span><span style="font-size: 10px; color: #64748b;">${dateStr}</span></div></div>
-                            <div style="display: flex; gap: 12px;">
-                                <button onclick="editWalkMiles('${log.ts}')" style="background: none; border: none; color: #3b82f6; font-size: 10px; font-weight: 800; cursor: pointer; padding: 4px; letter-spacing: 0.5px;">EDIT</button>
-                                <button onclick="deleteWalkLog('${log.ts}')" style="background: none; border: none; color: #ef4444; font-size: 10px; font-weight: 800; cursor: pointer; padding: 4px; letter-spacing: 0.5px;">DELETE</button>
-                            </div></li>`;
-            }).join('')}</ul></div>`;
-        }).join('');
+        clearElement(masterList);
+        grouped.forEach((logs, trail) => masterList.appendChild(createWalkGroup(trail, logs)));
     }
 }
 
@@ -685,16 +791,37 @@ function renderCompletedExpeditions(expeditionsArray) {
     if (!grid || !caseEl) return;
     if (!expeditionsArray || expeditionsArray.length === 0) { caseEl.style.display = 'none'; return; }
     caseEl.style.display = 'block';
+    clearElement(grid);
 
-    grid.innerHTML = expeditionsArray.map(exp => {
+    expeditionsArray.forEach(exp => {
         const name = exp.name || exp.trail_name || "Expedition";
         const rawDate = exp.date_completed || exp.ts || Date.now();
         const dateStr = new Date(rawDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-        return `<div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 10px; flex: 0 0 180px; scroll-snap-align: start;">
-            <div style="font-size: 24px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.1));">🏅</div>
-            <div style="display: flex; flex-direction: column;"><span style="font-size: 12px; font-weight: 800; color: #1e293b; line-height: 1.2; white-space: normal;">${name}</span><span style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-top: 2px;">${dateStr}</span></div>
-        </div>`;
-    }).join('');
+
+        const card = document.createElement('div');
+        card.style.cssText = 'background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 10px; flex: 0 0 180px; scroll-snap-align: start;';
+
+        const medal = document.createElement('div');
+        medal.style.cssText = 'font-size: 24px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.1));';
+        medal.textContent = '🏅';
+
+        const details = document.createElement('div');
+        details.style.cssText = 'display: flex; flex-direction: column;';
+
+        const nameEl = document.createElement('span');
+        nameEl.style.cssText = 'font-size: 12px; font-weight: 800; color: #1e293b; line-height: 1.2; white-space: normal;';
+        nameEl.textContent = name;
+
+        const dateEl = document.createElement('span');
+        dateEl.style.cssText = 'font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-top: 2px;';
+        dateEl.textContent = dateStr;
+
+        details.appendChild(nameEl);
+        details.appendChild(dateEl);
+        card.appendChild(medal);
+        card.appendChild(details);
+        grid.appendChild(card);
+    });
 }
 
 window.BARK.renderCompletedExpeditions = renderCompletedExpeditions;
