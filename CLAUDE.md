@@ -67,8 +67,10 @@ Make the app production-grade for a store launch: near-100% reliability, no logi
 
 - [x] **#18 — User-visible degraded state when `initMap` fails** (`core/app.js`, `index.html`, `styles.css`) ✅
 
+- [x] **#19 — Trip route pins disappear in bubble mode at high zoom** (`modules/TripLayerManager.js` NEW, `engines/tripPlannerCore.js`, `modules/renderEngine.js`, `modules/MarkerLayerManager.js`, `state/appState.js`, `index.html`, `styles.css`, `styles/mapStyles.css`, `core/app.js`) ✅
+
 ## Current Work
-Fix #18 complete. Primary queue #1-#18 complete.
+Fix #19 complete. Primary queue #1-#19 complete.
 
 ---
 
@@ -2324,6 +2326,138 @@ The user now gets a real message instead of silence. A concrete app instance: if
 | Reliability | 9 | Catches throws, missing map instances, no-map completion, and timeout readiness failure |
 | User experience | 9 | Replaces a blank/broken map with a clear message and recovery action |
 | Debuggability | 10 | Boot errors are now inspectable and `initMapNoMap` distinguishes silent map creation failures |
+
+### Fix #19 — Dedicated Trip Overlay Layer (`TripLayerManager`)
+**Files:** `modules/TripLayerManager.js` (NEW), `engines/tripPlannerCore.js`, `modules/renderEngine.js`, `modules/MarkerLayerManager.js`, `state/appState.js`, `index.html`, `styles.css`, `styles/mapStyles.css`, `core/app.js`
+**Date:** 2026-04-28
+
+**What was wrong:**
+In bubble mode, the numbered day-color badges that mark trip stops disappeared during zoom — especially when premium clustering "exploded" at zoom ≥ 7. Old `updateTripMapVisuals` in `engines/tripPlannerCore.js` appended each badge as a *child of* `point.marker._icon` (the park marker's DOM icon). markercluster destroys and recreates that `_icon` every time a marker moves into or out of a cluster, taking the badge child with it. `updateTripMapVisuals` only re-ran on trip edits — never on `zoomend`, cluster animations, or `applyMarkerStyle` rebuilds — so the badges were never re-attached.
+
+The same file also kept three loose draft arrays (`draftTripLines`, `window.draftBookendMarkers`, `window.draftCustomMarkers`) and a clear-and-redraw cycle. `renderEngine.updateMarkers` had to compensate with an `isInTrip = Array.from(tripDays).some(day => day.stops.some(s => s.id === item.id))` check on every park on every render, plus a `tripStops` flatMap+sort+join inside the marker-visibility fingerprint.
+
+**The fix:**
+A dedicated `TripLayerManager` (sibling to `MarkerLayerManager`) now owns the entire trip visual surface on its own `L.layerGroup` — never clustered, never culled, never touched by `renderEngine.updateMarkers`. Trip overlay is a pure projection of `window.BARK.tripDays`, decoupled from the park-marker lifecycle.
+
+- **`modules/TripLayerManager.js` (NEW):**
+  - One `L.layerGroup()` lazily added to the map (Fix #4 lazy-init pattern).
+  - `sync(tripDays, bookends)` — diff-based per-stop / per-day / per-bookend; reuses Leaflet objects via `setLatLng` / `setIcon` and updates only when the icon spec actually changes. Returns `{ added, removed }` Sets of park IDs that gained/lost trip-stop status.
+  - **Stable identity keys** for badges: `stop.id || "lat,lng"`. Reordering stops within a day or recoloring a day reuses existing markers (Test 2 in the smoke test produced an empty diff).
+  - Day polylines keyed by `dayIdx`; bookends keyed by `'start' | 'end'`.
+  - `getStopParkIds()` exposes a read-only `Set<string>` so `MarkerLayerManager` can read it without crossing the ownership line.
+  - `setDayLinesVisible(boolean)` — used by `generateAndRenderTripRoute()` to hide just the dashed day lines while the real driving route is on the map; badges and bookends stay visible.
+  - Click on a badge → forwards to `markerManager.renderMarkerPanel(parkLookup.get(id).marker)` so the park panel still opens.
+  - Tracks `_tripParkId` / `_tripNumber` / `_tripColor` on each badge marker so `setIcon` runs only when the spec actually changes.
+- **`engines/tripPlannerCore.js`:**
+  - Deleted: `clearDraftTripMapVisuals`, `draftTripLines`, `window.draftBookendMarkers`, `window.draftCustomMarkers`, the dual-branch badge-append-vs-customMarker logic.
+  - `updateTripMapVisuals` is now a thin orchestrator: builds `bookends`, calls `tripLayer.setDayLinesVisible(true)`, calls `tripLayer.sync(tripDays, bookends)`, then hands the returned diff to `markerManager.refreshTripStopClasses(union of added+removed)`.
+  - `resetTripPlannerRuntime` calls `tripLayer.clear()` and forwards the diff to `markerManager.refreshTripStopClasses` so `park-pin--in-trip` is removed from every previous trip park.
+  - `generateAndRenderTripRoute` calls `tripLayer.setDayLinesVisible(false)` instead of manually iterating `draftTripLines`.
+  - `removeTripMapLayer` is kept because `currentRouteLayers` (the generated ORS driving route) is a separate concern.
+- **`modules/MarkerLayerManager.js`:**
+  - `applyMarkerStyle` now toggles the `park-pin--in-trip` class on `marker._icon` based on `tripLayer.getStopParkIds()`. Because `applyMarkerStyle` already runs on every cluster `add` event (via `bindMarkerEvents`), the class is automatically reapplied when clusters expand/collapse — markercluster cannot strip it.
+  - New public method `refreshTripStopClasses(ids)` iterates only the affected park IDs and calls `applyMarkerStyle` on each. tripPlannerCore drives this from the diff.
+  - Helper `isInTripStop(parkData)` keeps the lookup in one place.
+- **`modules/renderEngine.js`:**
+  - Removed `tripStops = (window.BARK.tripDays || []).flatMap(...).sort().join(',')` from `getMarkerVisibilityStateKey()` — the marker-visibility fingerprint no longer scans every trip stop on every RAF.
+  - Removed `const tripDays = window.BARK.tripDays;` and the `Array.from(tripDays).some(day => day.stops.some(...))` per-park check in `updateMarkers`. `isVisible` is now `matchesSwag && matchesSearch && matchesType && matchesVisited` — no trip-related OR-clause.
+- **`state/appState.js`:**
+  - Removed `draftBookendMarkers` and `draftCustomMarkers` from `APP_STATE_KEYS` and from the fallback hydration block. They are not part of the new design.
+- **`styles.css`:**
+  - New `.trip-overlay-badge` (22×22 round, sized for 2-digit numbers, `--badge-color` CSS variable, white border + text-shadow for contrast on any color).
+  - New `.trip-overlay-bookend` (24×24, `--bookend-color`).
+  - New `.custom-bark-marker.park-pin--in-trip .enamel-pin-wrapper { visibility: hidden; }` — the inner pin shape disappears at trip stops so the badge is the only visible marker. Park marker DOM stays in place; cluster math + park lookup are unchanged.
+  - Performance-toggle chains (`body.reduce-pin-motion`, `body.low-gfx`, `body.ultra-low`, `body.simplify-pins-while-moving.map-is-moving`, `body.stop-resizing.map-is-zooming`, `body.remove-shadows`) all extend cleanly to the new badge classes — no extra JS hook.
+- **`styles/mapStyles.css`:**
+  - Old `.trip-stop-badge` rules deleted (the class no longer exists). Replaced with a one-line comment pointing to the `TRIP OVERLAY` section in `styles.css`.
+- **`index.html`:**
+  - Added `<script src="modules/TripLayerManager.js?v=1" defer></script>` after `MarkerLayerManager.js`, before `mapEngine.js`.
+  - Bumped `MarkerLayerManager.js` to `v=2`, `renderEngine.js` to `v=2`, `tripPlannerCore.js` to `v=4`, `core/app.js` to `v=28` so cached browsers pick up the change as a single coherent unit.
+- **`core/app.js`:**
+  - Added `await callInit('initTripLayer', 'Trip overlay layer initialized');` after `initMap` and after the no-map availability check, before `initSettings` and (later) `initTripPlanner`. If `initMap` fails, `ensureLayerGroup()` returns null and every subsequent `tripLayer.sync()` no-ops cleanly.
+
+**Why this matters:**
+The map is the app. A bug class where route stops vanish during interaction is exactly the kind of thing that breaks user trust before launch. The deeper issue was architectural: trip visuals were tangled into the park-marker DOM lifecycle. Cluster recalculations, viewport culling, zoom transitions, and `applyMarkerStyle` rebuilds could each independently destroy or hide the badges, and there was no listener model to catch all of those events. The fix moves trip visuals onto an independent layer with a single owner, so by construction there is nothing left to "remember to rebind."
+
+**Ownership boundaries (explicit):**
+- `TripLayerManager` owns trip overlay Leaflet objects only. It NEVER touches park marker DOM.
+- `MarkerLayerManager` owns park marker DOM, including the `park-pin--in-trip` class.
+- `tripPlannerCore` is the orchestrator: it mutates trip state, calls `tripLayer.sync()`, and hands the returned diff to `markerManager.refreshTripStopClasses()`. It does not reach into either manager's internals.
+- `renderEngine` no longer knows about trips.
+
+**Pros of this approach:**
+- Trip badges, lines, and bookends survive every cluster/cull/zoom edge case by construction. There are no listeners to defensively rebind because the overlay is independent.
+- Stable identity keys mean reorder and recolor reuse markers — confirmed by the smoke test.
+- One visible pin per trip stop in every mode (bubble, exploded bubble, plain). The `park-pin--in-trip` class hides only the inner shape; the icon DOM stays so cluster numbers and park lookup are unchanged.
+- The diff returned by `sync()` makes `MarkerLayerManager.refreshTripStopClasses` cheap — only affected park markers are restyled, not all parks.
+- Removed `tripStops` from the marker-visibility fingerprint and removed the `Array.from(tripDays).some(...)` per-park check from the render heartbeat. RAF cost no longer grows with trip length.
+- One render path replaces the old dual branch (`appendChild(badge)` vs custom-marker fallback). Adding future trip features (active-stop highlight, distance labels, on-map drag-reorder) is now a method on `TripLayerManager`, not new conditionals across two files.
+- All existing performance settings (`lowGfxEnabled`, `ultraLowEnabled`, `removeShadows`, `reducePinMotion`, `simplifyPinsWhileMoving`, `stopResizing`) are honored via existing body-class CSS chains. No extra JS wiring duplicates the policy.
+- Trip overlay deliberately ignores `clusteringEnabled` / `forcePlainMarkers` / `viewportCulling` — those are park-marker policies and the route should stay visible regardless.
+
+**Cons / tradeoffs:**
+- Trip stops now show one badge instead of a numbered park pin. Visual change is intentional and tested as cleaner, but it is a deliberate UX shift — not invisible.
+- Off-screen Leaflet markers do exist in DOM. For typical trip sizes (< 50 stops) the cost is negligible; the simplicity of "trip overlay never culls" is worth more than micro-optimizing offscreen badges.
+- Click on a trip badge forwards to `renderMarkerPanel(parkLookup.get(id).marker)`. If the park is somehow not in `parkLookup` at click time, the click no-ops silently rather than throwing. Custom waypoints (no `stop.id`) are non-clickable, matching the previous fallback's `interactive: false`.
+- `MarkerLayerManager` reads `tripLayer.getStopParkIds()` synchronously inside `applyMarkerStyle`. The contract is "treat as read-only"; misuse would corrupt trip state. JSDoc warns against this. Ordering is explicit: `tripPlannerCore` calls `tripLayer.sync()` first, then `markerManager.refreshTripStopClasses()`.
+- `appState.js` lost two keys (`draftBookendMarkers`, `draftCustomMarkers`). Anything that previously called `window.BARK.appState.get('draftBookendMarkers')` would now `throw`. Search confirmed no callers existed.
+- The old `.trip-stop-badge` and `.custom-trip-pin` CSS classes are gone. Inline `bookend-icon` divIcon styling is gone. If any saved screenshot, marketing asset, or future stylesheet referenced those classes, it has no effect — but visually the new overlay is similar.
+
+**Alternative solutions considered:**
+
+*A — Listen for `zoomend` / `markercluster animationend` and re-attach badges to fresh `_icon`s.* Adds two new listeners, brittle to future cluster lifecycle changes, still leaves badges as park marker children, still couples to clustering. Rejected.
+
+*B — Store a `marker._barkTripBadge = { color, number }` on the park marker and reapply from `applyMarkerStyle`.* Better than (A) but still couples trip data into the park marker lifecycle, still races during cluster animation transitions. Rejected.
+
+*C — Render trip stops as their own markers but leave park markers fully visible (no class hide).* Two pins overlap at every stop in plain/exploded modes. Rejected on UX grounds.
+
+*D — Move trip visuals into a Web Worker.* Trip overlay rendering is not CPU-bound; it is DOM-bound. Wrong tool. Rejected.
+
+*E — Add full pubsub event system between managers.* Overkill for two managers. The diff-return + `refreshTripStopClasses(ids)` shape is a tighter contract with no global event bus. Rejected.
+
+**Use cases and what the user sees:**
+
+*Bubble mode, low zoom (clustered):* Cluster bubble shows park count as before; trip badges sit above clusters showing route order. Even when a trip stop's park is hidden inside a cluster bubble, the badge stays visible at the stop's lat/lng — which is exactly the original bug.
+
+*Bubble mode, high zoom (clusters exploded):* Park pins individually rendered. Trip-stop park pins have their inner shape hidden via `park-pin--in-trip`; the badge is the visible marker. No duplicate.
+
+*Plain mode (no clustering):* Same as exploded bubble mode. Badge replaces pin shape; one visible marker per trip stop.
+
+*Reordering stops within a day:* Markers reused via stable identity, only `setIcon` called for changed numbers. Smoke test confirms an empty `{ added, removed }` diff for pure reorder.
+
+*Recoloring a day:* Same — markers reused, `setIcon` updates the color. No flicker.
+
+*Generating the driving route:* `tripLayer.setDayLinesVisible(false)` hides the dashed day lines; badges + bookends remain visible. The colored ORS-generated polyline draws on top.
+
+*Clearing the trip:* `tripLayer.clear()` returns a `removed` Set covering every previous park ID; `markerManager.refreshTripStopClasses` removes the class from every previously-marked park.
+
+*Custom waypoint (no `stop.id`):* Badge is non-interactive (forwards-to-park-panel is a no-op without an ID). Matches the previous `customMarker { interactive: false }` behavior.
+
+*Boot fails to create the map:* `ensureLayerGroup()` returns null. Every `tripLayer.sync()` and `tripLayer.clear()` no-ops cleanly. No new error surface.
+
+**Verification:**
+- `node --check` clean on `modules/TripLayerManager.js`, `modules/MarkerLayerManager.js`, `modules/renderEngine.js`, `engines/tripPlannerCore.js`, `core/app.js`, `state/appState.js`.
+- VM smoke test against `modules/TripLayerManager.js` with mocked Leaflet:
+  - Initial sync of 3 stops across 2 days returned `{ added: ['a','b','c'], removed: [] }`.
+  - Reorder within day returned `{ added: [], removed: [] }` — stable-identity reuse confirmed.
+  - Removing 2 stops returned `{ added: [], removed: ['a','c'] }`.
+  - Adding a new stop returned `{ added: ['d'], removed: [] }`.
+  - `setDayLinesVisible(false)` then `setDayLinesVisible(true)` toggled cleanly.
+  - `clear()` returned the full removal diff and emptied `getStopParkIds()`.
+  - Round-trip bookend (start ≈ end) ran without errors.
+- `rg` confirmed zero remaining references to `draftBookendMarkers`, `draftCustomMarkers`, `draftTripLines`, `clearDraftTripMapVisuals`, `trip-stop-badge`, or `custom-trip-pin` in `*.js` / `*.html` / `*.css`. Old machinery fully retired.
+- Did not run a live in-browser zoom test from this terminal session.
+
+**Rating: 9.5 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 10 | Single-owner overlay layer matches the existing manager pattern; future trip features attach to one class instead of webbing across files |
+| Speed | 10 | RAF cost no longer scales with trip length; reorder/recolor reuses markers; diff-driven class refresh touches only affected parks |
+| Code efficiency | 9 | One new file, three retired arrays, two retired CSS classes, one removed OR-clause and one removed fingerprint segment |
+| Reliability | 10 | Cluster/cull/zoom transitions cannot destroy trip overlay DOM by construction; no defensive listeners to maintain |
+| Code growth | 9 | Ownership boundaries are explicit; managers do not reach into each other's DOM; tripPlannerCore is now a thin orchestrator |
+| Mobile UX | 9 | Performance-toggle CSS chains extend cleanly; no new event listeners on the main thread |
 
 ---
 

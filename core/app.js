@@ -112,7 +112,11 @@
             checkMapAvailability('boot-complete');
         }
 
-        // 2. Controllers and UI
+        // 2. Trip overlay layer — must exist before initTripPlanner so the first
+        //    updateTripUI() call has a sync target. No-ops cleanly if map failed.
+        await callInit('initTripLayer', 'Trip overlay layer initialized');
+
+        // 3. Controllers and UI
         await callInit('initSettings', 'Settings initialized');
         await callInit('initUI', 'UI initialized');
         await callInit('initSearchEngine', 'Search engine bound');
@@ -125,7 +129,7 @@
         await callInit('initQRCode', 'QR code initialized');
         await callInit('initCSVExport', 'Share engine initialized');
 
-        // 3. Firebase — separate try/catch because a throw here means auth is gone,
+        // 4. Firebase — separate try/catch because a throw here means auth is gone,
         //    not just one feature. Named clearly so the console error is unambiguous.
         try {
             if (window.BARK.services && window.BARK.services.auth) {
@@ -137,7 +141,7 @@
             console.error('[B.A.R.K. Boot] "initFirebase" failed — auth and cloud sync unavailable.', err);
         }
 
-        // 4. Data loading — loadData handles cache hydration, immediate fetch, and polling schedule
+        // 5. Data loading — loadData handles cache hydration, immediate fetch, and polling schedule
         try {
             if (typeof window.BARK.loadData === 'function') window.BARK.loadData();
         } catch (err) {
@@ -145,7 +149,7 @@
             console.error('[B.A.R.K. Boot] "loadData" failed — map may be empty.', err);
         }
 
-        // 5. Deferred non-critical initializations
+        // 6. Deferred non-critical initializations
         if (typeof window.BARK.safePoll === 'function') {
             setTimeout(() => {
                 try { window.BARK.safePoll(); }

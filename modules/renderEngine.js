@@ -178,10 +178,9 @@ function getMarkerVisibilityStateKey() {
     const searchCache = window.BARK._searchResultCache || {};
     const searchCacheIds = searchCache.matchedIds ? Array.from(searchCache.matchedIds).sort().join(',') : '';
     const searchCacheStatus = searchCache.complete === false ? 'search-partial' : 'search-complete';
-    const tripStops = (window.BARK.tripDays || [])
-        .flatMap(day => (day.stops || []).map(stop => stop.id))
-        .sort()
-        .join(',');
+    // Trip stops no longer affect park marker visibility (Fix #19). Trip badges
+    // live on a dedicated overlay layer; park-pin--in-trip class flips are
+    // handled directly by MarkerLayerManager.refreshTripStopClasses().
     const visitedIds = getVisitedIdsCacheKey();
     const zoom = map ? map.getZoom() : 0;
     const shouldCull = shouldCullPlainMarkers(zoom);
@@ -196,7 +195,6 @@ function getMarkerVisibilityStateKey() {
         window.BARK.activeTypeFilter || 'all',
         window.BARK.visitedFilterState || 'all',
         visitedIds,
-        tripStops,
         searchCache.query || '',
         searchCacheStatus,
         searchCacheIds,
@@ -295,7 +293,6 @@ function updateMarkers() {
     const activeSearchQuery = window.BARK.activeSearchQuery;
     const activeTypeFilter = window.BARK.activeTypeFilter;
     const userVisitedPlaces = window.BARK.userVisitedPlaces;
-    const tripDays = window.BARK.tripDays;
     const visitedFilterState = window.BARK.visitedFilterState;
     const _searchResultCache = window.BARK._searchResultCache;
     const queryNorm = window.BARK.normalizeText(activeSearchQuery);
@@ -338,9 +335,11 @@ function updateMarkers() {
         const isVisited = userVisitedPlaces.has(item.id);
         if (visitedFilterState === 'visited' && !isVisited) matchesVisited = false;
         if (visitedFilterState === 'unvisited' && isVisited) matchesVisited = false;
-        const isInTrip = Array.from(tripDays).some(day => day.stops.some(s => s.id === item.id));
 
-        let isVisible = (matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip;
+        // Trip stops no longer force park-marker visibility (Fix #19); the trip
+        // overlay layer renders badges independently. Removing this OR-clause +
+        // per-park tripDays scan is a real RAF perf win.
+        let isVisible = matchesSwag && matchesSearch && matchesType && matchesVisited;
 
         // 🎯 VIEWPORT CULLING: Skip off-screen pins entirely
         if (isVisible && shouldCull && !screenBounds.contains([item.lat, item.lng])) {

@@ -4,8 +4,6 @@
  */
 window.BARK = window.BARK || {};
 
-let draftTripLines = [];
-
 function removeTripMapLayer(layer) {
     const mapRef = window.map || (typeof map !== 'undefined' ? map : null);
     if (!layer || !mapRef || typeof mapRef.removeLayer !== 'function') return;
@@ -15,16 +13,6 @@ function removeTripMapLayer(layer) {
     } catch (error) {
         console.warn('[tripPlannerCore] failed to remove trip map layer:', error);
     }
-}
-
-function clearDraftTripMapVisuals() {
-    document.querySelectorAll('.trip-stop-badge').forEach(el => el.remove());
-    draftTripLines.forEach(removeTripMapLayer);
-    draftTripLines = [];
-    window.draftBookendMarkers.forEach(removeTripMapLayer);
-    window.draftBookendMarkers = [];
-    window.draftCustomMarkers.forEach(removeTripMapLayer);
-    window.draftCustomMarkers = [];
 }
 
 function showTripToast(message) {
@@ -42,70 +30,39 @@ function showTripToast(message) {
 
 window.BARK.showTripToast = showTripToast;
 
-window.draftBookendMarkers = window.draftBookendMarkers || [];
-window.draftCustomMarkers = window.draftCustomMarkers || [];
-
+// Trip overlay (badges, dashed day lines, A/B/🔄 bookends) is owned by
+// modules/TripLayerManager.js. tripPlannerCore is the orchestrator: it mutates
+// trip state and asks the overlay to sync. It never touches map DOM directly,
+// and never appends badges to park marker icons (that path was the source of
+// the cluster-recreate bug fixed in #19).
 function updateTripMapVisuals() {
-    clearDraftTripMapVisuals();
+    const tripLayer = window.BARK.tripLayer;
+    if (!tripLayer || typeof tripLayer.sync !== 'function') return;
 
     const tripDays = window.BARK.tripDays;
-    let startLatLng = window.tripStartNode ? [window.tripStartNode.lat, window.tripStartNode.lng] : null;
-    let endLatLng = window.tripEndNode ? [window.tripEndNode.lat, window.tripEndNode.lng] : null;
-    let isRoundTrip = startLatLng && endLatLng && window.BARK.haversineDistance(startLatLng[0], startLatLng[1], endLatLng[0], endLatLng[1]) < 0.5;
+    const bookends = {
+        start: window.tripStartNode || null,
+        end: window.tripEndNode || null
+    };
 
-    if (startLatLng) {
-        let bg = isRoundTrip ? '#8b5cf6' : '#22c55e';
-        let iconText = isRoundTrip ? '🔄' : 'A';
-        let startIcon = L.divIcon({ className: 'bookend-icon', html: `<div style="background:${bg}; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; border:2px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.5); font-size:12px; z-index: 1000;">${iconText}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
-        window.draftBookendMarkers.push(L.marker(startLatLng, { icon: startIcon }).addTo(map));
-    }
-    if (endLatLng && !isRoundTrip) {
-        let endIcon = L.divIcon({ className: 'bookend-icon', html: `<div style="background:#ef4444; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; border:2px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.5); font-size:12px; z-index: 1000;">B</div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
-        window.draftBookendMarkers.push(L.marker(endLatLng, { icon: endIcon }).addTo(map));
+    // Restore the dashed day lines on every edit; generateAndRenderTripRoute()
+    // explicitly hides them when it draws the real driving route.
+    if (typeof tripLayer.setDayLinesVisible === 'function') {
+        tripLayer.setDayLinesVisible(true);
     }
 
-    tripDays.forEach((day, dayIdx) => {
-        const latlngs = [];
-        if (dayIdx === 0 && startLatLng) latlngs.push(startLatLng);
-        if (dayIdx > 0 && tripDays[dayIdx - 1].stops.length > 0) {
-            const prevLast = tripDays[dayIdx - 1].stops[tripDays[dayIdx - 1].stops.length - 1];
-            latlngs.push([prevLast.lat, prevLast.lng]);
-        }
+    const diff = tripLayer.sync(tripDays, bookends) || { added: new Set(), removed: new Set() };
 
-        day.stops.forEach((stop, stopIdx) => {
-            latlngs.push([stop.lat, stop.lng]);
-            const point = window.parkLookup.get(stop.id);
-
-            let badgeContainer;
-            if (point && point.marker && point.marker._icon) {
-                badgeContainer = point.marker._icon;
-            } else {
-                const customIcon = L.divIcon({
-                    className: 'custom-trip-pin',
-                    html: `<div style="background: #475569; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.4); position: relative;"></div>`,
-                    iconSize: [14, 14], iconAnchor: [7, 7]
-                });
-                const customMarker = L.marker([stop.lat, stop.lng], { icon: customIcon, interactive: false }).addTo(map);
-                window.draftCustomMarkers.push(customMarker);
-                if (customMarker._icon) badgeContainer = customMarker._icon.firstChild;
-            }
-
-            if (badgeContainer) {
-                const badge = document.createElement('div');
-                badge.className = 'trip-stop-badge';
-                badge.style.background = day.color;
-                badge.textContent = stopIdx + 1;
-                badgeContainer.appendChild(badge);
-            }
-        });
-
-        if (dayIdx === tripDays.length - 1 && endLatLng) latlngs.push(endLatLng);
-
-        if (latlngs.length >= 2) {
-            const line = L.polyline(latlngs, { color: day.color, weight: 3, dashArray: '5, 10', opacity: 0.6 }).addTo(map);
-            draftTripLines.push(line);
-        }
-    });
+    // Hand the diff to MarkerLayerManager so the park-pin--in-trip class flips
+    // for stops that gained or lost trip status. tripLayer never touches park
+    // marker DOM; markerManager owns that class.
+    const markerManager = window.BARK.markerManager;
+    if (markerManager && typeof markerManager.refreshTripStopClasses === 'function') {
+        const affected = new Set();
+        diff.added.forEach(id => affected.add(id));
+        diff.removed.forEach(id => affected.add(id));
+        if (affected.size > 0) markerManager.refreshTripStopClasses(affected);
+    }
 }
 
 // ====== TRIP UI ======
@@ -514,7 +471,13 @@ function initTripPlanner() {
 
         currentRouteLayers.forEach(removeTripMapLayer);
         currentRouteLayers = [];
-        clearDraftTripMapVisuals();
+        if (window.BARK.tripLayer && typeof window.BARK.tripLayer.clear === 'function') {
+            const diff = window.BARK.tripLayer.clear() || { added: new Set(), removed: new Set() };
+            const markerManager = window.BARK.markerManager;
+            if (markerManager && typeof markerManager.refreshTripStopClasses === 'function' && diff.removed.size > 0) {
+                markerManager.refreshTripStopClasses(diff.removed);
+            }
+        }
 
         if (resetName) {
             const nameInput = window.BARK.DOM.tripNameInput();
@@ -596,7 +559,11 @@ function initTripPlanner() {
         if (daysWithStops.length === 0) { alert("Each day needs at least 2 stops."); return; }
 
         currentRouteLayers.forEach(removeTripMapLayer); currentRouteLayers = [];
-        draftTripLines.forEach(removeTripMapLayer); draftTripLines = [];
+        // Hide the dashed day lines while the generated driving route is on the map.
+        // Badges and bookends stay visible so the user keeps stop ordering context.
+        if (window.BARK.tripLayer && typeof window.BARK.tripLayer.setDayLinesVisible === 'function') {
+            window.BARK.tripLayer.setDayLinesVisible(false);
+        }
 
         if (startRouteBtn) {
             setPlannerActionButtonLabel(startRouteBtn, 'Calculating...');

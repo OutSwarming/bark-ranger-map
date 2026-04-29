@@ -84,6 +84,13 @@ class MarkerLayerManager {
         });
     }
 
+    isInTripStop(parkData) {
+        const tripLayer = window.BARK.tripLayer;
+        if (!parkData || !parkData.id || !tripLayer || typeof tripLayer.getStopParkIds !== 'function') return false;
+        const ids = tripLayer.getStopParkIds();
+        return Boolean(ids && ids.has(parkData.id));
+    }
+
     applyMarkerStyle(marker) {
         if (!marker || !marker._parkData || !marker._icon) return;
 
@@ -92,9 +99,23 @@ class MarkerLayerManager {
         marker._icon.classList.toggle('cat-national', style.categoryClass === 'cat-national');
         marker._icon.classList.toggle('cat-state', style.categoryClass === 'cat-state');
         marker._icon.classList.toggle('visited-pin', Boolean(isVisited));
+        // park-pin--in-trip hides the inner pin shape so the trip overlay badge
+        // is the only visible marker at trip-stop locations. Re-applied on every
+        // cluster `add` event (via bindMarkerEvents), so cluster rebuilds cannot
+        // strip the class.
+        marker._icon.classList.toggle('park-pin--in-trip', this.isInTripStop(marker._parkData));
         marker._icon.style.setProperty('--pin-color', style.pinColor);
         marker._icon.style.setProperty('--ring-color', style.ringColor);
         marker._icon.style.setProperty('--pin-shadow-color', style.pinShadowColor);
+    }
+
+    refreshTripStopClasses(parkIds) {
+        if (!parkIds) return;
+        const ids = parkIds instanceof Set ? parkIds : new Set(parkIds);
+        ids.forEach(parkId => {
+            const marker = this.markers.get(parkId);
+            if (marker && marker._icon) this.applyMarkerStyle(marker);
+        });
     }
 
     updateMarker(marker, parkData) {

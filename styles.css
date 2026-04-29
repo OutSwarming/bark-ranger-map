@@ -1679,3 +1679,93 @@ body.simplify-pins-while-moving.map-is-moving .custom-bark-marker.active-pin .en
 body.viewport-culling .leaflet-marker-icon {
     animation: none !important;
 }
+
+/* ============================================================
+ * TRIP OVERLAY (Fix #19) — owned by modules/TripLayerManager.js
+ * Lives on a dedicated, never-clustered, never-culled layer.
+ * Performance toggles inherit from existing body classes.
+ * ============================================================ */
+
+/* Badge: round 22x22 numbered pip in the day color. Fits 1- and 2-digit numbers. */
+.trip-overlay-badge-wrapper {
+    background: transparent !important;
+    border: none !important;
+    pointer-events: auto;
+}
+.trip-overlay-badge {
+    box-sizing: border-box;
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    border-radius: 50%;
+    background: var(--badge-color, #475569);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+    letter-spacing: -0.02em;
+    user-select: none;
+    transition: transform 120ms ease;
+}
+.trip-overlay-badge-wrapper:hover .trip-overlay-badge {
+    transform: scale(1.08);
+}
+
+/* Bookend: A / B / 🔄, owned by trip overlay (replaces inline-styled bookend-icon). */
+.trip-overlay-bookend-wrapper {
+    background: transparent !important;
+    border: none !important;
+    pointer-events: none;
+}
+.trip-overlay-bookend {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--bookend-color, #22c55e);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+    user-select: none;
+}
+
+/* Hide the inner park pin shape at trip stops so the badge becomes the only
+ * visible marker at that location. Class is applied by MarkerLayerManager;
+ * TripLayerManager never touches park marker DOM. */
+.custom-bark-marker.park-pin--in-trip .enamel-pin-wrapper {
+    visibility: hidden;
+}
+
+/* Honor existing performance toggles. No animation while in motion or under
+ * low-gfx / ultra-low / reduce-pin-motion modes. */
+body.reduce-pin-motion .trip-overlay-badge,
+body.low-gfx .trip-overlay-badge,
+body.ultra-low .trip-overlay-badge,
+body.simplify-pins-while-moving.map-is-moving .trip-overlay-badge,
+body.stop-resizing.map-is-zooming .trip-overlay-badge {
+    transition: none !important;
+}
+body.reduce-pin-motion .trip-overlay-badge-wrapper:hover .trip-overlay-badge,
+body.low-gfx .trip-overlay-badge-wrapper:hover .trip-overlay-badge,
+body.ultra-low .trip-overlay-badge-wrapper:hover .trip-overlay-badge,
+body.simplify-pins-while-moving.map-is-moving .trip-overlay-badge-wrapper:hover .trip-overlay-badge {
+    transform: none !important;
+}
+body.remove-shadows .trip-overlay-badge,
+body.ultra-low .trip-overlay-badge,
+body.remove-shadows .trip-overlay-bookend,
+body.ultra-low .trip-overlay-bookend {
+    box-shadow: none !important;
+}

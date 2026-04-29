@@ -18,8 +18,6 @@
         'activeDayIdx',
         'tripStartNode',
         'tripEndNode',
-        'draftBookendMarkers',
-        'draftCustomMarkers',
         'isTripEditMode',
         'isAdmin',
         'currentWalkPoints',
@@ -123,8 +121,6 @@
         fallbackValues.activeDayIdx = hasBarkSource('activeDayIdx') ? window.BARK.activeDayIdx : 0;
         fallbackValues.tripStartNode = typeof window.tripStartNode !== 'undefined' ? window.tripStartNode : null;
         fallbackValues.tripEndNode = typeof window.tripEndNode !== 'undefined' ? window.tripEndNode : null;
-        fallbackValues.draftBookendMarkers = Array.isArray(window.draftBookendMarkers) ? window.draftBookendMarkers : [];
-        fallbackValues.draftCustomMarkers = Array.isArray(window.draftCustomMarkers) ? window.draftCustomMarkers : [];
         fallbackValues.isTripEditMode = typeof window.isTripEditMode !== 'undefined' ? window.isTripEditMode : false;
         fallbackValues.isAdmin = typeof window.isAdmin !== 'undefined' ? window.isAdmin : false;
         fallbackValues.currentWalkPoints = typeof window.currentWalkPoints !== 'undefined' ? window.currentWalkPoints : 0;
