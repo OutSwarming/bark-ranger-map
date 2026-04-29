@@ -30,7 +30,10 @@
       "**/*.md",
       "package.json",
       "package-lock.json",
+      "BarkRangerMap Auth.json",
       "*Service Account*.json",
+      "*service-account*.json",
+      "*service_account*.json",
       "firebase-debug.log",
       "firebase-debug.*.log",
       "*.log"

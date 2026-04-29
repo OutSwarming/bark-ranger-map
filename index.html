@@ -30,9 +30,18 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="US BARK Rangers">
     <link rel="apple-touch-icon" href="assets/images/bark-logo.jpeg">
+    <link rel="icon" type="image/jpeg" href="assets/images/bark-logo.jpeg">
 
     <!-- GoatCounter Analytics -->
-    <script data-goatcounter="https://carterswarm.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+    <script>
+        if (!['localhost', '127.0.0.1', '::1'].includes(window.location.hostname) && window.location.protocol !== 'file:') {
+            const goatCounterScript = document.createElement('script');
+            goatCounterScript.async = true;
+            goatCounterScript.dataset.goatcounter = 'https://carterswarm.goatcounter.com/count';
+            goatCounterScript.src = '//gc.zgo.at/count.js';
+            document.head.appendChild(goatCounterScript);
+        }
+    </script>
 </head>
 
 <body>
@@ -1246,7 +1255,7 @@
     <script src="modules/renderEngine.js?v=2" defer></script>
     <script src="renderers/panelRenderer.js?v=2" defer></script>
     <script src="modules/searchEngine.js?v=4" defer></script>
-    <script src="modules/dataService.js?v=1" defer></script>
+    <script src="modules/dataService.js?v=2" defer></script>
     <script src="modules/profileEngine.js?v=1" defer></script>
     <script src="modules/expeditionEngine.js?v=2" defer></script>
     <script src="engines/tripPlannerCore.js?v=4" defer></script>

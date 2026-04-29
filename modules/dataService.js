@@ -25,6 +25,10 @@ const CSV_COLUMNS = {
 };
 
 const SWAG_TYPE_COLUMNS = ['Swag Type', 'Swag', 'Swag Available'];
+const DATA_REFRESH_SAFETY_MIN_PREVIOUS_COUNT = 50;
+const DATA_REFRESH_SAFETY_MAX_COUNT_DROP_RATIO = 0.10;
+const DATA_REFRESH_SAFETY_MAX_ID_DROP_RATIO = 0.10;
+const DATA_REFRESH_SAFETY_MIN_ID_DROP_COUNT = 25;
 
 function cleanCSVValue(value) {
     if (value === undefined || value === null) return '';
@@ -91,6 +95,19 @@ function isLegacyParkId(id) {
 function isCanonicalParkId(id) {
     const value = cleanCSVValue(id);
     return Boolean(value && value.toLowerCase() !== 'unknown' && !isLegacyParkId(value));
+}
+
+function shouldRejectDataRefresh(previousCount, nextCount, droppedIdCount) {
+    if (previousCount < DATA_REFRESH_SAFETY_MIN_PREVIOUS_COUNT || droppedIdCount === 0) return false;
+
+    const countDrop = Math.max(0, previousCount - nextCount);
+    const rejectedByCountCollapse = (countDrop / previousCount) >= DATA_REFRESH_SAFETY_MAX_COUNT_DROP_RATIO;
+    const rejectedByIdCollapse = droppedIdCount >= Math.max(
+        DATA_REFRESH_SAFETY_MIN_ID_DROP_COUNT,
+        Math.ceil(previousCount * DATA_REFRESH_SAFETY_MAX_ID_DROP_RATIO)
+    );
+
+    return rejectedByCountCollapse || rejectedByIdCollapse;
 }
 
 function processParsedResults(results) {
@@ -173,7 +190,7 @@ function processParsedResults(results) {
         .filter(isCanonicalParkId)
         .filter(id => !nextIds.has(id));
 
-    if (droppedCanonicalIds.length > 0) {
+    if (shouldRejectDataRefresh(previousPoints.length, newAllPoints.length, droppedCanonicalIds.length)) {
         console.warn('[dataService] Rejected destructive data refresh. A background CSV poll attempted to drop existing Park IDs.', {
             previousCount: previousPoints.length,
             nextCount: newAllPoints.length,
@@ -181,6 +198,15 @@ function processParsedResults(results) {
             sampleDroppedIds: droppedCanonicalIds.slice(0, 10)
         });
         return false;
+    }
+
+    if (droppedCanonicalIds.length > 0 && window.BARK.debugDataRefresh === true) {
+        console.info('[dataService] Accepted data refresh with minor Park ID changes.', {
+            previousCount: previousPoints.length,
+            nextCount: newAllPoints.length,
+            changedCount: droppedCanonicalIds.length,
+            sampleChangedIds: droppedCanonicalIds.slice(0, 10)
+        });
     }
 
     window.BARK.allPoints = newAllPoints;

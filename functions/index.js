@@ -7,9 +7,9 @@ const { google } = require('googleapis');
 // Initialize Firebase Admin SDK
 admin.initializeApp();
 
-const ADMIN_CALLABLE_OPTIONS = {
-    enforceAppCheck: true
-};
+// Keep admin callables compatible with the current admin page. The backend
+// still enforces signed-in admin status plus per-admin rate limits.
+const ADMIN_CALLABLE_OPTIONS = {};
 
 const ADMIN_RATE_LIMITS = {
     extractParkData: { maxRequests: 20, windowMs: 60 * 1000 },
