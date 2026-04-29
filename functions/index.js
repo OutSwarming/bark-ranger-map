@@ -3,6 +3,7 @@ const admin = require("firebase-admin");
 const axios = require("axios");
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { google } = require('googleapis');
+const { randomUUID } = require("crypto");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -89,6 +90,18 @@ function requireAuthCallable(context) {
 function throwHttpsError(error, fallbackMessage) {
     if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError("internal", fallbackMessage);
+}
+
+const CANONICAL_PARK_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function cleanSheetCell(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).trim();
+}
+
+function getCanonicalParkId(value) {
+    const parkId = cleanSheetCell(value);
+    return CANONICAL_PARK_ID_PATTERN.test(parkId) ? parkId : '';
 }
 
 // ============================================================================
@@ -329,7 +342,7 @@ exports.extractParkData = functions
 // 2. SPREADSHEET BRIDGE: THE NEW SITE GUARDRAIL
 // ============================================================================
 exports.syncToSpreadsheet = functions
-    .runWith({ ...ADMIN_CALLABLE_OPTIONS, secrets: ["GOOGLE_MAPS_API_KEY"] })
+    .runWith(ADMIN_CALLABLE_OPTIONS)
     .https.onCall(async (data, context) => {
         await requireAdminCallable(context, "syncToSpreadsheet");
 
@@ -343,10 +356,10 @@ exports.syncToSpreadsheet = functions
             const sheetName = 'National B.A.R.K Ranger'; 
             const newPark = data; 
 
-            // 1. Fetch the ENTIRE row (A through O) so we can see existing data
+            // 1. Fetch the ENTIRE row through Park ID so updates can preserve it.
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: spreadsheetId,
-                range: `'${sheetName}'!A:O`, 
+                range: `'${sheetName}'!A:P`,
             });
 
             const rows = response.data.values || [];
@@ -443,7 +456,10 @@ exports.syncToSpreadsheet = functions
         if (bestMatch.rowIndex !== -1 && bestMatch.score >= 80) {
             const existingRow = rows[bestMatch.rowIndex - 1] || [];
             
-            // Map the spreadsheet columns: H=7, I=8, J=9, K=10, L=11, M=12, N=13, O=14, P=15
+            const existingParkId = cleanSheetCell(existingRow[15]); // Column P
+
+            // Map the spreadsheet columns: H=7, I=8, J=9, K=10, L=11, M=12, N=13, O=14.
+            // Column P is Park ID and must never be overwritten by refinery updates.
             const updateData = [
                 newPark.lat || existingLat || '',  // H
                 newPark.lng || existingLng || '',  // I
@@ -452,17 +468,16 @@ exports.syncToSpreadsheet = functions
                 mergeCell(existingRow[11], newPark.approvedTrails), // L
                 mergeCell(existingRow[12], newPark.strictRules), // M
                 mergeCell(existingRow[13], newPark.hazards), // N
-                mergeCell(existingRow[14], newPark.extraSwag), // O
-                newPark.dateUpdated // P
+                mergeCell(existingRow[14], newPark.extraSwag) // O
             ];
 
             await sheets.spreadsheets.values.update({
                 spreadsheetId: spreadsheetId,
-                range: `'${sheetName}'!H${bestMatch.rowIndex}:P${bestMatch.rowIndex}`,
+                range: `'${sheetName}'!H${bestMatch.rowIndex}:O${bestMatch.rowIndex}`,
                 valueInputOption: 'USER_ENTERED',
                 resource: { values: [updateData] }
             });
-            return { success: true, action: 'updated', row: bestMatch.rowIndex, confidence: bestMatch.score };
+            return { success: true, action: 'updated', row: bestMatch.rowIndex, confidence: bestMatch.score, parkIdPreserved: existingParkId || null };
         } else {
             // NEW GUARDRAIL: Only append if the frontend explicitly gave permission
             if (newPark.allowAppend !== true) {
@@ -473,13 +488,14 @@ exports.syncToSpreadsheet = functions
                 };
             }
 
+            const appendParkId = getCanonicalParkId(newPark.parkId) || randomUUID();
             const appendData = [
                 newPark.parkName, "", "", "", "", "", "", 
                 newPark.lat || '', 
                 newPark.lng || '', 
                 newPark.entranceFee, newPark.swagLocation, newPark.approvedTrails, 
                 newPark.strictRules, newPark.hazards, newPark.extraSwag,
-                newPark.dateUpdated // <--- Add the timestamp (Col P)
+                appendParkId
             ];
             await sheets.spreadsheets.values.append({
                 spreadsheetId: spreadsheetId,
@@ -488,7 +504,7 @@ exports.syncToSpreadsheet = functions
                 insertDataOption: 'INSERT_ROWS',
                 resource: { values: [appendData] }
             });
-            return { success: true, action: 'appended' };
+            return { success: true, action: 'appended', parkId: appendParkId };
         }
     } catch (error) {
         console.error("Spreadsheet Error:", error);
