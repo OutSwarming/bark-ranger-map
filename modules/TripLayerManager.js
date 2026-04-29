@@ -71,8 +71,8 @@ window.BARK = window.BARK || {};
         return L.divIcon({
             className: 'trip-overlay-badge-wrapper',
             html: `<div class="trip-overlay-badge" style="--badge-color:${color};">${number}</div>`,
-            iconSize: [22, 22],
-            iconAnchor: [11, 11]
+            iconSize: [34, 34],
+            iconAnchor: [17, 17]
         });
     }
 
@@ -102,16 +102,29 @@ window.BARK = window.BARK || {};
             .replace(/'/g, '&#39;');
     }
 
-    function showTripPopup(marker, title, subtitle) {
-        if (!marker || typeof marker.bindPopup !== 'function') return;
+    function buildTripPopupHtml(title, subtitle) {
         const safeTitle = escapeHtml(title || 'Trip stop');
         const safeSubtitle = escapeHtml(subtitle || 'Trip stop');
-        marker
-            .bindPopup(
-                `<div class="trip-overlay-popup"><strong>${safeTitle}</strong><span>${safeSubtitle}</span></div>`,
-                { autoPan: true, closeButton: true, className: 'trip-overlay-popup-shell' }
-            )
-            .openPopup();
+        return `<div class="trip-overlay-popup"><strong>${safeTitle}</strong><span>${safeSubtitle}</span></div>`;
+    }
+
+    function syncTripPopup(marker, title, subtitle, enabled) {
+        if (!marker || typeof marker.bindPopup !== 'function') return;
+        if (!enabled) {
+            if (typeof marker.unbindPopup === 'function') marker.unbindPopup();
+            return;
+        }
+
+        marker.bindPopup(
+            buildTripPopupHtml(title, subtitle),
+            { autoPan: true, closeButton: true, className: 'trip-overlay-popup-shell' }
+        );
+    }
+
+    function showTripPopup(marker, title, subtitle) {
+        if (!marker) return;
+        syncTripPopup(marker, title, subtitle, true);
+        if (typeof marker.openPopup === 'function') marker.openPopup();
     }
 
     function forwardClickToParkPanel(parkId) {
@@ -149,6 +162,7 @@ window.BARK = window.BARK || {};
         marker._tripStopName = stop.name || 'Trip stop';
         marker._tripNumber = number;
         marker._tripColor = color;
+        syncTripPopup(marker, marker._tripStopName, 'Trip stop', !parkId);
         marker.on('click', () => handleBadgeClick(marker));
         return marker;
     }
@@ -165,6 +179,7 @@ window.BARK = window.BARK || {};
         }
         marker._tripParkId = parkId || null;
         marker._tripStopName = stop.name || 'Trip stop';
+        syncTripPopup(marker, marker._tripStopName, 'Trip stop', !parkId);
     }
 
     function syncBadges(tripDays) {
@@ -302,6 +317,7 @@ window.BARK = window.BARK || {};
                 }
                 existing._tripBookendName = spec.name;
                 existing._tripParkId = spec.parkId;
+                syncTripPopup(existing, existing._tripBookendName, role === 'end' ? 'Trip end' : 'Trip start', !spec.parkId);
                 return;
             }
             const marker = L.marker(spec.latlng, {
@@ -314,6 +330,7 @@ window.BARK = window.BARK || {};
             marker._tripBookendRole = role;
             marker._tripBookendName = spec.name;
             marker._tripParkId = spec.parkId;
+            syncTripPopup(marker, marker._tripBookendName, role === 'end' ? 'Trip end' : 'Trip start', !spec.parkId);
             marker.on('click', () => handleBookendClick(marker));
             if (tripLayerGroup) tripLayerGroup.addLayer(marker);
             bookendMarkers.set(role, marker);

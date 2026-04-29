@@ -1691,6 +1691,10 @@ body.viewport-culling .leaflet-marker-icon {
     background: transparent !important;
     border: none !important;
     pointer-events: auto;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
 }
 .trip-overlay-badge {
     box-sizing: border-box;
@@ -1721,7 +1725,8 @@ body.viewport-culling .leaflet-marker-icon {
 .trip-overlay-bookend-wrapper {
     background: transparent !important;
     border: none !important;
-    pointer-events: none;
+    pointer-events: auto;
+    cursor: pointer;
 }
 .trip-overlay-bookend {
     width: 24px;
