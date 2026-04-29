@@ -262,6 +262,7 @@ function quickHash(str) {
 let lastDataHash = null;
 let pollInFlight = false;
 let seenHashes = new Map();
+const MAX_SEEN_DATA_HASHES = 64;
 const DATA_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const DATA_POLL_RETRY_INTERVAL_MS = 10 * 60 * 1000;
 const DATA_REFOCUS_MIN_INTERVAL_MS = 60 * 1000;
@@ -269,6 +270,27 @@ let dataPollTimer = null;
 let dataPollLoopStarted = false;
 let dataPollStopped = false;
 let lastDataPollStartedAt = 0;
+
+function pruneSeenHashes() {
+    while (seenHashes.size > MAX_SEEN_DATA_HASHES) {
+        const oldestHash = seenHashes.keys().next().value;
+        if (oldestHash === lastDataHash && seenHashes.size > 1) {
+            const currentHashTime = seenHashes.get(oldestHash);
+            seenHashes.delete(oldestHash);
+            seenHashes.set(oldestHash, currentHashTime);
+            continue;
+        }
+
+        seenHashes.delete(oldestHash);
+    }
+}
+
+function rememberDataHash(hash, revisionTime) {
+    if (hash === null || hash === undefined) return;
+    if (seenHashes.has(hash)) seenHashes.delete(hash);
+    seenHashes.set(hash, revisionTime);
+    pruneSeenHashes();
+}
 
 function pollForUpdates() {
     if (!navigator.onLine || pollInFlight) return Promise.resolve(false);
@@ -301,7 +323,7 @@ function pollForUpdates() {
                 let revisionTime = Date.now();
                 const match = /\/([0-9]{13})\//.exec(url);
                 if (match) revisionTime = parseInt(match[1], 10);
-                seenHashes.set(newHash, revisionTime);
+                rememberDataHash(newHash, revisionTime);
             }
 
             if (newHash !== lastDataHash) {
@@ -420,9 +442,9 @@ function loadData() {
     if (cachedCsv) {
         lastDataHash = quickHash(cachedCsv);
         if (cachedTime) {
-            seenHashes.set(lastDataHash, parseInt(cachedTime, 10));
+            rememberDataHash(lastDataHash, parseInt(cachedTime, 10));
         } else {
-            seenHashes.set(lastDataHash, Date.now());
+            rememberDataHash(lastDataHash, Date.now());
         }
         parseCSVString(cachedCsv);
     }

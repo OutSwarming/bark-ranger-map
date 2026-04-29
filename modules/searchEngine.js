@@ -351,7 +351,7 @@ function runInlinePlannerSearch(type, options = {}) {
 
 function getSearchMovementMap(targetType) {
     if (targetType !== 'stop' || window.stopAutoMovements) return null;
-    if (typeof window.BARK.isMapViewActive === 'function' && !window.BARK.isMapViewActive()) return null;
+    if (typeof window.BARK.isMapVisibleByDefaultViewState === 'function' && !window.BARK.isMapVisibleByDefaultViewState()) return null;
 
     if (typeof window.BARK.getUsableMap === 'function') return window.BARK.getUsableMap();
     if (

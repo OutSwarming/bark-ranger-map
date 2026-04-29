@@ -99,7 +99,8 @@ function getTargetMarkerLayerType(zoom) {
     return (window.clusteringEnabled && !forceNoClustering) ? 'cluster' : 'plain';
 }
 
-function isMapViewActive() {
+function isMapVisibleByDefaultViewState() {
+    // The map is the implicit/default view; app tabs are represented by `.ui-view.active`.
     return !document.querySelector('.ui-view.active');
 }
 
@@ -117,7 +118,7 @@ function getUsableMap() {
 }
 
 function isMapViewportReady(map) {
-    if (!isUsableLeafletMap(map) || !isMapViewActive()) return false;
+    if (!isUsableLeafletMap(map) || !isMapVisibleByDefaultViewState()) return false;
     const container = map.getContainer();
     if (!container) return false;
     const rect = container.getBoundingClientRect();
@@ -219,7 +220,8 @@ window.BARK.invalidateVisitedIdsCache = function () {
     window.BARK._visitedIdsCacheKey = null;
     window.BARK.invalidateMarkerVisibility();
 };
-window.BARK.isMapViewActive = isMapViewActive;
+window.BARK.isMapVisibleByDefaultViewState = isMapVisibleByDefaultViewState;
+window.BARK.isMapViewActive = isMapVisibleByDefaultViewState;
 window.BARK.isUsableLeafletMap = isUsableLeafletMap;
 window.BARK.getUsableMap = getUsableMap;
 
@@ -259,7 +261,7 @@ window.syncState = function () {
     window.requestAnimationFrame(() => {
         syncScheduled = false;
         if (typeof window.BARK.updateMarkers === 'function') {
-            if (!isMapViewActive()) {
+            if (!isMapVisibleByDefaultViewState()) {
                 window.BARK._pendingMarkerSync = true;
             } else if (!getUsableMap()) {
                 window.BARK._pendingMarkerSync = true;

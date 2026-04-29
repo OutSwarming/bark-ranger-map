@@ -362,8 +362,8 @@ function renderMarkerClickPanel(context) {
         });
     }
 
-    const mapIsActive = typeof window.BARK.isMapViewActive === 'function'
-        ? window.BARK.isMapViewActive()
+    const mapIsActive = typeof window.BARK.isMapVisibleByDefaultViewState === 'function'
+        ? window.BARK.isMapVisibleByDefaultViewState()
         : !document.querySelector('.ui-view.active');
 
     if (slidePanel) {

@@ -436,7 +436,7 @@ function restoreGuestMarkerLayer() {
         window.BARK.invalidateMarkerVisibility();
     }
 
-    const mapViewActive = typeof window.BARK.isMapViewActive !== 'function' || window.BARK.isMapViewActive();
+    const mapViewActive = typeof window.BARK.isMapVisibleByDefaultViewState !== 'function' || window.BARK.isMapVisibleByDefaultViewState();
     if (mapViewActive && !window.BARK._isZooming && typeof window.BARK.updateMarkers === 'function') {
         window.BARK.updateMarkers();
     } else if (typeof window.syncState === 'function') {

@@ -48,8 +48,8 @@ This is the working tracker for the 17 reported logic bugs. Keep this file curre
 | 12 | Medium | Fixed with local-date Manage Portal formatting | Done | Fixed |
 | 13 | Medium | Not a current bug; design risk | P3 | Design risk |
 | 14 | Medium | Fixed with latest-place lookup before Manage Portal removal | Done | Fixed |
-| 15 | Medium | Confirmed, low practical impact | P3 | Confirmed |
-| 16 | Low | Confirmed as naming/maintenance risk | P4 | Confirmed |
+| 15 | Medium | Fixed with bounded recent CSV hash memory | Done | Fixed |
+| 16 | Low | Fixed with clearer map-default-view helper and compatibility alias | Done | Fixed |
 | 17 | Low | Confirmed for expedition history/completed expeditions; Manage Portal names are safe | P2 | Partially confirmed |
 
 ## Bug 1: God Mode Event Listeners Accumulate
@@ -904,34 +904,105 @@ Verification:
 
 ## Bug 15: `seenHashes` Grows Without Bound
 
-Status: Confirmed
+Status: Fixed
 
 Files:
 - `modules/dataService.js:264`
-- `modules/dataService.js:300`
-- `modules/dataService.js:304`
-- `modules/dataService.js:398`
+- `modules/dataService.js:265`
+- `modules/dataService.js:274`
+- `modules/dataService.js:288`
+- `modules/dataService.js:326`
+- `modules/dataService.js:445`
+- `modules/dataService.js:447`
+
+How a user can trigger it:
+- Leave the app open across many polling cycles while the source CSV keeps changing.
+- Every unique CSV hash is remembered in the module-scoped `seenHashes` Map.
+
+What the user saw before:
+- Nothing obvious during normal use because polling runs every five minutes and growth is tiny.
+- In a long-lived tab or unusual update loop, the hash Map had no upper bound.
+
+Expected user result:
+- Data polling should still avoid stale CSV regressions and duplicate renders.
+- Memory used for old CSV revision hashes should stay bounded.
+
+What the user sees now:
+- Polling behavior is unchanged.
+- The app remembers only the most recent 64 CSV hashes while preserving the currently accepted hash needed for stale-data comparison.
 
 Evidence:
 - `seenHashes` is module-scoped and never pruned.
 - Polling every 5 minutes means normal growth is tiny, but the structure is unbounded.
 
-Likely fix:
-- Cap to a small number such as 32 or 64 recent hashes.
-- Prune oldest entries after insert.
+Fix options and tradeoffs:
+
+Option A: Clear the whole Map periodically
+- Approach: Empty `seenHashes` after a fixed interval or size threshold.
+- Pros: Very small patch; guarantees memory drops.
+- Cons: Temporarily weakens the stale-revision ordering guard because the current accepted hash timestamp can disappear too.
+
+Option B: Cap recent hashes and preserve the active hash
+- Approach: Add a small `rememberDataHash(...)` helper, cap the Map at 64 entries, and prune oldest entries while keeping `lastDataHash` available.
+- Pros: Bounds memory without weakening the current stale-data comparison; keeps cache-load and poll paths consistent.
+- Cons: Slightly more code than a raw `Map#set`; very old revisions outside the recent window are forgotten.
+
+Option C: Store only `lastDataHash` and timestamp
+- Approach: Replace the Map with a single current hash/time pair.
+- Pros: Simplest memory model.
+- Cons: Loses duplicate-hash and recent-revision context that helps avoid unnecessary parse/render work.
+
+Chosen strategy:
+- Use Option B.
+- Keep the cap conservative at 64, which is far more than normal polling needs while still bounded.
+
+User benefit:
+- Long-lived app sessions stay stable without slow memory creep from repeated CSV revisions.
+- The official map data update guard remains intact, so users still avoid older sheet revisions replacing newer ones.
+
+Fix applied:
+- Added `MAX_SEEN_DATA_HASHES = 64` in `modules/dataService.js`.
+- Added `pruneSeenHashes()` in `modules/dataService.js`.
+- Added `rememberDataHash(hash, revisionTime)` in `modules/dataService.js`.
+- Polling and cached CSV boot paths now call `rememberDataHash(...)` instead of writing directly to `seenHashes`.
 
 Verification:
-- After many simulated unique hashes, `seenHashes.size` stays under the cap.
+- VM smoke test inserted 100 unique hashes and confirmed `seenHashes.size === 64`.
+- Smoke test confirmed oldest hashes are pruned and the newest hash remains.
+- `node --check modules/dataService.js` passes.
 
 ## Bug 16: `isMapViewActive()` Name Is Easy To Misread
 
-Status: Confirmed
+Status: Fixed
 
 Files:
 - `modules/renderEngine.js:102`
-- `modules/renderEngine.js:103`
-- `modules/uiController.js:119`
-- `modules/uiController.js:120`
+- `modules/renderEngine.js:121`
+- `modules/renderEngine.js:223`
+- `modules/renderEngine.js:224`
+- `modules/renderEngine.js:264`
+- `renderers/panelRenderer.js:365`
+- `services/authService.js:439`
+- `modules/settingsController.js:222`
+- `modules/searchEngine.js:354`
+
+How a developer can trip over it:
+- The app's map tab is the implicit/default state.
+- Non-map tabs get `.ui-view.active`, but the map itself does not.
+- A future maintainer sees `isMapViewActive()` and may assume it checks for an active map element instead of the absence of an active app tab.
+
+What could happen before:
+- Current callers behaved correctly, so this was a maintenance risk rather than a user-visible bug.
+- New map-dependent code could easily copy the name without understanding the inverted DOM convention.
+
+Expected developer result:
+- The helper name should describe the actual representation: the map is visible when no app tab view is active.
+- Existing callers of the old global should keep working.
+
+What the code does now:
+- `isMapVisibleByDefaultViewState()` is the named helper for the implicit map-view rule.
+- `window.BARK.isMapViewActive` remains as a compatibility alias.
+- Current call sites use the clearer helper name.
 
 Evidence:
 - The map view is represented by no `.ui-view.active`; other sections add `.ui-view.active`.
@@ -940,12 +1011,46 @@ Evidence:
 Risk:
 - Current callers are consistent, but the representation is surprising.
 
-Likely fix:
-- Either add a clarifying comment or rename to `isMapVisibleByDefaultViewState()`.
-- Avoid broad rename unless touching this area for map-availability guards.
+Fix options and tradeoffs:
+
+Option A: Add only a comment
+- Approach: Leave `isMapViewActive()` in place and document the inverted DOM convention.
+- Pros: Minimal change; no compatibility risk.
+- Cons: The unclear public name remains the one future code will discover first.
+
+Option B: Add clearer helper and alias the old name
+- Approach: Rename the implementation to `isMapVisibleByDefaultViewState()`, expose that as the preferred API, and keep `window.BARK.isMapViewActive` as an alias.
+- Pros: Clarifies the contract for new code; preserves old callers; no behavior change.
+- Cons: Temporarily exposes two names for the same concept.
+
+Option C: Change the DOM model so map view has its own `.ui-view.active`
+- Approach: Represent the map tab like every other tab.
+- Pros: Simplest mental model long term.
+- Cons: High blast radius across navigation, Leaflet sizing, panel behavior, CSS, and marker sync; too much risk for a naming bug.
+
+Chosen strategy:
+- Use Option B.
+- Update current app call sites to the clearer helper while leaving the old global alias for compatibility.
+
+User benefit:
+- Users do not see a behavior change, which is the right outcome for this maintenance-risk bug.
+- Future map/search/settings changes are less likely to hide markers or move the map at the wrong time because the helper name now explains the app's default-view model.
+
+Fix applied:
+- Added `isMapVisibleByDefaultViewState()` in `modules/renderEngine.js`.
+- Added a short comment explaining that the map is the implicit/default view and app tabs use `.ui-view.active`.
+- Exposed `window.BARK.isMapVisibleByDefaultViewState`.
+- Kept `window.BARK.isMapViewActive` as a compatibility alias.
+- Updated render, panel, auth, settings, and search call sites to use the clearer helper.
 
 Verification:
-- Existing map/nav behavior unchanged.
+- VM smoke test confirms no active `.ui-view` returns `true` for both the new helper and old alias.
+- VM smoke test confirms an active `.ui-view` returns `false` for both helper names.
+- `node --check modules/renderEngine.js` passes.
+- `node --check renderers/panelRenderer.js` passes.
+- `node --check services/authService.js` passes.
+- `node --check modules/settingsController.js` passes.
+- `node --check modules/searchEngine.js` passes.
 
 ## Bug 17: Expedition Rendering Uses `innerHTML` With User-Influenceable Data
 

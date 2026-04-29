@@ -219,7 +219,7 @@ window.BARK.initSettings = function initSettings() {
             if (impacts.has(window.BARK.SETTING_IMPACTS.MAP_BEHAVIOR) && typeof window.BARK.applyMapPerformancePolicy === 'function') {
                 window.BARK.applyMapPerformancePolicy();
             }
-            const mapViewActive = typeof window.BARK.isMapViewActive !== 'function' || window.BARK.isMapViewActive();
+            const mapViewActive = typeof window.BARK.isMapVisibleByDefaultViewState !== 'function' || window.BARK.isMapVisibleByDefaultViewState();
             if (impacts.has(window.BARK.SETTING_IMPACTS.MARKER_LAYER) && mapViewActive && typeof window.BARK.rebuildMarkerLayer === 'function') {
                 window.BARK.rebuildMarkerLayer();
             } else if (impacts.has(window.BARK.SETTING_IMPACTS.MARKER_LAYER) && typeof window.BARK.invalidateMarkerVisibility === 'function') {
