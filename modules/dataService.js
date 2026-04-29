@@ -216,10 +216,6 @@ function processParsedResults(results) {
         window.gamificationEngine.updateCanonicalCountsFromPoints(newAllPoints);
     }
 
-    if (window.BARK.markerManager) {
-        window.BARK.markerManager.sync(newAllPoints, { applyLayers: false });
-    }
-
     window.BARK._markerDataRevision = (window.BARK._markerDataRevision || 0) + 1;
 
     window.syncState();

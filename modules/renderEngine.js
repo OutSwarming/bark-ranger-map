@@ -74,6 +74,7 @@ window.BARK.safeUpdateHTML = safeUpdateHTML;
  */
 let syncScheduled = false;
 let lastMarkerVisibilityStateKey = null;
+let lastSyncedMarkerDataRevision = null;
 const ACHIEVEMENT_EVAL_DEBOUNCE_MS = 3000;
 let achievementEvalTimer = null;
 let achievementEvalInProgress = false;
@@ -216,6 +217,10 @@ function getMarkerVisibilityStateKey() {
 window.BARK.invalidateMarkerVisibility = function () {
     lastMarkerVisibilityStateKey = null;
 };
+window.BARK.invalidateMarkerDataSync = function () {
+    lastSyncedMarkerDataRevision = null;
+    window.BARK.invalidateMarkerVisibility();
+};
 window.BARK.invalidateVisitedIdsCache = function () {
     window.BARK._visitedIdsCacheKey = null;
     window.BARK.invalidateMarkerVisibility();
@@ -313,8 +318,10 @@ function updateMarkers() {
     // Collect DOM writes to batch them (avoids layout thrashing)
     const markerClassUpdates = [];
 
-    if (window.BARK.markerManager) {
+    const markerDataRevision = window.BARK._markerDataRevision || 0;
+    if (window.BARK.markerManager && markerDataRevision !== lastSyncedMarkerDataRevision) {
         window.BARK.markerManager.sync(allPoints, { applyLayers: false });
+        lastSyncedMarkerDataRevision = markerDataRevision;
     }
 
     allPoints.forEach(item => {
