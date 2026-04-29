@@ -29,6 +29,9 @@ PWA for the US B.A.R.K. Rangers program. Dog owners visit national/state parks a
 ## Goal
 Make the app production-grade for a store launch: near-100% reliability, no logic errors, clean scalable code, all existing features preserved.
 
+## Required Future-Work Guide
+Before major feature work, refactors, payment work, Passport/journal/photos/events work, or broad bug-fix passes, read `plans/AI_TECHNICAL_NORTH_STAR.md`. It is the technical operating manual for keeping future code clean, untangled, performant, and aligned with the product roadmap.
+
 ## Fix Queue (work through in order, one at a time)
 
 - [x] **#1 — Boot error recovery** (`core/app.js`) ✅

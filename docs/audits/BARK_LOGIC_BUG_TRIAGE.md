@@ -45,9 +45,9 @@ This is the working tracker for the 17 reported logic bugs. Keep this file curre
 | 9 | High | Fixed with defensive Firebase/auth/Firestore guards in leaderboard sync | Done | Fixed |
 | 10 | High | Fixed with safe leaderboard rank parsing and rendering | Done | Fixed |
 | 11 | Medium | Fixed by routing standalone settings through the settings store | Done | Fixed |
-| 12 | Medium | Confirmed | P2 | Confirmed |
+| 12 | Medium | Fixed with local-date Manage Portal formatting | Done | Fixed |
 | 13 | Medium | Not a current bug; design risk | P3 | Design risk |
-| 14 | Medium | Confirmed as low-risk stale UI closure | P3 | Confirmed |
+| 14 | Medium | Fixed with latest-place lookup before Manage Portal removal | Done | Fixed |
 | 15 | Medium | Confirmed, low practical impact | P3 | Confirmed |
 | 16 | Low | Confirmed as naming/maintenance risk | P4 | Confirmed |
 | 17 | Low | Confirmed for expedition history/completed expeditions; Manage Portal names are safe | P2 | Partially confirmed |
@@ -741,24 +741,69 @@ Verification:
 
 ## Bug 12: Manage Portal Visit Dates Display In UTC
 
-Status: Confirmed
+Status: Fixed
 
 Files:
-- `modules/profileEngine.js:48`
-- `modules/profileEngine.js:50`
-- `modules/profileEngine.js:58`
+- `modules/profileEngine.js:8`
+- `modules/profileEngine.js:12`
+- `modules/profileEngine.js:60`
+
+How a user can trigger it:
+- A visit is saved in the user's local evening in a timezone behind UTC, for example 9:30 PM Pacific on April 28, 2026.
+- That timestamp is `2026-04-29T04:30:00Z` in UTC.
+- The user opens the Manage Portal and looks at the date input for that visit.
+
+What the user saw before:
+- The date input could show April 29 instead of April 28 because `toISOString()` converted the timestamp to UTC before slicing the date.
+- If the user clicked Update without noticing, the app could save the wrong local calendar day at noon.
+
+Expected user result:
+- The Manage Portal should show the calendar date the user experienced locally.
+- Updating the date should keep the existing local-noon timestamp strategy so manually edited dates are stable across daylight and timezone edges.
+
+What the user sees now:
+- Manage Portal date inputs format timestamps from local date parts.
+- Late-evening visits no longer jump to the next UTC day in the date field.
 
 Evidence:
 - Date input is populated with `new Date(place.ts).toISOString().split('T')[0]`.
 - `toISOString()` converts to UTC, which can shift local evening visits into the next day.
 - Update path creates local-noon timestamps, so display and edit semantics are inconsistent.
 
-Likely fix:
-- Format date input from local date parts: `getFullYear()`, `getMonth() + 1`, `getDate()`.
-- Keep the local-noon write strategy.
+Fix options and tradeoffs:
+
+Option A: Inline local date formatting
+- Approach: Replace the `toISOString()` expression directly with `getFullYear()`, `getMonth() + 1`, and `getDate()` at the input assignment.
+- Pros: Smallest patch; fixes the visible date drift immediately.
+- Cons: Leaves the padding/date contract embedded in the render loop; easier for future date inputs to repeat the UTC mistake.
+
+Option B: Small local-date input helper
+- Approach: Add a helper that formats any timestamp as `YYYY-MM-DD` using local date parts and use it for the Manage Portal input.
+- Pros: Keeps the date-input contract named and reusable; handles invalid timestamps cleanly; keeps the render loop simple.
+- Cons: Slightly more code than the one-line inline replacement.
+
+Option C: Store visit dates as date-only strings
+- Approach: Convert visited-place records to store local date strings instead of timestamps.
+- Pros: Strongest domain model for calendar-only visit dates.
+- Cons: Data migration and compatibility risk; broader than needed because existing scoring/history code expects numeric timestamps.
+
+Chosen strategy:
+- Use Option B.
+- Keep the local-noon write path unchanged because it already matches the desired edit semantics.
+
+User benefit:
+- Users see and update the date they actually visited, which keeps the B.A.R.K. Passport history trustworthy.
+- Evening check-ins no longer appear as tomorrow in the Manage Portal.
+
+Fix applied:
+- Added `padDatePart(...)` in `modules/profileEngine.js`.
+- Added `formatVisitDateInputValue(ts)` in `modules/profileEngine.js`.
+- `renderManagePortal()` now uses the local-date helper instead of `toISOString()` for date input values.
+- The Update button still writes `new Date(dateInput.value + 'T12:00:00').getTime()` so edited dates remain local-noon timestamps.
 
 Verification:
-- A timestamp for 9:30 PM Pacific displays the same Pacific calendar date.
+- `TZ=America/Los_Angeles` smoke test for `2026-04-29T04:30:00Z` returns `2026-04-28`.
+- `node --check modules/profileEngine.js` passes.
 
 ## Bug 13: Daily Streak Uses Non-Transactional Read/Write
 
@@ -785,13 +830,31 @@ Verification:
 
 ## Bug 14: Manage Portal Remove Button Captures A Stale Place Object
 
-Status: Confirmed
+Status: Fixed
 
 Files:
-- `modules/profileEngine.js:23`
-- `modules/profileEngine.js:37`
-- `services/firebaseService.js:119`
-- `services/firebaseService.js:122`
+- `modules/profileEngine.js:48`
+- `services/firebaseService.js:271`
+- `services/firebaseService.js:276`
+- `services/firebaseService.js:283`
+
+How a user can trigger it:
+- Open the Manage Portal.
+- Leave the portal open while a Firestore snapshot, another tab, or another local action changes the visited-place Map.
+- Click the old remove button for a visit whose rendered object is no longer the latest version, or has already been removed.
+
+What the user saw before:
+- The confirm dialog could use stale place text from render time.
+- If the place had already been removed, the click could still run a no-op delete and write the current Map back.
+
+Expected user result:
+- The app should confirm against the latest visit record, not a stale render-time object.
+- If the visit is gone, the app should refresh the Manage Portal and tell the user the list changed instead of writing a no-op.
+
+What the user sees now:
+- Remove buttons pass the place id only.
+- `removeVisitedPlace(...)` re-reads the latest place from `window.BARK.userVisitedPlaces` before confirming.
+- Stale/missing visits refresh the list and show a clear stale-state message.
 
 Evidence:
 - Remove button captures the `place` object from the render-time array.
@@ -801,12 +864,43 @@ Risk:
 - Confirmation text can be stale if the place changed between render and click.
 - If the place was already removed/replaced before click, the delete can be a no-op and still write the current Map.
 
-Likely fix:
-- Pass `place.id` and look up the latest place at click time.
-- If not found, re-render and show a stale-state message.
+Fix options and tradeoffs:
+
+Option A: Pass only id from the Manage Portal and require service lookup
+- Approach: Change the button to call `removeVisitedPlace(place.id)`, then have the service look up the current visit by id before confirming.
+- Pros: Small patch; removes stale object capture from the UI; makes the service own the latest-state check.
+- Cons: Existing direct callers passing a full object would need compatibility handling or a breaking API change.
+
+Option B: Backward-compatible id/object normalization
+- Approach: Let `removeVisitedPlace(...)` accept either a place id or the old object shape, normalize to an id, and always fetch the latest place from the Map.
+- Pros: Fixes the Manage Portal bug while keeping exported global compatibility; direct console/internal callers still work; stale names are replaced by the latest record.
+- Cons: Slightly more code than a strict id-only API; the global function remains broader than the one current caller needs.
+
+Option C: Re-render before every remove click
+- Approach: Force a portal re-render immediately before confirmation, then require the user to click the newly rendered remove button.
+- Pros: Very defensive against stale DOM.
+- Cons: Awkward user experience; more UI churn; still needs a service-level guard for direct/global calls.
+
+Chosen strategy:
+- Use Option B.
+- Keep the Manage Portal caller id-only, but keep `window.BARK.removeVisitedPlace(...)` tolerant of the old object shape.
+
+User benefit:
+- Users get a truthful remove confirmation and do not accidentally act on stale visit text.
+- If another tab or snapshot already changed the list, the portal recovers visibly instead of silently writing redundant progress data.
+
+Fix applied:
+- `renderManagePortal()` now passes `place.id` to `window.BARK.removeVisitedPlace(...)`.
+- Added `getVisitedPlaceId(...)` in `services/firebaseService.js`.
+- Added `getLatestVisitedPlace(...)` in `services/firebaseService.js`.
+- `removeVisitedPlace(...)` now confirms against the latest Map record and exits with a stale-state alert if the id is missing.
+- Failed remove rollback now clears pending mutation state by normalized id.
 
 Verification:
-- A snapshot between render and click does not remove or confirm stale data incorrectly.
+- Stale/missing id smoke test refreshes the portal, does not confirm, and does not write.
+- Backward-compatible object smoke test confirms with the latest Map name and removes the current entry.
+- `node --check modules/profileEngine.js` passes.
+- `node --check services/firebaseService.js` passes.
 
 ## Bug 15: `seenHashes` Grows Without Bound
 

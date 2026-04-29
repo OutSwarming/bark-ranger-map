@@ -1,6 +1,43 @@
 /**
  * panelRenderer.js - Marker click panel rendering.
  * Phase 2 move-only extraction from dataService.js.
+ *
+ * Future card architecture notes:
+ *   This renderer currently assumes a clicked marker is an official BARK park
+ *   with canonical data in marker._parkData. Long term, the slide panel should
+ *   become a reusable card host that can render multiple card modes without
+ *   competing panels:
+ *
+ *     1. OfficialParkCard
+ *        Canonical BARK data: name, state, category, swag links, official info,
+ *        official websites, check-in controls, and "add to trip".
+ *
+ *     2. TripPlaceCard
+ *        User itinerary data for non-official places such as towns, hotels,
+ *        restaurants, trailheads, or geocoded stops. This card can show name,
+ *        coordinates, directions, remove-from-trip, and later per-trip notes.
+ *
+ *     3. MyVisitCard / MemoryCard
+ *        User-owned content: personal notes, dog/BARK photos, visit dates,
+ *        private/public visibility, and future review-style fields. This card
+ *        should be lazy-loaded after the panel opens. Do not load photos or
+ *        rich editors for every marker during map rendering.
+ *
+ *   Important separation:
+ *     Official data should remain read-only from allPoints/CSV/parkLookup.
+ *     Personal data should live in a user-owned service/collection and be
+ *     composed into the panel at render time. Avoid copying personal notes or
+ *     photo refs into marker fingerprints, allPoints, or saved route stops; it
+ *     would cause unnecessary marker churn and blur official/user ownership.
+ *
+ *   Suggested future API:
+ *     window.BARK.openPlaceCard({
+ *       kind: 'official' | 'tripPlace',
+ *       placeId,
+ *       customPlaceId,
+ *       tripStopId,
+ *       focus: 'details' | 'memory' | 'photos' | 'notes'
+ *     })
  */
 window.BARK = window.BARK || {};
 

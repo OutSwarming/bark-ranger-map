@@ -66,6 +66,31 @@ function updateTripMapVisuals() {
 }
 
 // ====== TRIP UI ======
+// Future trip-place identity notes:
+//   The current trip stop shape is intentionally minimal: id/name/lat/lng for
+//   official parks, or name/lat/lng for custom towns/geocoded places. That is
+//   enough for routing, rendering, and removing stops today, but it is not
+//   enough for long-term personal memories.
+//
+//   When the app grows "personal cards" with notes/photos/reviews, do not store
+//   that data directly inside tripDays[]. A trip route is an itinerary; user
+//   memories are user-owned content. Keep these IDs separate:
+//     - placeId: canonical official BARK place id, from allPoints/CSV.
+//     - customPlaceId: stable id for a user-created/geocoded non-BARK place.
+//     - tripStopId: unique id for this exact stop in this exact route.
+//     - memoryId: user-owned notes/photos/reviews for a place or trip stop.
+//
+//   This separation answers the critical product questions:
+//     - Official BARK spots keep official data immutable and shared.
+//     - Personal notes/photos never mutate official park records.
+//     - Trip planning data can be copied/shared without copying private media.
+//     - A user can have a general park memory and a separate per-trip note.
+//
+//   Refactor target:
+//     Replace lat/lng-derived fallback keys with generated tripStopId values,
+//     then route all stop actions through a trip planner service/controller.
+//     The map overlay should keep calling small APIs like removeTripStopByKey,
+//     never mutate tripDays directly.
 function getTotalStops() {
     return window.BARK.tripDays.reduce((sum, d) => sum + d.stops.length, 0);
 }

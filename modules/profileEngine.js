@@ -5,6 +5,17 @@
 window.BARK = window.BARK || {};
 
 // ====== MANAGE PORTAL ======
+function padDatePart(value) {
+    return String(value).padStart(2, '0');
+}
+
+function formatVisitDateInputValue(ts) {
+    const date = new Date(ts);
+    if (Number.isNaN(date.getTime())) return '';
+
+    return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
+}
+
 function renderManagePortal() {
     const listEl = document.getElementById('manage-places-list');
     const countEl = document.getElementById('manage-portal-count');
@@ -34,7 +45,7 @@ function renderManagePortal() {
         const removeBtn = document.createElement('button');
         removeBtn.innerHTML = '&times;';
         removeBtn.style.cssText = 'background: #fee2e2; color: #dc2626; border: none; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: 800;';
-        removeBtn.onclick = () => window.BARK.removeVisitedPlace(place);
+        removeBtn.onclick = () => window.BARK.removeVisitedPlace(place.id);
 
         topRow.appendChild(nameSpan);
         topRow.appendChild(removeBtn);
@@ -46,8 +57,7 @@ function renderManagePortal() {
         dateInput.type = 'date';
         dateInput.style.cssText = 'font-size: 11px; padding: 4px; border: 1px solid #ddd; border-radius: 4px; flex: 1;';
         if (place.ts) {
-            const d = new Date(place.ts);
-            dateInput.value = d.toISOString().split('T')[0];
+            dateInput.value = formatVisitDateInputValue(place.ts);
         }
 
         const updateBtn = document.createElement('button');

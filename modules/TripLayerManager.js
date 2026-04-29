@@ -24,6 +24,24 @@
  * Performance settings (lowGfxEnabled / ultraLowEnabled / removeShadows /
  * reducePinMotion / simplifyPinsWhileMoving / stopResizing) are honored via
  * body-class CSS chains already managed by mapEngine — no extra wiring here.
+ *
+ * Future product direction:
+ *   Keep this layer intentionally small. Trip popups should remain lightweight
+ *   action menus only: remove stop, open park details, or eventually open a
+ *   richer "Trip Place / My Visit" card. Do not put notes editors, photo
+ *   uploaders, review forms, or thumbnail grids directly inside Leaflet
+ *   markers/popups. Those features belong in the slide-panel/card layer so
+ *   they can load lazily, virtualize media, and avoid slowing down panning,
+ *   zooming, and marker clustering.
+ *
+ * Future refactor warning:
+ *   Custom towns and geocoded trip stops are not official BARK places. This
+ *   overlay may display them, but it should not promote them into `allPoints`
+ *   or `parkLookup`. A future card controller should accept a normalized
+ *   place reference such as:
+ *     { kind: 'official', placeId, tripStopId? }
+ *     { kind: 'tripPlace', customPlaceId, tripStopId }
+ *   and decide which card sections to render outside the map layer.
  */
 window.BARK = window.BARK || {};
 
