@@ -4,7 +4,7 @@ This is the operational blueprint for taking the codebase from its current tangl
 
 Read this top to bottom once. Then follow phases in order. **Do not skip Phase -1.** It addresses five critical production blockers (admin auth, API key exposure, settings race conditions, god functions, DOM generation in services). Phase -1 is 2–3 days and is a prerequisite for everything else.
 
-Then follow Phases 0–6 in order.
+Then follow Phases 0–6 in order. Premium revenue is not deferred all the way to the storefront: ship a narrow paid-entitlement vertical slice in Phase 2.5, after the IdentityService boundary exists and before the map-layer/UI rebuild.
 
 ---
 
@@ -267,6 +267,56 @@ Each phase has: **Goal**, **Detangle**, **Move**, **Keep**, **Add**, **Exit crit
 
 ---
 
+### Phase 2.5 — Paid Entitlement Vertical Slice (take money, lock current premium features)
+
+**Goal:** Start taking money safely before the full storefront. Convert the current frontend-only "premium" concept into a backend-enforced entitlement, then lock the premium/quota-bearing features the app already has.
+
+This phase is intentionally narrow. It is not the swag store. It is the revenue spine: payment -> webhook -> user tier -> server-enforced feature access.
+
+**Current features to lock behind real premium:**
+- Premium/global place search currently gated in the frontend from `modules/searchEngine.js`.
+- Premium route generation / ORS usage currently exposed through client-side or loosely gated paths in `engines/tripPlannerCore.js` and `services/orsService.js`.
+- Any future quota-bearing AI, route, geocode, export, or advanced planning action must enter through this same entitlement check.
+
+**Detangle:**
+- Delete the assumption that "signed in" means "premium." Signed-in users are authenticated; premium users are entitled.
+- Remove all trust from `localStorage.premiumLoggedIn`, frontend flags, hidden buttons, and DevTools-mutable globals. UI gates may remain for UX, but backend checks are the authority.
+- Keep premium terminology out of unrelated render settings. "Premium Bubble Mode" is a map-rendering option, not a paid entitlement, unless product explicitly decides otherwise.
+
+**Move:**
+- Move premium checks out of `authService.js`, `searchEngine.js`, and `tripPlannerCore.js` into `services/IdentityService.js`.
+- Move ORS route generation behind a callable function if it is not already fully server-side. The client should request "generate route"; the server should verify auth + tier + rate limit before touching paid APIs.
+- Move global/geocoded search calls behind a callable or `CallableClient` method when they cost money, consume quota, or unlock premium value.
+
+**Keep:**
+- Existing free map browsing, check-ins, profile, visited-place tracking, and basic trip planning available to free users.
+- Existing UI affordances that explain premium-only actions, but treat them as presentation only.
+- Existing Firebase Auth provider and Firestore user documents.
+
+**Add:**
+- `IdentityService.getCurrentUser()`, `IdentityService.getTier()`, `IdentityService.isPremium()`, and `IdentityService.subscribe(fn)`.
+- Firestore field: `users/{uid}.tier`, initially `free | premium`. Optional future shape: `users/{uid}.entitlements = { premium: true, expires_at }`.
+- `functions/createPremiumCheckoutSession` callable. Requires auth, creates a Stripe Checkout session for the premium product/price, and returns a redirect URL.
+- `functions/stripeWebhook` HTTP function. Verifies the Stripe signature using the official Stripe SDK, handles checkout/subscription events idempotently, and writes `users/{uid}.tier = "premium"` only from the backend.
+- `functions/assertPremium(context)` helper for callable functions that guard paid features.
+- Firestore Security Rules that prevent clients from writing their own `tier`, `entitlements`, subscription IDs, or billing status.
+- Minimal paywall UI: when a free user triggers a premium action, show the premium offer and start checkout. Do not build a catalog/cart yet.
+- Basic billing admin note: one place to manually comp or revoke premium during beta, preferably via admin-only callable or admin page.
+
+**Exit criteria:**
+- A free signed-in user cannot call premium route/global search directly from DevTools and receive paid results.
+- A paid test user can complete Stripe Checkout in test mode and become premium through the webhook.
+- `users/{uid}.tier` is never written by client code.
+- `IdentityService.isPremium()` reflects backend state after login, refresh, and webhook update.
+- Route generation and premium/global search fail closed if auth, tier lookup, Stripe, or callable checks are unavailable.
+- Existing free-user flows still work without payment.
+
+**Risk:** Medium-high. Money and entitlement are trust boundaries. Use Stripe test mode, webhook signature verification, idempotency keys, rate limits, and server-side product/price validation. Do not hand-roll payment verification.
+
+**Estimate:** 1 week for the first paid vertical slice if Phase -1 and Phase 2 are complete. Add more time if ORS/global search still need server-side callable migration.
+
+---
+
 ### Phase 3 — Layer Unification (the map sanity phase)
 
 **Goal:** Every map layer follows the `TripLayer` pattern. Adding a new layer is one file. The toggle web disappears.
@@ -376,7 +426,7 @@ src/
 
 **Services:**
 - `services/StoreService.js`. Orchestrates: `addToCart()`, `getCheckoutSession()`, `confirmOrder(sessionId)`. Reads `IdentityService` for `uid` and `PreferencesRepo` for shipping address.
-- Premium tier read on `IdentityService.tier` (currently hardcoded to "signed-in user = premium" — Phase 5 replaces this with a real Firestore field `users/{uid}.tier` written only by the Stripe webhook).
+- Premium tier read on `IdentityService.tier` created in Phase 2.5. Storefront may add product/order entitlements, but it does not redefine premium identity.
 
 **Views:**
 - `views/store/StoreView.js` — catalog grid.
@@ -387,7 +437,7 @@ src/
 
 **Cloud Functions:**
 - `functions/createCheckoutSession` — callable, requires auth. Reads cart, validates against `products/`, creates Stripe Checkout session, returns URL.
-- `functions/stripeWebhook` — HTTP function (Stripe webhook). Verifies signature, writes order to `users/{uid}/orders/{orderId}`, sets `users/{uid}.tier` if applicable, sends confirmation email via Mailgun/SendGrid.
+- `functions/stripeWebhook` — extend the Phase 2.5 webhook. Verifies signature, writes order to `users/{uid}/orders/{orderId}`, updates product/order entitlements if applicable, sends confirmation email via Mailgun/SendGrid.
 - Both functions use Firebase secrets pattern from Fix #20: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`.
 
 **Admin tooling:**
@@ -459,6 +509,20 @@ This is the cheat sheet. Tick off as you go.
 
 ---
 
+### Phase 2.5 Changes (paid entitlement vertical slice)
+
+| File | Change | Phase 2.5 |
+|---|---|---|
+| `services/IdentityService.js` | Own `uid`, `tier`, `isPremium()`, and auth/tier subscriptions | ✓ |
+| `functions/index.js` | Add premium checkout callable, Stripe webhook, `assertPremium(context)`, and server-side rate limits | ✓ |
+| `services/orsService.js` | Ensure route generation uses callable route transport instead of a browser-exposed ORS key | ✓ |
+| `modules/searchEngine.js` / `services/SearchService.js` | Route quota-bearing global search through a premium-enforced callable | ✓ |
+| `engines/tripPlannerCore.js` / `services/TripService.js` | Treat premium route generation as a service call guarded by `IdentityService` + backend entitlement | ✓ |
+| Firestore rules | Prevent client writes to `tier`, `entitlements`, billing fields, and subscription IDs | ✓ |
+| Minimal paywall UI | Free user can start Stripe Checkout from a premium action; no catalog/cart yet | ✓ |
+
+---
+
 ### Files that survive (renamed but keep their soul)
 
 | Current | Becomes | Phase |
@@ -466,7 +530,7 @@ This is the cheat sheet. Tick off as you go.
 | `modules/TripLayerManager.js` | `modules/layers/TripLayer.js` (P3) → `src/views/map/layers/TripLayer.js` (P4) | 3, 4 |
 | `modules/MarkerLayerManager.js` | `modules/layers/ParkLayer.js` (P3) → `src/views/map/layers/ParkLayer.js` (P4) | 3, 4 |
 | `services/firebaseService.js` | `transport/FirestoreClient.js` (P4) | 4 |
-| `services/orsService.js` | `transport/CallableClient.js` (P4, expanded for checkout callable) | 4, 5 |
+| `services/orsService.js` | `transport/CallableClient.js` (P4, expanded for premium and checkout callables) | 2.5, 4, 5 |
 | `state/settingsStore.js` | `repos/PreferencesRepo.js` (P2) | 2 |
 | `modules/gamificationLogic.js` | `domain/Achievements.js` (pure engine) + `services/AchievementService.js` (orchestrator) | 2 |
 
@@ -525,29 +589,32 @@ These don't block earlier phases but need answers before Phase 4 lands.
 3. **Test framework:** Currently none (Fix #15 removed the fake suite). Recommend **Vitest** for unit, **Playwright** for E2E. Land alongside Phase 4 since Vitest works with Vite out of the box.
 4. **Routing:** Hash-based vs History API. App is currently view-toggle-based with no routing. Hash-based is simpler for PWA; History API is cleaner URLs. Recommend **hash-based** for now (simpler, no Firebase Hosting config changes).
 5. **State management library:** Currently bespoke (settings store + repos). Recommend **stay bespoke** — you've already built it twice (Fix #12, Fix #14). Adding Redux/Zustand is a fifth pattern, not a unification.
-6. **Premium tier source of truth:** Currently `Boolean(firebase.auth().currentUser)`. Phase 5 introduces `users/{uid}.tier`. Decide before Phase 5: free / premium / pro tiers? Or just free / premium?
+6. **Premium tier source of truth:** Phase 2.5 introduces `users/{uid}.tier` written only by trusted backend code. Decide before Phase 2.5 whether the first launch is `free | premium` only, or whether to reserve room for `pro` later. Recommend `free | premium` for the first paid slice.
 
 ---
 
 ## 8. Velocity & Sequencing Reality Check
 
-Total estimated calendar time, solo: **11–16 weeks** for Phases -1 through 5. Phase 6 is on-demand.
+Total estimated calendar time, solo: **12–17 weeks** for Phases -1 through 5, including the Phase 2.5 paid-entitlement slice. Phase 6 is on-demand.
 
 Breakdown:
 - Phase -1: 2–3 days (production guardrails)
 - Phase 0: 1–2 days (detangle smartMarkerMode, collapse markerLayerPolicy)
 - Phase 1: 1 week (repository seam)
 - Phase 2: 2 weeks (spatial index + service extraction)
+- Phase 2.5: 1 week (paid entitlement, Stripe checkout, backend feature locks)
 - Phase 3: 1.5–2 weeks (layer unification)
 - Phase 4: 1 week (bundler + ES modules)
 - Phase 5: 3–4 weeks (storefront)
-- **Total: 11–16 weeks**
+- **Total: 12–17 weeks**
 
 If a second dev joins after Phase 4, parallel work becomes possible — one dev on storefront (Phase 5), one on telemetry/perf (Phase 6 prep). Before Phase 4, the `<script>` order tangle limits parallelism severely.
 
 **Do not skip Phase -1.** It is blocking. The audit identifies five critical findings that must be fixed before Phase 0. They take 2–3 days and prevent production meltdown at scale.
 
 **Do not skip Phase 0 to "save time."** Every later phase compounds the cost of the current tangle. Phase 0 pays for itself in Phase 1.
+
+**Do not wait until Phase 5 to take money.** Phase 2.5 is the first safe revenue point: entitlement is backend-owned, current premium features are locked server-side, and Stripe can validate demand before the full storefront exists.
 
 **Do not start Phase 5 (storefront) before Phase 3.** Bolting a store onto the current toggle web is exactly how the current mess was made.
 
@@ -590,7 +657,125 @@ That's why Phase -1 comes first.
 
 ---
 
-## 11. My Suggestions Before We Start
+## 11. ALTERNATE PLAN: Revenue Launch Path (if launching in 3–4 weeks)
+
+**Decision Point:** Do you want to follow the full 11–16 week architectural refactor (Phases -1 through 6), or do you want to launch revenue in 3–4 weeks and refactor post-launch?
+
+### Full Plan (this document, 11–16 weeks)
+- **Goal:** Production-grade, multi-developer, 10k-pin ready architecture before launch.
+- **Path:** Phase -1 → Phase 0 → Phase 1 → Phase 2 → Phase 2.5 → Phase 3 → Phase 4 → Phase 5.
+- **Outcome:** Launch with a scalable foundation; team can grow immediately.
+- **Risk:** Takes 3+ months before revenue.
+
+### Alternate Plan: Fast Track (3–4 weeks to first paid users)
+- **Goal:** Fix critical security holes and add Stripe integration. Launch with early users, refactor post-traction.
+- **Path:** Phase -1 → Phase 2 (partial, IdentityService only) → Phase 2.5 → Soft Launch.
+- **Outcome:** Revenue flowing in 3–4 weeks. Phase 0–1–3–4 happen later as the team grows.
+- **Risk:** Codebase is still tangled; hiring a second dev in month 2 is slow without Phases 0–1. But you've validated product-market fit.
+
+### Timeline Comparison
+
+| Milestone | Full Plan | Fast Track |
+|---|---|---|
+| Phase -1 (security) | Week 1 | Week 1 |
+| Phase 0 (detangle smartMarkerMode) | Week 1–2 | **Deferred to month 2** |
+| Phase 1 (repositories) | Week 2–3 | **Deferred to month 2** |
+| Phase 2 (spatial index + services) | Week 4–5 | **Partial only (IdentityService), week 2** |
+| Phase 2.5 (Stripe + premium tier) | Week 6–7 | Week 2–3 |
+| Phase 3 (layer unification) | Week 8–9 | **Deferred to month 3** |
+| Phase 4 (bundler + ES modules) | Week 10–11 | **Deferred to month 3–4** |
+| Phase 5 (storefront) | Week 12–16 | **Month 4–5** |
+| **First revenue** | Month 4 | **Week 3–4** |
+
+### What's Skipped in Fast Track
+
+- **Phase 0 (smartMarkerMode cleanup):** Pure code quality. Doesn't affect stability or users. Do it in month 2 when the team is smaller and has time.
+- **Phase 1 full (repository seam):** Architectural cleanup. Needed for team scaling, not for launch. Do it in month 2–3 when you hire the second dev.
+- **Phase 3 (layer unification):** Developer experience. Needed when the map team grows. Do it in month 3.
+- **Phase 4 (bundler):** Multi-dev unlock. Needed when you have 3+ engineers. Do it in month 3–4.
+
+### What's NOT Skipped
+
+- **Phase -1 (production guardrails):** REQUIRED. Security holes cost money at scale. Do this first.
+- **Phase 2 partial (IdentityService):** REQUIRED. You need to know "who is this user, are they premium." Do this.
+- **Phase 2.5 (Stripe + premium tier):** REQUIRED. This is how you take money. Do this.
+
+### Fast Track Detailed Sequence
+
+**Week 1 (3 days):**
+- Do Phase -1 completely:
+  - Add auth checks to `extractParkData()` and `syncToSpreadsheet()` in `functions/index.js`.
+  - Verify ORS key is gone from `modules/barkConfig.js` (should be done from Fixes #20-22).
+  - Wrap `authService.initFirebase()` in try/catch.
+  - Fix settings hydration order in `core/app.js`.
+  - Extract pagination state from `firebaseService.loadSavedRoutes()`.
+- **Exit:** App is safe. No unauthenticated Cloud Functions. No exposed keys.
+
+**Week 1–2 (3–4 days):**
+- Phase 2 partial — extract IdentityService only:
+  - Create `services/IdentityService.js`.
+  - Move auth state reads from scattered locations (`authService`, `searchEngine`, `tripPlannerCore`) into `IdentityService.currentUser()` and `IdentityService.isPremium()`.
+  - Do NOT do the full Phase 2 repository refactor (ParkRepo, VaultRepo, etc.). Too much.
+  - Do NOT do the spatial index yet. Too much.
+  - Minimal scope: just enough so `IdentityService.isPremium()` can be called cleanly.
+- **Exit:** You can ask "is the user premium?" from any file without reading `window.*` globals.
+
+**Week 2–3 (1 week):**
+- Phase 2.5 — paid entitlement:
+  - Create `repos/OrderRepo.js` (cart + order history).
+  - Create `services/StoreService.js` (orchestrator).
+  - Add `createCheckoutSession` Cloud Function callable.
+  - Add `stripeWebhook` HTTP function handler.
+  - Add `users/{uid}.tier` field to Firestore user document.
+  - Create Firestore rules preventing client-side tier writes.
+  - Lock global search behind `IdentityService.isPremium()`.
+  - Lock premium route generation behind `IdentityService.isPremium()`.
+  - Add tier check to ORS callable (if ORS is still being called directly) or to `getPremiumRoute` callable (if you've already migrated).
+- **Exit:** Stripe integration works. Users can buy premium. Premium features are gated.
+
+**Week 3 (1 week QA + buffer):**
+- Integration testing.
+- Soft launch: 20–50 beta users with payment enabled.
+- Monitor: Stripe webhook success, ORS quota usage, Firestore costs, auth failures.
+
+**End of Week 4:** First money in the bank. Codebase is messy but functional.
+
+### Post-Launch Roadmap (months 2–4)
+
+**Month 2:** Do Phase 0 (smartMarkerMode cleanup) + Phase 1 (repository seam).
+- Improves code morale. Makes onboarding cleaner.
+- 1–2 weeks of work.
+
+**Month 3:** Do Phase 3 (layer unification) if the map team grows, or Phase 4 (bundler) if you hire the first engineer.
+- Depends on where the next hire is.
+
+**Month 4+:** Phase 5 full (storefront catalog beyond premium). Phase 4 if not done yet.
+
+### Decision: Which Plan?
+
+**Choose FULL PLAN (11–16 weeks) if:**
+- You have time. You're not in a race to show traction.
+- You want to hire immediately after launch and need the foundation built.
+- You want the cleanest possible code before your first paying user touches it.
+- You're risk-averse and want zero technical debt at launch.
+
+**Choose FAST TRACK (3–4 weeks) if:**
+- You need revenue flowing soon to fund operations or validate product-market fit.
+- You're OK with a tangled codebase for 2–3 months while you prove traction.
+- You're willing to spend month 2–3 refactoring after you know users are willing to pay.
+- You understand the team scaling will be slower in month 2 without Phases 0–1 done.
+
+### Honest Take
+
+If you have 3 months of runway and no paying users yet, **Fast Track** is the right call. Get revenue flowing, validate the product, *then* build the foundation while you're growing. The codebase survives 2–3 months of technical debt if the alternative is running out of money.
+
+If you have 6+ months of runway or you're shipping with a team that's already larger than 2 people, **Full Plan** is safer. The time spent in Phases 0–1 prevents months of friction when the second engineer lands.
+
+**Make the choice. Then commit to it.** Mixing both plans (doing Phase -1, then Phase 0, then "just a little Phase 2", then Phase 2.5 out of order) creates the worst outcome: slow progress, unclear dependencies, and still-tangled code.
+
+---
+
+## 12. My Suggestions Before We Start
 
 These are Codex's suggested adjustments after comparing this plan against the audit reports. They are not automatically adopted into the phase list until we choose them deliberately.
 
