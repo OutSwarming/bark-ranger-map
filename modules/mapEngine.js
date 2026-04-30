@@ -63,7 +63,7 @@ if (window.map && window.BARK.markerLayer && window.BARK.markerClusterGroup) ret
 applyGlobalStyles();
 
 let mapSaveTimeout;
-const LOWER_48_MIN_ZOOM = 5;
+const LOWER_48_MIN_ZOOM = 4.5;
 
 const mapOptions = window.ultraLowEnabled ? {
     preferCanvas: true,
@@ -75,6 +75,7 @@ const mapOptions = window.ultraLowEnabled ? {
     inertia: false,
     zoomControl: false,
     minZoom: LOWER_48_MIN_ZOOM,
+    zoomSnap: 0.5,
     worldCopyJump: true,
     bounceAtZoomLimits: false,
     renderer: L.canvas({ padding: 0.5 })
