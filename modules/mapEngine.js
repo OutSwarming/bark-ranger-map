@@ -63,7 +63,7 @@ if (window.map && window.BARK.markerLayer && window.BARK.markerClusterGroup) ret
 applyGlobalStyles();
 
 let mapSaveTimeout;
-const initialZoomLimitMode = Boolean(window.limitZoomOut || window.lowGfxEnabled || window.ultraLowEnabled);
+const LOWER_48_MIN_ZOOM = 5;
 
 const mapOptions = window.ultraLowEnabled ? {
     preferCanvas: true,
@@ -74,13 +74,15 @@ const mapOptions = window.ultraLowEnabled ? {
     fadeAnimation: false,
     inertia: false,
     zoomControl: false,
+    minZoom: LOWER_48_MIN_ZOOM,
     worldCopyJump: true,
-    bounceAtZoomLimits: !initialZoomLimitMode,
+    bounceAtZoomLimits: false,
     renderer: L.canvas({ padding: 0.5 })
 } : {
     zoomControl: false,
+    minZoom: LOWER_48_MIN_ZOOM,
     worldCopyJump: true,
-    bounceAtZoomLimits: !initialZoomLimitMode,
+    bounceAtZoomLimits: false,
     renderer: L.canvas({ padding: 0.5 }),
     preferCanvas: true,
     zoomSnap: 0.5,
@@ -113,15 +115,15 @@ function getActiveMapPolicy() {
 
 function getActiveMinZoom() {
     const policy = getActiveMapPolicy();
-    return policy.minZoom === null ? defaultMinZoom : policy.minZoom;
+    const policyMinZoom = policy.minZoom === null ? defaultMinZoom : policy.minZoom;
+    return Math.max(LOWER_48_MIN_ZOOM, policyMinZoom);
 }
 
 window.BARK.applyMapPerformancePolicy = function applyMapPerformancePolicy() {
     if (!window.map) return;
-    const policy = getActiveMapPolicy();
-    const nextMinZoom = policy.minZoom === null ? defaultMinZoom : policy.minZoom;
+    const nextMinZoom = getActiveMinZoom();
 
-    window.map.options.bounceAtZoomLimits = !policy.limitZoomOut;
+    window.map.options.bounceAtZoomLimits = false;
     window.map.setMinZoom(nextMinZoom);
     if (window.map.getZoom() < nextMinZoom) {
         window.map.setView(window.map.getCenter(), nextMinZoom, { animate: false });
