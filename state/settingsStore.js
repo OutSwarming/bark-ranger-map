@@ -189,6 +189,13 @@
             applyValue(otherKey, false);
         }
 
+        if (key === 'forcePlainMarkers' && values.forcePlainMarkers) {
+            applyValue('standardClusteringEnabled', false);
+            applyValue('premiumClusteringEnabled', false);
+        } else if (CLUSTER_SETTING_KEYS.has(key) && values[key]) {
+            applyValue('forcePlainMarkers', false);
+        }
+
         if (key === 'ultraLowEnabled' && values.ultraLowEnabled) {
             applyPresetValues(getUltraLowPresetValues(true));
         } else if (key === 'ultraLowEnabled') {
