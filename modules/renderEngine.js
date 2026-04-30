@@ -75,6 +75,7 @@ window.BARK.safeUpdateHTML = safeUpdateHTML;
 let syncScheduled = false;
 let lastMarkerVisibilityStateKey = null;
 let lastSyncedMarkerDataRevision = null;
+let markerVisibilityRevision = 0;
 const ACHIEVEMENT_EVAL_DEBOUNCE_MS = 3000;
 let achievementEvalTimer = null;
 let achievementEvalInProgress = false;
@@ -373,8 +374,13 @@ function updateMarkers() {
         }
     });
 
+    markerVisibilityRevision++;
+    window.BARK._markerVisibilityRevision = markerVisibilityRevision;
+
     if (window.BARK.markerManager && typeof window.BARK.markerManager.applyVisibility === 'function') {
-        window.BARK.markerManager.applyVisibility(allPoints);
+        const forceLayerReset = window.BARK._forceMarkerLayerReset === true;
+        window.BARK._forceMarkerLayerReset = false;
+        window.BARK.markerManager.applyVisibility(allPoints, { forceReset: forceLayerReset });
     }
 
     // 🏭 BATCH: Apply visited-pin class (avoids interleaved read/write layout thrash)

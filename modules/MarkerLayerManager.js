@@ -176,7 +176,26 @@ class MarkerLayerManager {
         marker._barkLayerType = null;
     }
 
-    moveMarkersToLayer(points, targetLayerType) {
+    resetLayerMembership(points) {
+        if (this.clusterLayer && typeof this.clusterLayer.clearLayers === 'function') {
+            this.clusterLayer.clearLayers();
+        }
+        if (this.plainLayer && typeof this.plainLayer.clearLayers === 'function') {
+            this.plainLayer.clearLayers();
+        }
+
+        points.forEach(point => {
+            if (!point || !point.marker) return;
+            point.marker._layerAdded = false;
+            point.marker._barkLayerType = null;
+        });
+    }
+
+    moveMarkersToLayer(points, targetLayerType, options = {}) {
+        if (options.forceReset === true) {
+            this.resetLayerMembership(points);
+        }
+
         const markersToAdd = [];
         const policy = window.BARK.getMarkerLayerPolicy
             ? window.BARK.getMarkerLayerPolicy(this.map ? this.map.getZoom() : 0)
@@ -242,8 +261,8 @@ class MarkerLayerManager {
         window.BARK._lastLayerType = targetLayerType;
     }
 
-    applyVisibility(points = window.BARK.allPoints || []) {
-        this.moveMarkersToLayer(points, this.getTargetLayerType());
+    applyVisibility(points = window.BARK.allPoints || [], options = {}) {
+        this.moveMarkersToLayer(points, this.getTargetLayerType(), options);
     }
 
     sync(points = window.BARK.allPoints || [], options = {}) {

@@ -96,6 +96,15 @@ const mapOptions = window.ultraLowEnabled ? {
 window.map = L.map('map', mapOptions);
 const defaultMinZoom = window.map.options.minZoom ?? 0;
 
+function refreshMarkerClusters() {
+    const clusterLayer = window.BARK && window.BARK.markerClusterGroup;
+    if (!clusterLayer || typeof clusterLayer.refreshClusters !== 'function') return;
+    if (!window.map || !window.map.hasLayer(clusterLayer)) return;
+    clusterLayer.refreshClusters();
+}
+
+window.BARK.refreshMarkerClusters = refreshMarkerClusters;
+
 function getActiveMapPolicy() {
     return window.BARK.getMarkerLayerPolicy
         ? window.BARK.getMarkerLayerPolicy(window.map.getZoom())
@@ -117,6 +126,10 @@ window.BARK.applyMapPerformancePolicy = function applyMapPerformancePolicy() {
     if (window.map.getZoom() < nextMinZoom) {
         window.map.setView(window.map.getCenter(), nextMinZoom, { animate: false });
     }
+    if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
+        window.BARK.invalidateMarkerVisibility();
+    }
+    refreshMarkerClusters();
 };
 window.BARK.applyMapPerformancePolicy();
 
@@ -237,6 +250,7 @@ map.on('zoomend', () => {
     clearTimeout(zoomSyncTimeout);
     zoomSyncTimeout = setTimeout(() => {
         window.BARK._isZooming = false;
+        refreshMarkerClusters();
         if (zoomLayerChangePending || window.BARK._pendingMarkerSync) {
             zoomLayerChangePending = false;
             window.BARK._pendingMarkerSync = false;
@@ -367,19 +381,30 @@ const markerClusterGroup = L.markerClusterGroup({
     maxClusterRadius: function (zoom) {
         if (window.premiumClusteringEnabled) return 80;
         if (window.standardClusteringEnabled) {
-            if (zoom <= 5) return 40;
-            if (zoom <= 8) return 60;
-            return 80;
+            if (zoom <= 3) return 120;
+            if (zoom <= 5) return 100;
+            if (zoom <= 8) return 80;
+            return 60;
         }
         return 80;
     },
     iconCreateFunction: function (cluster) {
-        const childMarkers = typeof cluster.getAllChildMarkers === 'function'
-            ? cluster.getAllChildMarkers()
-            : [];
-        const visibleChildCount = childMarkers.length
-            ? childMarkers.reduce((count, marker) => count + (marker && marker._barkIsVisible !== false ? 1 : 0), 0)
-            : cluster.getChildCount();
+        const visibilityRevision = window.BARK._markerVisibilityRevision || 0;
+        const childCount = cluster.getChildCount();
+        const cacheKey = `${visibilityRevision}|${window.map.getZoom()}|${childCount}`;
+        let visibleChildCount = cluster._barkVisibleChildCount;
+
+        if (cluster._barkVisibleChildCountKey !== cacheKey) {
+            const childMarkers = typeof cluster.getAllChildMarkers === 'function'
+                ? cluster.getAllChildMarkers()
+                : [];
+            visibleChildCount = childMarkers.length
+                ? childMarkers.reduce((count, marker) => count + (marker && marker._barkIsVisible !== false ? 1 : 0), 0)
+                : childCount;
+            cluster._barkVisibleChildCount = visibleChildCount;
+            cluster._barkVisibleChildCountKey = cacheKey;
+        }
+
         const hiddenClass = visibleChildCount > 0 ? '' : ' marker-filter-hidden';
         const markerHtml = `
             <div class="cluster-enamel-wrapper">
@@ -410,10 +435,12 @@ window.BARK.markerManager = new window.BARK.MarkerLayerManager({
 window.BARK._lastLayerType = null; // 'cluster' | 'plain' | null
 
 window.BARK.rebuildMarkerLayer = function () {
-    if (window.BARK.markerManager) window.BARK.markerManager.sync(window.BARK.allPoints);
     if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
         window.BARK.invalidateMarkerVisibility();
     }
+    window.BARK._forceMarkerLayerReset = true;
+    window.BARK._pendingMarkerSync = true;
+    refreshMarkerClusters();
 };
 
 // ====== ONE-FINGER ZOOM ENGINE (Google Maps Style) ======
