@@ -275,6 +275,25 @@ Exit criteria:
 - Account switch isolation passes.
 - Full smoke bundle passes.
 
+Implementation status:
+
+- Phase 4C.3 is implemented for low-risk controls only.
+- `#premium-filters-wrap`, `#visited-filter`, and `#map-style-select` now consume effective premium entitlement state from `premiumService.isPremium()`.
+- Signed-out users remain locked.
+- Signed-in free users remain locked for the low-risk premium controls.
+- Signed-in premium/manual override users unlock the low-risk premium controls.
+- Locking preserves the previous reset behavior: `#visited-filter` is disabled and reset to `all`; `#map-style-select` is disabled and reset to `default`.
+- Trail buttons remain auth-gated for this slice and are not entitlement-gated yet.
+- Global search, offline mode, premium clustering/bubble mode, ORS `getPremiumRoute` / `getPremiumGeocode`, backend/server behavior, Firebase rules, payment provider work, and payment buttons remain deferred.
+- `tests/playwright/phase4c-premium-entitlement-smoke.spec.js` now asserts free vs premium UI state for the low-risk controls.
+- `tests/playwright/phase3a-premium-gating-smoke.spec.js` now expects signed-in free users to stay locked for entitlement-gated controls while signed-in trail buttons remain auth-enabled.
+- `tests/playwright/phase3a-settings-persistence-smoke.spec.js` now uses `BARK_E2E_PREMIUM_STORAGE_STATE` because `#visited-filter` is premium-only after 4C.3.
+- Verification passed: `node --check services/authPremiumUi.js services/authService.js services/premiumService.js tests/playwright/phase4c-premium-entitlement-smoke.spec.js tests/playwright/phase3a-premium-gating-smoke.spec.js tests/playwright/phase3a-settings-persistence-smoke.spec.js`.
+- `npm run test:e2e:entitlement`: PASS, 1 passed.
+- `npm run test:e2e:premium`: PASS, 2 passed.
+- `npm run test:e2e:smoke`: PASS, 9 passed.
+- No Firestore writes, Firebase rules, payment code, payment provider, payment buttons, VaultRepo, RefreshCoordinator, ORS service, searchEngine global search gating, expeditionEngine trail click guards, dataService offline mode, settings premiumClustering logic, or deployment changes were made.
+
 ### 4C.4 - Backend / Rules Plan For ORS, Offline, And Global Search
 
 Goal:
@@ -319,3 +338,5 @@ Expected implementation files:
 Ready to implement 4C.2?
 
 4C.2 is complete and verified. Ready to implement 4C.3: YES, for the planned UI entitlement gating switch only. Do not add payment provider work, payment buttons, Firebase rules, Firestore writes, backend callable gating, or deployment in 4C.3.
+
+Phase 4C.3 is now complete. Next recommended step is not payment implementation; it should be either a focused review/QC of 4C.3 or Phase 4C.4 backend/rules planning for ORS, offline mode, and global search.

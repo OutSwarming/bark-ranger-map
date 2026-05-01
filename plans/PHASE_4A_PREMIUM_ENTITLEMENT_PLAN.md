@@ -468,7 +468,8 @@ Implementation status:
 Planning status:
 
 - Phase 4C.1 is captured in `plans/PHASE_4C_ENTITLEMENT_UI_GATING_PLAN.md`.
-- Recommended first runtime scope is low-risk UI controls only: premium wrapper, visited filter, map style select, and trail buttons if their click guards are updated in the same PR.
+- Phase 4C.3 implemented the first runtime scope for low-risk UI controls only: premium wrapper, visited filter, and map style select.
+- Trail buttons remain auth-gated for this slice and are not entitlement-gated yet.
 - Defer global search, offline mode, ORS callables, and premium clustering until test data, product decisions, and backend enforcement plans are ready.
 
 Goal:
@@ -597,4 +598,16 @@ Ready to implement Phase 4B?
 
 Phase 4B is now implemented as a read-only `premiumService` skeleton and entitlement normalization slice. Ready to implement Phase 4C: YES only for making UI consumers read entitlement state behind tests. NO for payment provider integration, payment buttons, money collection, Firebase rule changes, or paid-feature deployment.
 
-Phase 4C.2 entitlement smoke is now complete and passing. Ready to implement Phase 4C.3: YES for the planned UI entitlement gating switch only.
+Phase 4C.2 entitlement smoke is now complete and passing.
+
+Phase 4C.3 low-risk UI entitlement gating is now complete:
+
+- `#premium-filters-wrap`, `#visited-filter`, and `#map-style-select` now use premium entitlement state.
+- Signed-in free users stay locked for these controls.
+- Premium/manual override users unlock these controls.
+- Existing lock reset behavior is preserved for visited filter and map style.
+- Trail buttons, global search, offline mode, premium clustering, ORS callables, backend/server behavior, payment provider work, payment buttons, Firebase rules, Firestore writes, and deployment remain deferred.
+- `npm run test:e2e:entitlement`: PASS, 1 passed.
+- `npm run test:e2e:premium`: PASS, 2 passed.
+- `npm run test:e2e:smoke`: PASS, 9 passed.
+- No client entitlement writes, payment provider, payment buttons, email/password UI, or deployment were added.

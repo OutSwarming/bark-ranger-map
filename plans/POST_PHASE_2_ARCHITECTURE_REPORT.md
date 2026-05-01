@@ -388,6 +388,18 @@ Phase 4C.2 entitlement smoke scaffolding is added:
 - Google OAuth remains blocked in Playwright; E2E uses Firebase Email/Password storage state while real users still use Google sign-in.
 - Phase 4C.3 UI entitlement gating switch is now ready to implement next.
 
+Phase 4C.3 low-risk UI entitlement gating is complete:
+
+- `#premium-filters-wrap`, `#visited-filter`, and `#map-style-select` now use effective premium entitlement state.
+- Signed-out users remain locked.
+- Signed-in free users stay locked for these low-risk controls.
+- Premium/manual override users unlock these low-risk controls.
+- Locking preserves the previous reset behavior for visited filter and map style.
+- Trail buttons remain auth-gated and are not entitlement-gated in this slice.
+- Global search, offline mode, premium clustering/bubble mode, ORS route/geocode callables, backend/server enforcement, Firebase rules, payment provider work, and payment buttons remain deferred.
+- Verification passed: entitlement smoke 1 passed, premium smoke 2 passed, and full smoke bundle 9 passed.
+- No Firestore writes, client entitlement writes, Firebase rules, payment logic, email/password UI, or deployment changes were made.
+
 ## 10. Stop / Do-Not-Do List
 
 - Do not start additional Phase 3 work beyond the completed Phase 3A.1 premium gating, Phase 3A.2 account-switch, Phase 3A.3 profile/manage, Phase 3A.4 trip planner visited styling, Phase 3A.5 settings persistence, Phase 3B.1 planning, and Phase 3B.2 leaderboard renderer extraction slices in this task.

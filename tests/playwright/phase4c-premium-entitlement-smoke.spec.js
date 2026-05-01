@@ -279,7 +279,9 @@ async function readEntitlementState(page) {
                 premiumWrapLocked: premiumWrap ? premiumWrap.classList.contains('premium-locked') : null,
                 premiumWrapUnlocked: premiumWrap ? premiumWrap.classList.contains('premium-unlocked') : null,
                 visitedFilterDisabled: visitedFilter ? visitedFilter.disabled === true : null,
-                mapStyleSelectDisabled: mapStyleSelect ? mapStyleSelect.disabled === true : null
+                visitedFilterValue: visitedFilter ? visitedFilter.value : null,
+                mapStyleSelectDisabled: mapStyleSelect ? mapStyleSelect.disabled === true : null,
+                mapStyleSelectValue: mapStyleSelect ? mapStyleSelect.value : null
             }
         };
     }, { expectedPremiumUid: EXPECTED_PREMIUM_UID });
@@ -304,6 +306,14 @@ test.describe('Phase 4C premium entitlement smoke', () => {
         expect(freeState.user && freeState.user.uid, 'Free storage state should produce a signed-in Firebase user').toBeTruthy();
         expect(freeState.isPremium, 'Free user should not be premium according to premiumService').toBe(false);
         expect(freeState.entitlement.premium, 'Free user normalized entitlement should not be premium').toBe(false);
+        expect(freeState.currentUiBehavior).toMatchObject({
+            premiumWrapLocked: true,
+            premiumWrapUnlocked: false,
+            visitedFilterDisabled: true,
+            visitedFilterValue: 'all',
+            mapStyleSelectDisabled: true,
+            mapStyleSelectValue: 'default'
+        });
 
         const premiumContext = await browser.newContext({ storageState: premiumStorageStatePath });
         const premiumPage = await premiumContext.newPage();
@@ -328,6 +338,12 @@ test.describe('Phase 4C premium entitlement smoke', () => {
             source: 'admin_override',
             manualOverride: true,
             currentPeriodEnd: null
+        });
+        expect(premiumState.currentUiBehavior).toMatchObject({
+            premiumWrapLocked: false,
+            premiumWrapUnlocked: true,
+            visitedFilterDisabled: false,
+            mapStyleSelectDisabled: false
         });
 
         expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);

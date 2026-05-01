@@ -383,11 +383,63 @@ function stopUserSnapshotSubscription() {
     }
 }
 
-function handlePremiumGating(isLoggedIn) {
+function hasCurrentAuthUser() {
+    try {
+        return Boolean(
+            typeof firebase !== 'undefined' &&
+            firebase.auth &&
+            firebase.auth().currentUser
+        );
+    } catch (error) {
+        return false;
+    }
+}
+
+function handlePremiumGating(isPremium, options = {}) {
     const premiumUi = window.BARK.authPremiumUi;
     if (premiumUi && typeof premiumUi.applyPremiumGating === 'function') {
-        premiumUi.applyPremiumGating(isLoggedIn);
+        premiumUi.applyPremiumGating(isPremium === true, {
+            trailsUnlocked: options.trailsUnlocked === undefined ? hasCurrentAuthUser() : options.trailsUnlocked === true,
+            reason: options.reason || null
+        });
     }
+}
+
+function getPremiumService() {
+    return window.BARK.services && window.BARK.services.premium;
+}
+
+function resetPremiumEntitlement(reason) {
+    const premiumService = getPremiumService();
+    if (!premiumService || typeof premiumService.reset !== 'function') return;
+    try {
+        premiumService.reset({ reason });
+        refreshPremiumUiFromEntitlement(reason);
+    } catch (error) {
+        console.error('[authService] premium entitlement reset failed:', error);
+    }
+}
+
+function updatePremiumEntitlement(rawEntitlement, user, reason) {
+    const premiumService = getPremiumService();
+    if (!premiumService || typeof premiumService.setEntitlement !== 'function') return;
+    try {
+        premiumService.setEntitlement(rawEntitlement, {
+            uid: user && user.uid ? user.uid : null,
+            reason
+        });
+        refreshPremiumUiFromEntitlement(reason);
+    } catch (error) {
+        console.error('[authService] premium entitlement update failed:', error);
+    }
+}
+
+function refreshPremiumUiFromEntitlement(reason) {
+    const premiumService = getPremiumService();
+    const isPremium = premiumService && typeof premiumService.isPremium === 'function'
+        ? premiumService.isPremium()
+        : false;
+    handlePremiumGating(isPremium, { reason });
 }
 
 function setGuestDefaultSetting(key, value) {
@@ -634,6 +686,7 @@ function initFirebase() {
                 if (user) {
                     if (lastAuthenticatedUid !== user.uid) {
                         window._cloudSettingsLoaded = false;
+                        resetPremiumEntitlement('auth-user-changed');
                     }
                     authenticatedSessionSeen = true;
                     lastAuthenticatedUid = user.uid;
@@ -671,6 +724,8 @@ function initFirebase() {
                                     if (doc.exists) {
                                         const data = doc.data();
 
+                                        updatePremiumEntitlement(data.entitlement, user, 'auth-user-snapshot');
+
                                         handleCloudSettingsHydration(data, doc.metadata);
 
                                         handleAdminCheck(data, user);
@@ -696,6 +751,8 @@ function initFirebase() {
                                         window.currentWalkPoints = Math.round(walkVal * 100) / 100;
 
                                         handleExpeditionSync(data);
+                                    } else {
+                                        updatePremiumEntitlement(null, user, 'auth-user-snapshot-missing');
                                     }
                                     refreshAuthSnapshotUi();
 
@@ -719,7 +776,7 @@ function initFirebase() {
                     }
 
                     if (typeof loadSavedRoutes === 'function') loadSavedRoutes(user.uid);
-                    handlePremiumGating(true);
+                    refreshPremiumUiFromEntitlement('auth-signed-in');
                 } else {
                     const shouldResetRuntime = authenticatedSessionSeen || lastAuthenticatedUid !== null;
                     authenticatedSessionSeen = false;
@@ -727,6 +784,7 @@ function initFirebase() {
 
                     stopUserSnapshotSubscription();
                     stopVaultRepoVisitSubscription();
+                    resetPremiumEntitlement('auth-signed-out');
 
                     if (loginContainer) loginContainer.style.display = 'block';
                     if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
@@ -754,7 +812,7 @@ function initFirebase() {
 
                     resetSavedRouteLists();
 
-                    handlePremiumGating(false);
+                    refreshPremiumUiFromEntitlement('auth-signed-out');
                 }
             } catch (error) {
                 console.error("[authService] auth state callback failed:", error);
