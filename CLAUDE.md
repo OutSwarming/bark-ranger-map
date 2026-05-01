@@ -76,10 +76,10 @@ Before major feature work, refactors, payment work, Passport/journal/photos/even
 
 - [x] **#21 — Server proxy for ORS, client switched to callables (Phase 2 of 3)** (`functions/index.js`, `services/orsService.js`, `index.html`) ✅
 
-- [x] **#22 — Removed client-side ORS key + key rotation (Phase 3 of 3)** (`modules/barkConfig.js`, `index.html`, provider dashboards) ✅
+- [x] **#22 — Removed client-side ORS key + documented rotation gate (Phase 3 of 3)** (`modules/barkConfig.js`, `index.html`, provider dashboards) ✅
 
 ## Current Work
-Fix #22 complete. The client no longer ships any paid API key. Pending user actions on provider dashboards: rotate the old ORS key at openrouteservice.org (issue a new key, set it as the `ORS_API_KEY` Firebase secret with `firebase functions:secrets:set ORS_API_KEY`, redeploy functions, then revoke the old key); rotate the paid Gemini key at console.cloud.google.com (mirror the same set/redeploy/revoke order using `GEMINI_PAID_API_KEY`). Until rotation completes, the old keys remain valid in git history. Primary security queue (#20–#22) complete.
+Phase -1 guardrails are code-complete. The client no longer ships any paid API key, admin callables are protected, auth failures surface a visible banner, saved-route loading returns data instead of rendering DOM, and settings startup order is guarded in boot. Operator gate before production: rotate the old ORS key at openrouteservice.org (issue a new key, set it as the `ORS_API_KEY` Firebase secret with `firebase functions:secrets:set ORS_API_KEY`, redeploy functions, then revoke the old key); rotate the paid Gemini key at console.cloud.google.com (mirror the same set/redeploy/revoke order using `GEMINI_PAID_API_KEY`). Until rotation completes, the old keys remain valid in git history.
 
 ---
 

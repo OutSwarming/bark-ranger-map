@@ -17,7 +17,7 @@
 
     <!-- QRCode JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css?v=37">
+    <link rel="stylesheet" href="styles.css?v=38">
     <link rel="stylesheet" href="styles/mapStyles.css?v=5">
     <link rel="stylesheet" href="styles/trophyCase.css">
 
@@ -58,6 +58,13 @@
             <p id="map-unavailable-detail" class="map-unavailable-detail">The app could not start the map.</p>
             <button id="map-unavailable-refresh" class="map-unavailable-action" type="button">Refresh</button>
         </div>
+    </div>
+    <div id="auth-failure-message" class="auth-failure-banner" role="alert" aria-live="assertive" hidden>
+        <div>
+            <strong>Sign-in unavailable</strong>
+            <span id="auth-failure-detail">Cloud sync and saved progress are offline for this session.</span>
+        </div>
+        <button id="auth-failure-dismiss" type="button" aria-label="Dismiss sign-in warning">Dismiss</button>
     </div>
 
     <div id="filter-panel" class="glass-panel collapsed">
@@ -1238,16 +1245,16 @@
 
     <!-- NEW: Modular Architecture (strict load order) -->
     <script src="modules/settingsRegistry.js?v=1" defer></script>
-    <script src="modules/barkState.js?v=1" defer></script>
+    <script src="modules/barkState.js?v=2" defer></script>
     <script src="modules/barkConfig.js?v=2" defer></script>
     <script src="config/domRefs.js?v=1" defer></script>
-    <script src="state/settingsStore.js?v=3" defer></script>
+    <script src="state/settingsStore.js?v=4" defer></script>
     <script src="state/appState.js?v=1" defer></script>
     <script src="services/orsService.js?v=2" defer></script>
     <script src="services/firebaseService.js?v=7" defer></script>
     <script src="renderers/routeRenderer.js?v=1" defer></script>
     <script src="services/checkinService.js?v=4" defer></script>
-    <script src="services/authService.js?v=14" defer></script>
+    <script src="services/authService.js?v=15" defer></script>
     <script src="modules/markerLayerPolicy.js?v=1" defer></script>
     <script src="modules/MarkerLayerManager.js?v=6" defer></script>
     <script src="modules/TripLayerManager.js?v=3" defer></script>
@@ -1264,7 +1271,7 @@
     <script src="modules/uiController.js?v=9" defer></script>
 
     <!-- ENTRY POINT: Bootstrap Orchestrator (must load LAST) -->
-    <script src="core/app.js?v=28" defer></script>
+    <script src="core/app.js?v=29" defer></script>
     <!-- SCORING PROTOCOL MODAL -->
     <div id="scoring-modal" class="scoring-modal-overlay">
         <div class="scoring-modal-card">

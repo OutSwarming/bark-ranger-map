@@ -203,6 +203,58 @@ textarea,
     transform: translateY(1px);
 }
 
+.auth-failure-banner[hidden] {
+    display: none !important;
+}
+
+.auth-failure-banner {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 14px);
+    left: 50%;
+    z-index: 1850;
+    display: flex;
+    width: min(calc(100vw - 28px), 520px);
+    min-height: 56px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 14px;
+    border: 1px solid rgba(180, 83, 9, 0.25);
+    border-radius: 8px;
+    background: rgba(255, 251, 235, 0.97);
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
+    color: #78350f;
+    transform: translateX(-50%);
+}
+
+.auth-failure-banner strong {
+    display: block;
+    margin-bottom: 2px;
+    color: #713f12;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.auth-failure-banner span {
+    display: block;
+    color: #92400e;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.auth-failure-banner button {
+    flex: 0 0 auto;
+    padding: 8px 10px;
+    border: 1px solid rgba(146, 64, 14, 0.28);
+    border-radius: 8px;
+    background: #ffffff;
+    color: #78350f;
+    font-size: 12px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
 /* Glassmorphism Utilities */
 .glass-panel {
     background: var(--bg-glass);

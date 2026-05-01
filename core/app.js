@@ -21,6 +21,51 @@
         refreshButton.addEventListener('click', () => window.location.reload());
     }
 
+    function bindAuthFailureActions() {
+        const dismissButton = document.getElementById('auth-failure-dismiss');
+        if (!dismissButton || dismissButton.dataset.bound === 'true') return;
+
+        dismissButton.dataset.bound = 'true';
+        dismissButton.addEventListener('click', () => {
+            const message = document.getElementById('auth-failure-message');
+            if (message) message.hidden = true;
+        });
+    }
+
+    function showAuthFailure(reason) {
+        const message = document.getElementById('auth-failure-message');
+        if (!message) return;
+
+        bindAuthFailureActions();
+
+        const detail = document.getElementById('auth-failure-detail');
+        if (detail) {
+            detail.textContent = reason || 'Cloud sync and saved progress are offline for this session.';
+        }
+
+        message.hidden = false;
+    }
+
+    function assertSettingsStartupOrder() {
+        const bootOrder = window.BARK.bootOrder || {};
+        const barkStateReady = window.BARK.__barkStateReady === true;
+        const settingsStoreReady = window.BARK.__settingsStoreReady === true;
+        const reversed = Number.isFinite(bootOrder.barkStateParsedAt)
+            && Number.isFinite(bootOrder.settingsStoreParsedAt)
+            && bootOrder.settingsStoreParsedAt < bootOrder.barkStateParsedAt;
+
+        // Phase -1 guardrail: barkState owns runtime defaults and must parse before
+        // settingsStore hydrates/publishes persistent setting mirrors.
+        if (!barkStateReady || !settingsStoreReady || reversed) {
+            console.warn('[B.A.R.K. Boot] Settings startup order invariant failed. Expected barkState.js before settingsStore.js.', {
+                barkStateReady,
+                settingsStoreReady,
+                bootOrder
+            });
+            _bootErrors.push('settingsStartupOrder');
+        }
+    }
+
     function dismissLoaderForMapFailure() {
         if (typeof window.dismissBarkLoader === 'function') {
             window.dismissBarkLoader();
@@ -80,6 +125,7 @@
 
     window.BARK.showMapUnavailable = showMapUnavailable;
     window.BARK.checkMapAvailability = checkMapAvailability;
+    window.BARK.showAuthFailure = showAuthFailure;
 
     // async so it catches both synchronous throws and rejected Promises from init functions.
     async function callInit(name, label) {
@@ -97,6 +143,8 @@
     document.addEventListener('DOMContentLoaded', async () => {
         console.log('B.A.R.K. Boot Sequence: Initializing...');
         bindMapUnavailableActions();
+        bindAuthFailureActions();
+        assertSettingsStartupOrder();
 
         const mapReadyTimeout = setTimeout(() => {
             if (!window.map) checkMapAvailability('map-timeout');
@@ -139,6 +187,7 @@
         } catch (err) {
             _bootErrors.push('initFirebase');
             console.error('[B.A.R.K. Boot] "initFirebase" failed — auth and cloud sync unavailable.', err);
+            showAuthFailure('Sign-in failed during startup. Cloud sync and saved progress are offline for this session.');
         }
 
         // 5. Data loading — loadData handles cache hydration, immediate fetch, and polling schedule

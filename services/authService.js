@@ -9,6 +9,13 @@ let visitedSnapshotUnsubscribe = null;
 let authenticatedSessionSeen = false;
 let lastAuthenticatedUid = null;
 
+function showAuthFailureNotice(message) {
+    if (typeof window.BARK.showAuthFailure === 'function') {
+        window.BARK.showAuthFailure(message || 'Sign-in failed. Cloud sync and saved progress are offline for this session.');
+    }
+    if (typeof window.dismissBarkLoader === 'function') window.dismissBarkLoader();
+}
+
 const STANDALONE_CLOUD_SETTING_CONTROLS = {
     rememberMapPosition: 'remember-map-toggle',
     startNationalView: 'national-view-toggle',
@@ -548,151 +555,163 @@ function initFirebase() {
 
     try {
         firebase.auth().onAuthStateChanged((user) => {
-            window._lastSyncedScore = window._lastSyncedScore || 0;
-            window.isAdmin = false;
-            window._serverPayloadSettled = false;
-            window._firstServerPayloadReceived = false;
-            window._lastKnownRank = null;
-            window.currentWalkPoints = window.currentWalkPoints || 0;
-
-            const loginContainer = document.getElementById('login-container');
-            const offlineStatusContainer = document.getElementById('offline-status-container');
-            const logoutBtn = document.getElementById('logout-btn');
-            const profileName = document.getElementById('user-profile-name');
-
-            if (user) {
-                if (lastAuthenticatedUid !== user.uid) {
-                    window._cloudSettingsLoaded = false;
-                }
-                authenticatedSessionSeen = true;
-                lastAuthenticatedUid = user.uid;
+            try {
+                window._lastSyncedScore = window._lastSyncedScore || 0;
+                window.isAdmin = false;
                 window._serverPayloadSettled = false;
                 window._firstServerPayloadReceived = false;
-                window._lastSyncedScore = -1;
+                window._lastKnownRank = null;
+                window.currentWalkPoints = window.currentWalkPoints || 0;
 
-                if (loginContainer) loginContainer.style.display = 'none';
-                if (offlineStatusContainer) offlineStatusContainer.style.display = 'block';
-                if (logoutBtn) logoutBtn.style.display = 'block';
-                if (profileName) profileName.textContent = user.displayName || user.email || 'Bark Ranger';
+                const loginContainer = document.getElementById('login-container');
+                const offlineStatusContainer = document.getElementById('offline-status-container');
+                const logoutBtn = document.getElementById('logout-btn');
+                const profileName = document.getElementById('user-profile-name');
 
-                try {
-                    window.BARK.incrementRequestCount();
-                    visitedSnapshotUnsubscribe = firebase.firestore().collection('users').doc(user.uid)
-                        .onSnapshot((doc) => {
-                            const currentUser = firebase.auth().currentUser;
-                            if (!currentUser || currentUser.uid !== user.uid) return;
+                if (user) {
+                    if (lastAuthenticatedUid !== user.uid) {
+                        window._cloudSettingsLoaded = false;
+                    }
+                    authenticatedSessionSeen = true;
+                    lastAuthenticatedUid = user.uid;
+                    window._serverPayloadSettled = false;
+                    window._firstServerPayloadReceived = false;
+                    window._lastSyncedScore = -1;
 
-                            if (!doc.metadata.fromCache && !window._firstServerPayloadReceived) {
-                                window._firstServerPayloadReceived = true;
-                                setTimeout(() => { window._serverPayloadSettled = true; }, 1000);
-                            }
+                    if (loginContainer) loginContainer.style.display = 'none';
+                    if (offlineStatusContainer) offlineStatusContainer.style.display = 'block';
+                    if (logoutBtn) logoutBtn.style.display = 'block';
+                    if (profileName) profileName.textContent = user.displayName || user.email || 'Bark Ranger';
 
-                            if (doc.exists) {
-                                const data = doc.data();
+                    try {
+                        window.BARK.incrementRequestCount();
+                        visitedSnapshotUnsubscribe = firebase.firestore().collection('users').doc(user.uid)
+                            .onSnapshot((doc) => {
+                                try {
+                                    const currentUser = firebase.auth().currentUser;
+                                    if (!currentUser || currentUser.uid !== user.uid) return;
 
-                                handleCloudSettingsHydration(data, doc.metadata);
-
-                                const placeList = data.visitedPlaces || [];
-
-                                handleAdminCheck(data, user);
-
-                                // Streak & Walk Points
-                                const streakVal = data.streakCount || 0;
-                                let walkVal = data.walkPoints || 0;
-                                const lifetimeVal = data.lifetime_miles || 0;
-
-                                if (lifetimeVal > walkVal) {
-                                    walkVal = lifetimeVal;
-                                    try {
-                                        firebase.firestore().collection('users').doc(user.uid).update({ walkPoints: lifetimeVal })
-                                            .catch(error => console.error("[authService] walkPoints backfill failed:", error));
-                                    } catch (error) {
-                                        console.error("[authService] walkPoints backfill failed:", error);
+                                    if (!doc.metadata.fromCache && !window._firstServerPayloadReceived) {
+                                        window._firstServerPayloadReceived = true;
+                                        setTimeout(() => { window._serverPayloadSettled = true; }, 1000);
                                     }
+
+                                    if (doc.exists) {
+                                        const data = doc.data();
+
+                                        handleCloudSettingsHydration(data, doc.metadata);
+
+                                        const placeList = data.visitedPlaces || [];
+
+                                        handleAdminCheck(data, user);
+
+                                        // Streak & Walk Points
+                                        const streakVal = data.streakCount || 0;
+                                        let walkVal = data.walkPoints || 0;
+                                        const lifetimeVal = data.lifetime_miles || 0;
+
+                                        if (lifetimeVal > walkVal) {
+                                            walkVal = lifetimeVal;
+                                            try {
+                                                firebase.firestore().collection('users').doc(user.uid).update({ walkPoints: lifetimeVal })
+                                                    .catch(error => console.error("[authService] walkPoints backfill failed:", error));
+                                            } catch (error) {
+                                                console.error("[authService] walkPoints backfill failed:", error);
+                                            }
+                                        }
+
+                                        const streakLabel = document.getElementById('streak-count-label');
+                                        if (streakLabel) streakLabel.textContent = streakVal;
+
+                                        window.currentWalkPoints = Math.round(walkVal * 100) / 100;
+
+                                        handleExpeditionSync(data);
+                                        handleVisitedPlacesSync(placeList, doc.metadata);
+                                    } else {
+                                        handleVisitedPlacesSync([], doc.metadata);
+                                    }
+                                    window.syncState();
+                                    if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
+
+                                    if (!window._leaderboardLoadedOnce) {
+                                        window._leaderboardLoadedOnce = true;
+                                        if (typeof window.BARK.loadLeaderboard === 'function') window.BARK.loadLeaderboard();
+                                    }
+
+                                    window.dismissBarkLoader();
+
+                                    if (window.BARK.activePinMarker && window.BARK.activePinMarker._parkData && document.getElementById('mark-visited-btn')) {
+                                        const d = window.BARK.activePinMarker._parkData;
+                                        const btn = document.getElementById('mark-visited-btn');
+                                        const btnText = document.getElementById('mark-visited-text');
+                                        const isVisited = typeof window.BARK.isParkVisited === 'function'
+                                            ? window.BARK.isParkVisited(d)
+                                            : window.BARK.userVisitedPlaces.has(d.id);
+                                        if (isVisited) {
+                                            btn.classList.add('visited');
+                                            btnText.textContent = 'Visited!';
+                                        } else {
+                                            btn.classList.remove('visited');
+                                            btnText.textContent = 'Mark as Visited';
+                                        }
+                                    }
+                                } catch (error) {
+                                    console.error("[authService] user snapshot handling failed:", error);
+                                    showAuthFailureNotice('Sign-in failed while syncing your account. Cloud sync and saved progress are offline for this session.');
                                 }
+                            }, (error) => {
+                                console.error("[authService] user snapshot failed:", error);
+                                showAuthFailureNotice('Sign-in connected, but account sync failed. Saved progress may be offline for this session.');
+                            });
+                    } catch (error) {
+                        console.error("[authService] subscribe user document failed:", error);
+                        showAuthFailureNotice('Sign-in connected, but account sync could not start. Saved progress may be offline for this session.');
+                    }
 
-                                const streakLabel = document.getElementById('streak-count-label');
-                                if (streakLabel) streakLabel.textContent = streakVal;
-
-                                window.currentWalkPoints = Math.round(walkVal * 100) / 100;
-
-                                handleExpeditionSync(data);
-                                handleVisitedPlacesSync(placeList, doc.metadata);
-                            } else {
-                                handleVisitedPlacesSync([], doc.metadata);
-                            }
-                            window.syncState();
-                            if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
-
-                            if (!window._leaderboardLoadedOnce) {
-                                window._leaderboardLoadedOnce = true;
-                                if (typeof window.BARK.loadLeaderboard === 'function') window.BARK.loadLeaderboard();
-                            }
-
-                            window.dismissBarkLoader();
-
-                            if (window.BARK.activePinMarker && window.BARK.activePinMarker._parkData && document.getElementById('mark-visited-btn')) {
-                                const d = window.BARK.activePinMarker._parkData;
-                                const btn = document.getElementById('mark-visited-btn');
-                                const btnText = document.getElementById('mark-visited-text');
-                                const isVisited = typeof window.BARK.isParkVisited === 'function'
-                                    ? window.BARK.isParkVisited(d)
-                                    : window.BARK.userVisitedPlaces.has(d.id);
-                                if (isVisited) {
-                                    btn.classList.add('visited');
-                                    btnText.textContent = 'Visited!';
-                                } else {
-                                    btn.classList.remove('visited');
-                                    btnText.textContent = 'Mark as Visited';
-                                }
-                            }
-                        }, (error) => {
-                            console.error("[authService] user snapshot failed:", error);
-                        });
-                } catch (error) {
-                    console.error("[authService] subscribe user document failed:", error);
-                }
-
-                if (typeof loadSavedRoutes === 'function') loadSavedRoutes(user.uid);
-                handlePremiumGating(true);
-            } else {
-                const shouldResetRuntime = authenticatedSessionSeen || lastAuthenticatedUid !== null;
-                authenticatedSessionSeen = false;
-                lastAuthenticatedUid = null;
-
-                if (visitedSnapshotUnsubscribe) {
-                    visitedSnapshotUnsubscribe();
-                    visitedSnapshotUnsubscribe = null;
-                }
-
-                if (loginContainer) loginContainer.style.display = 'block';
-                if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
-                if (logoutBtn) logoutBtn.style.display = 'none';
-
-                if (shouldResetRuntime) {
-                    resetLoggedOutRuntimeState();
+                    if (typeof loadSavedRoutes === 'function') loadSavedRoutes(user.uid);
+                    handlePremiumGating(true);
                 } else {
-                    window.BARK.userVisitedPlaces.clear();
-                    if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-                        window.BARK.invalidateVisitedIdsCache();
+                    const shouldResetRuntime = authenticatedSessionSeen || lastAuthenticatedUid !== null;
+                    authenticatedSessionSeen = false;
+                    lastAuthenticatedUid = null;
+
+                    if (visitedSnapshotUnsubscribe) {
+                        visitedSnapshotUnsubscribe();
+                        visitedSnapshotUnsubscribe = null;
                     }
-                    const firebaseService = window.BARK.services && window.BARK.services.firebase;
-                    if (firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function') {
-                        firebaseService.refreshVisitedVisualState();
+
+                    if (loginContainer) loginContainer.style.display = 'block';
+                    if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
+                    if (logoutBtn) logoutBtn.style.display = 'none';
+
+                    if (shouldResetRuntime) {
+                        resetLoggedOutRuntimeState();
+                    } else {
+                        window.BARK.userVisitedPlaces.clear();
+                        if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+                            window.BARK.invalidateVisitedIdsCache();
+                        }
+                        const firebaseService = window.BARK.services && window.BARK.services.firebase;
+                        if (firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function') {
+                            firebaseService.refreshVisitedVisualState();
+                        }
+                        if (typeof window.BARK.clearActivePin === 'function') window.BARK.clearActivePin();
+                        applyGuestZoomLimitDefault();
+                        resetMapViewToGuestDefault();
+                        window.syncState();
+                        if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
                     }
-                    if (typeof window.BARK.clearActivePin === 'function') window.BARK.clearActivePin();
-                    applyGuestZoomLimitDefault();
-                    resetMapViewToGuestDefault();
-                    window.syncState();
-                    if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
+
+                    window.dismissBarkLoader();
+                    if (typeof window.BARK.loadLeaderboard === 'function') window.BARK.loadLeaderboard();
+
+                    resetSavedRouteLists();
+
+                    handlePremiumGating(false);
                 }
-
-                window.dismissBarkLoader();
-                if (typeof window.BARK.loadLeaderboard === 'function') window.BARK.loadLeaderboard();
-
-                resetSavedRouteLists();
-
-                handlePremiumGating(false);
+            } catch (error) {
+                console.error("[authService] auth state callback failed:", error);
+                showAuthFailureNotice('Sign-in failed while syncing your account. Cloud sync and saved progress are offline for this session.');
             }
         });
     } catch (error) {

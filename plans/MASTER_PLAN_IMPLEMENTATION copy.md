@@ -1,4 +1,4 @@
-# B.A.R.K. Ranger Map — Master Plan Implementation
+# B.A.R.K. Ranger Map — Master Plan COPY Implementation
 
 This is the operational blueprint for taking the codebase from its current tangled state to a multi-developer, scalable, store-ready architecture. It is sequenced so every phase is independently shippable and so no phase introduces a new tangle.
 

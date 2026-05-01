@@ -4,6 +4,12 @@
  */
 (function () {
     window.BARK = window.BARK || {};
+    window.BARK.bootOrder = window.BARK.bootOrder || {};
+
+    if (!window.BARK.__barkStateReady) {
+        console.warn('[B.A.R.K. Settings] settingsStore.js parsed before barkState.js. Persistent settings are still safe, but startup order no longer matches the Phase -1 guardrail.');
+    }
+    window.BARK.bootOrder.settingsStoreParsedAt = Date.now();
 
     const STORAGE_KEYS = {
         allowUncheck: 'barkAllowUncheck',
@@ -283,4 +289,5 @@
         set,
         onChange
     };
+    window.BARK.__settingsStoreReady = true;
 })();

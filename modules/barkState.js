@@ -5,6 +5,8 @@
  * Loaded FIRST in the boot sequence.
  */
 window.BARK = window.BARK || {};
+window.BARK.bootOrder = window.BARK.bootOrder || {};
+window.BARK.bootOrder.barkStateParsedAt = Date.now();
 
 // ====== APP VERSION ======
 let APP_VERSION = parseInt(localStorage.getItem('bark_seen_version') || '26');
@@ -89,3 +91,4 @@ Object.defineProperties(window.BARK, {
 
 window.BARK.DAY_COLORS = DAY_COLORS;
 window.BARK.clearActivePin = clearActivePin;
+window.BARK.__barkStateReady = true;
