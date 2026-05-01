@@ -6,7 +6,9 @@ Date: 2026-05-01
 
 Phase 1 finished the two highest-value ownership moves: `ParkRepo` owns park data, and `VaultRepo` owns visit state plus the `visitedPlaces` snapshot lifecycle. The remaining Phase 2 debt is not one obvious data owner. It is runtime coordination: many modules still publish and consume global functions, raw `window` flags, localStorage-backed state, and refresh side effects directly.
 
-This document began as the 2A inventory. It now also records the 2B additive seam, 2C visited-cache migration status, 2D visited-visual-refresh migration, 2E `syncState()` cleanup, and 2F authService split planning below; the inventory tables remain architecture notes rather than a refactor plan that changes behavior by themselves.
+This document began as the 2A inventory. It now also records the 2B additive seam, 2C visited-cache migration status, 2D visited-visual-refresh migration, 2E `syncState()` cleanup, and 2F authService split planning below; the inventory tables remain architecture notes rather than a refactor plan that changes behavior by themselves. The full post-Phase-2 status report is `plans/POST_PHASE_2_ARCHITECTURE_REPORT.md`.
+
+Signed-in Playwright smoke is now unblocked through Firebase Email/Password E2E storage states. `npm run test:e2e:phase1b` passed with 3 tests, `npm run test:e2e:premium` passed with 2 tests, `npm run test:e2e:account-switch` passed with 1 test using `BARK_E2E_STORAGE_STATE` for User A and `BARK_E2E_STORAGE_STATE_B` for User B, `npm run test:e2e:settings` passed with 1 test, `npm run test:e2e:profile-manage` passed with 1 test, and `npm run test:e2e:trip-visited` passed with 1 test. Full current bundle command `npm run test:e2e:smoke` now exists and passed with 9 tests; it requires `BARK_E2E_BASE_URL`, `BARK_E2E_STORAGE_STATE`, and `BARK_E2E_STORAGE_STATE_B`. Google OAuth remains blocked in Playwright Chromium, but real users still use Google sign-in and no email/password UI was added.
 
 Main findings:
 
@@ -37,7 +39,7 @@ Active-pin button refresh is still private auth/panel DOM logic. Phase 2B intent
 
 Phase 2C migrated one low-risk refresh category: direct visited cache invalidation call sites now route through `refreshCoordinator.refreshVisitedCache(reason)` by way of file-local safe helpers. Visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, and ownership boundaries were not moved.
 
-Phase 2C visited cache invalidation planning and implementation notes are captured in `plans/PHASE_2C_VISITED_CACHE_PLAN.md`. Phase 2D migrated visited visual refresh requests through `refreshCoordinator.refreshVisitedVisuals(reason)` only; implementation notes are captured in `plans/PHASE_2D_VISITED_VISUAL_REFRESH_PLAN.md`. Phase 2E is implemented in `plans/PHASE_2E_SYNCSTATE_PLAN.md` as a narrow direct-`syncState()` cleanup only; manual smoke passed. Phase 2F.2 extracted premium gating UI into `services/authPremiumUi.js`; manual smoke is pending.
+Phase 2C visited cache invalidation planning and implementation notes are captured in `plans/PHASE_2C_VISITED_CACHE_PLAN.md`. Phase 2D migrated visited visual refresh requests through `refreshCoordinator.refreshVisitedVisuals(reason)` only; implementation notes are captured in `plans/PHASE_2D_VISITED_VISUAL_REFRESH_PLAN.md`. Phase 2E is implemented in `plans/PHASE_2E_SYNCSTATE_PLAN.md` as a narrow direct-`syncState()` cleanup only; manual smoke passed. Phase 2F.2 extracted premium gating UI into `services/authPremiumUi.js`; manual smoke passed per `plans/POST_PHASE_2_ARCHITECTURE_REPORT.md`.
 
 ## Phase 2C Status
 
@@ -78,7 +80,7 @@ Phase 2E is implemented as a narrow reduction of direct `window.syncState()` cal
 
 ## Phase 2F Status
 
-Phase 2F.2 is implemented in `plans/PHASE_2F_AUTHSERVICE_SPLIT_PLAN.md` as a small authService responsibility extraction. Manual smoke is pending.
+Phase 2F.2 is implemented in `plans/PHASE_2F_AUTHSERVICE_SPLIT_PLAN.md` as a small authService responsibility extraction. Manual smoke passed per the post-Phase-2 report.
 
 Implemented first extraction:
 
@@ -362,7 +364,7 @@ Acceptance:
 
 ### 2F - Split Small `authService` Responsibility
 
-Status: 2F.2 implemented in `plans/PHASE_2F_AUTHSERVICE_SPLIT_PLAN.md`; manual smoke pending.
+Status: 2F.2 implemented in `plans/PHASE_2F_AUTHSERVICE_SPLIT_PLAN.md`; manual smoke passed per `plans/POST_PHASE_2_ARCHITECTURE_REPORT.md`.
 
 Goal: reduce file size and coupling while keeping auth session ownership in `authService`.
 
@@ -397,7 +399,7 @@ Defer until coordinator and smoke coverage are stable:
 
 ## 8. Safest First Implementation PR
 
-Recommended first implementation PR after this inventory was **Phase 2B, additive coordinator only**. That seam is now complete, Phase 2C migrated visited cache invalidation only, Phase 2D migrated visited visual refresh only, Phase 2E migrated only the three check-in direct `syncState()` calls, and Phase 2F.2 extracted premium gating UI only. Phase 2F.2 manual smoke remains pending.
+Recommended first implementation PR after this inventory was **Phase 2B, additive coordinator only**. That seam is now complete, Phase 2C migrated visited cache invalidation only, Phase 2D migrated visited visual refresh only, Phase 2E migrated only the three check-in direct `syncState()` calls, and Phase 2F.2 extracted premium gating UI only. Phase 2F.2 manual smoke passed per the post-Phase-2 report.
 
 Why this is safest:
 
@@ -428,4 +430,4 @@ Minimum 2B success criteria:
 
 ## Current Stop Point
 
-Phase 2C is complete; manual smoke passed. Phase 2D visited visual refresh migration is implemented in `plans/PHASE_2D_VISITED_VISUAL_REFRESH_PLAN.md`; QC and manual smoke passed. Phase 2E narrow check-in direct-`syncState()` cleanup is implemented in `plans/PHASE_2E_SYNCSTATE_PLAN.md`; manual smoke passed. Phase 2F.2 premium gating UI extraction is implemented in `plans/PHASE_2F_AUTHSERVICE_SPLIT_PLAN.md`; manual smoke is pending. Do not deploy, do not start Phase 2F.3, and do not combine authService extraction with further direct-`syncState()` cleanup, auth/session movement, Firestore, stats/profile/leaderboard, map render cadence, search/filter cadence, or `VaultRepo` ownership work.
+Phase 2C is complete; manual smoke passed. Phase 2D visited visual refresh migration is implemented in `plans/PHASE_2D_VISITED_VISUAL_REFRESH_PLAN.md`; QC and manual smoke passed. Phase 2E narrow check-in direct-`syncState()` cleanup is implemented in `plans/PHASE_2E_SYNCSTATE_PLAN.md`; manual smoke passed. Phase 2F.2 premium gating UI extraction is implemented in `plans/PHASE_2F_AUTHSERVICE_SPLIT_PLAN.md`; manual smoke passed per `plans/POST_PHASE_2_ARCHITECTURE_REPORT.md`. Automated signed-in Playwright smoke is now unblocked and passing via Firebase Email/Password E2E storage state: `npm run test:e2e:phase1b` passed with 3 tests. Phase 3A.1 premium gating smoke also passed: `npm run test:e2e:premium` passed with 2 tests. Phase 3A.2 account-switch smoke passed: `npm run test:e2e:account-switch` passed with 1 test using User A and User B storage states. Phase 3A.3 profile/manage smoke passed: `npm run test:e2e:profile-manage` passed with 1 test and covers manage portal render, visit listing/count, date edit action, and removal cleanup. Phase 3A.4 trip planner visited styling smoke passed: `npm run test:e2e:trip-visited` passed with 1 test and covers trip stop render, unvisited/visited badge classes, visit persistence after reload, and cleanup; current runtime trip stops do not persist across reload, so post-reload stop persistence is not covered. Phase 3A.5 settings persistence smoke passed: `npm run test:e2e:settings` passed with 1 test and covers `#visited-filter` reload plus cloud-backed fresh storage-state sign-in restore, with cleanup restoring the original value. Full current smoke bundle `npm run test:e2e:smoke` passed with 9 tests and runs the six smoke specs serially with `--workers=1`; required env vars are `BARK_E2E_BASE_URL`, `BARK_E2E_STORAGE_STATE`, and `BARK_E2E_STORAGE_STATE_B`. Phase 3B.1 planning and Phase 3B.2 implementation are captured in `plans/PHASE_3B_PROFILE_LEADERBOARD_SPLIT_PLAN.md`; 3B.2 extracted only pure leaderboard rank/row rendering to `renderers/leaderboardRenderer.js` and left Firestore, score sync, queries, pagination, achievements, auth/session, settings, trip planner, premium gating, VaultRepo, and RefreshCoordinator unchanged. Phase 4A premium entitlement/paywall architecture planning is captured in `plans/PHASE_4A_PREMIUM_ENTITLEMENT_PLAN.md`; no payment provider, payment buttons, entitlement runtime code, Firebase rules, tests, or deployment were added. Google OAuth remains blocked in Playwright, real users still use Google sign-in, and no email/password UI was added. Do not deploy, do not start 3B.3 unless a focused leaderboard smoke is explicitly requested, and do not combine authService extraction with further direct-`syncState()` cleanup, auth/session movement, Firestore, stats/profile/leaderboard data movement, map render cadence, search/filter cadence, `VaultRepo` ownership work, or payment implementation.
