@@ -1,6 +1,10 @@
 {
   "name": "functions",
   "description": "Cloud Functions for Firebase",
+  "scripts": {
+    "e2e:auth:save": "node tests/playwright/save-storage-state.js",
+    "test:e2e:phase1b": "playwright test tests/playwright/phase1b-visited-smoke.spec.js --reporter=list"
+  },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "axios": "^1.15.0",

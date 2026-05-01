@@ -1,18 +1,64 @@
+const fs = require('fs');
+const path = require('path');
 const { test, expect } = require('@playwright/test');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
 const TEST_PARK_ID = process.env.BARK_E2E_TEST_PARK_ID || null;
+const DEFAULT_BASE_URL = 'http://localhost:4173/index.html';
+const DEFAULT_STORAGE_STATE = 'node_modules/.cache/bark-e2e/storage-state.json';
 
-test.skip(!BASE_URL || !STORAGE_STATE, [
-    'Phase 1B visit smoke tests require:',
-    '  BARK_E2E_BASE_URL=http://127.0.0.1:4173/index.html',
-    '  BARK_E2E_STORAGE_STATE=/path/to/signed-in-test-account-storage-state.json',
-    'Optional:',
-    '  BARK_E2E_TEST_PARK_ID=canonical-park-id'
-].join('\n'));
+const missingEnv = [
+    !BASE_URL ? 'BARK_E2E_BASE_URL' : null,
+    !STORAGE_STATE ? 'BARK_E2E_STORAGE_STATE' : null
+].filter(Boolean);
 
-test.use(STORAGE_STATE ? { storageState: STORAGE_STATE } : {});
+const storageStatePath = STORAGE_STATE ? path.resolve(STORAGE_STATE) : null;
+const storageStateExists = storageStatePath ? fs.existsSync(storageStatePath) : false;
+
+function buildEnvHelp() {
+    return [
+        'Phase 1B signed-in smoke tests are skipped because required configuration is missing.',
+        `Missing: ${missingEnv.join(', ')}`,
+        '',
+        'Local setup:',
+        '  python3 -m http.server 4173 --bind localhost',
+        `  export BARK_E2E_BASE_URL=${DEFAULT_BASE_URL}`,
+        `  export BARK_E2E_STORAGE_STATE="$PWD/${DEFAULT_STORAGE_STATE}"`,
+        '  npm run e2e:auth:save',
+        '  npm run test:e2e:phase1b',
+        '',
+        'Optional:',
+        '  export BARK_E2E_TEST_PARK_ID=canonical-park-id'
+    ].join('\n');
+}
+
+if (missingEnv.length > 0) {
+    console.warn(buildEnvHelp());
+}
+
+test.skip(missingEnv.length > 0, buildEnvHelp());
+
+test.beforeAll(() => {
+    if (!BASE_URL) return;
+    try {
+        new URL(BASE_URL);
+    } catch (error) {
+        throw new Error(`BARK_E2E_BASE_URL is not a valid absolute URL: ${BASE_URL}`);
+    }
+
+    if (STORAGE_STATE && !storageStateExists) {
+        throw new Error([
+            `BARK_E2E_STORAGE_STATE points to a missing file: ${storageStatePath}`,
+            'Generate it with:',
+            `  export BARK_E2E_BASE_URL=${DEFAULT_BASE_URL}`,
+            `  export BARK_E2E_STORAGE_STATE="$PWD/${DEFAULT_STORAGE_STATE}"`,
+            '  npm run e2e:auth:save'
+        ].join('\n'));
+    }
+});
+
+test.use(storageStateExists ? { storageState: storageStatePath } : {});
 
 async function openSignedInApp(page) {
     await page.goto(BASE_URL);
@@ -61,8 +107,12 @@ async function pickTestPark(page) {
 async function waitForVisitState(page, parkId, expectedVisited) {
     await page.waitForFunction(
         ({ id, expected }) => {
-            const map = window.BARK && window.BARK.userVisitedPlaces;
-            return map instanceof Map && map.has(id) === expected;
+            const vaultRepo = window.BARK && window.BARK.repos && window.BARK.repos.VaultRepo;
+            return Boolean(
+                vaultRepo &&
+                typeof vaultRepo.hasVisit === 'function' &&
+                vaultRepo.hasVisit(id) === expected
+            );
         },
         { id: parkId, expected: expectedVisited },
         { timeout: 30000 }
@@ -71,10 +121,10 @@ async function waitForVisitState(page, parkId, expectedVisited) {
 
 async function getVisitSnapshot(page, parkId) {
     return page.evaluate((id) => {
-        const map = window.BARK.userVisitedPlaces;
-        const record = map instanceof Map ? map.get(id) : null;
+        const vaultRepo = window.BARK.repos.VaultRepo;
+        const record = vaultRepo.getVisit(id);
         return {
-            count: map instanceof Map ? map.size : null,
+            count: vaultRepo.size(),
             record: record ? { ...record } : null
         };
     }, parkId);
@@ -83,7 +133,7 @@ async function getVisitSnapshot(page, parkId) {
 async function markVisited(page, park) {
     const result = await page.evaluate(async (parkData) => {
         window.allowUncheck = true;
-        return window.BARK.services.checkin.markAsVisited(parkData, window.BARK.userVisitedPlaces);
+        return window.BARK.services.checkin.markAsVisited(parkData);
     }, park);
     expect(result && result.success, JSON.stringify(result)).toBe(true);
     return result;
@@ -170,7 +220,7 @@ test.describe('Phase 1B visited-place regression safety net', () => {
                 return {
                     threw: true,
                     message: error && error.message,
-                    record: { ...window.BARK.userVisitedPlaces.get(parkId) }
+                    record: { ...window.BARK.repos.VaultRepo.getVisit(parkId) }
                 };
             } finally {
                 firebase.firestore = originalFirestore;
@@ -190,11 +240,14 @@ test.describe('Phase 1B visited-place regression safety net', () => {
 
         await page.evaluate(() => firebase.auth().signOut());
         await page.waitForFunction(() => {
-            const map = window.BARK && window.BARK.userVisitedPlaces;
-            return !firebase.auth().currentUser && map instanceof Map && map.size === 0;
+            const vaultRepo = window.BARK && window.BARK.repos && window.BARK.repos.VaultRepo;
+            return !firebase.auth().currentUser &&
+                vaultRepo &&
+                typeof vaultRepo.size === 'function' &&
+                vaultRepo.size() === 0;
         }, { timeout: 30000 });
 
-        const restoredContext = await browser.newContext({ storageState: STORAGE_STATE });
+        const restoredContext = await browser.newContext({ storageState: storageStatePath });
         const restoredPage = await restoredContext.newPage();
         try {
             await openSignedInApp(restoredPage);

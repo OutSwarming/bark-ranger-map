@@ -8,6 +8,42 @@ function getParkRepo() {
     return window.BARK.repos && window.BARK.repos.ParkRepo;
 }
 
+function getVaultRepo() {
+    return window.BARK.repos && window.BARK.repos.VaultRepo;
+}
+
+function getProfileVisitedPlacesArray(source) {
+    if (Array.isArray(source)) return source.slice();
+    if (source instanceof Map) return Array.from(source.values());
+    if (source && typeof source.values === 'function') return Array.from(source.values());
+
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.getVisits === 'function') {
+        return vaultRepo.getVisits().slice();
+    }
+
+    return [];
+}
+
+function getProfileVisitedPlacesCount() {
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.size === 'function') return vaultRepo.size();
+    return getProfileVisitedPlacesArray().length;
+}
+
+function hasProfileVisitedPlace(placeOrId) {
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.hasVisit === 'function') {
+        return vaultRepo.hasVisit(placeOrId);
+    }
+
+    return false;
+}
+
+function hasProfileVerifiedVisit(visitedPlacesArray) {
+    return getProfileVisitedPlacesArray(visitedPlacesArray).some(place => place && place.verified);
+}
+
 // ====== MANAGE PORTAL ======
 function padDatePart(value) {
     return String(value).padStart(2, '0');
@@ -23,17 +59,17 @@ function formatVisitDateInputValue(ts) {
 function renderManagePortal() {
     const listEl = document.getElementById('manage-places-list');
     const countEl = document.getElementById('manage-portal-count');
-    const userVisitedPlaces = window.BARK.userVisitedPlaces;
     if (!listEl || !countEl) return;
 
-    countEl.textContent = userVisitedPlaces.size;
-    if (userVisitedPlaces.size === 0) {
+    const visitedPlaces = getProfileVisitedPlacesArray();
+    countEl.textContent = visitedPlaces.length;
+    if (visitedPlaces.length === 0) {
         listEl.innerHTML = '<li style="color: #888; font-style: italic; padding: 10px 0;">Get exploring!</li>';
         return;
     }
 
     listEl.innerHTML = '';
-    const placesArray = Array.from(userVisitedPlaces.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const placesArray = visitedPlaces.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     placesArray.forEach(place => {
         const li = document.createElement('li');
@@ -141,8 +177,8 @@ async function syncScoreToLeaderboard() {
     const user = getCurrentFirebaseUser();
     if (!user) return;
 
-    const userVisitedPlaces = window.BARK.userVisitedPlaces;
-    const scoreSummary = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints);
+    const visitedPlaces = getProfileVisitedPlacesArray();
+    const scoreSummary = window.BARK.calculateVisitScore(visitedPlaces, window.currentWalkPoints);
     const totalScore = scoreSummary.totalScore;
 
     if (totalScore === window._lastSyncedScore) return;
@@ -158,17 +194,17 @@ async function syncScoreToLeaderboard() {
 
         await db.collection('users').doc(user.uid).set({
             totalPoints: totalScore,
-            totalVisited: userVisitedPlaces.size,
+            totalVisited: visitedPlaces.length,
             displayName: user.displayName || 'Bark Ranger',
-            hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified)
+            hasVerified: hasProfileVerifiedVisit(visitedPlaces)
         }, { merge: true });
 
         const leaderboardPayload = {
             displayName: user.displayName || 'Bark Ranger',
             photoURL: user.photoURL || '',
             totalPoints: totalScore,
-            totalVisited: userVisitedPlaces.size,
-            hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified)
+            totalVisited: visitedPlaces.length,
+            hasVerified: hasProfileVerifiedVisit(visitedPlaces)
         };
         const serverTimestamp = getLeaderboardServerTimestamp();
         if (serverTimestamp) leaderboardPayload.lastUpdated = serverTimestamp;
@@ -181,14 +217,14 @@ async function syncScoreToLeaderboard() {
             const me = cachedLeaderboardData.find(u => u.uid === user.uid);
             if (me) {
                 me.totalPoints = totalScore;
-                me.totalVisited = userVisitedPlaces.size;
+                me.totalVisited = visitedPlaces.length;
             } else {
                 cachedLeaderboardData.push({
                     uid: user.uid,
                     displayName: user.displayName || 'Bark Ranger',
                     totalPoints: totalScore,
-                    totalVisited: userVisitedPlaces.size,
-                    hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified)
+                    totalVisited: visitedPlaces.length,
+                    hasVerified: hasProfileVerifiedVisit(visitedPlaces)
                 });
             }
             cachedLeaderboardData.sort((a, b) => b.totalPoints - a.totalPoints);
@@ -205,7 +241,7 @@ window.BARK.syncScoreToLeaderboard = syncScoreToLeaderboard;
 // ====== EVALUATE ACHIEVEMENTS ======
 async function evaluateAchievements(visitedPlacesMap) {
     try {
-    const visitedArray = Array.from(visitedPlacesMap.values()).map(rawVisit => {
+    const visitedArray = getProfileVisitedPlacesArray(visitedPlacesMap).map(rawVisit => {
         if (!rawVisit || typeof rawVisit !== 'object') return rawVisit;
 
         const visit = { ...rawVisit };
@@ -451,7 +487,7 @@ function updateStatsUI() {
     const statesEl = document.getElementById('stat-states');
     const parkRepo = getParkRepo();
     const allPoints = parkRepo ? parkRepo.getAll() : [];
-    const userVisitedPlaces = window.BARK.userVisitedPlaces;
+    const visitedPlaces = getProfileVisitedPlacesArray();
 
     if (!scoreEl || !verifiedEl || !regularEl || !statesEl) return;
 
@@ -459,7 +495,7 @@ function updateStatsUI() {
     allPoints.forEach(p => {
         const isVisited = typeof window.BARK.isParkVisited === 'function'
             ? window.BARK.isParkVisited(p)
-            : userVisitedPlaces.has(p.id);
+            : hasProfileVisitedPlace(p);
         if (isVisited && p.state) {
             const st = p.state.toString().split(/[,/]/);
             st.forEach(s => {
@@ -469,7 +505,7 @@ function updateStatsUI() {
         }
     });
 
-    const scoreSummary = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints);
+    const scoreSummary = window.BARK.calculateVisitScore(visitedPlaces, window.currentWalkPoints);
     const totalScore = scoreSummary.totalScore;
     const verifiedCount = scoreSummary.verifiedCount;
     const regularCount = scoreSummary.regularCount;
@@ -534,13 +570,14 @@ function parseLeaderboardRankCount(countData) {
     return parsedCount;
 }
 
-function buildPersonalLeaderboardFallback(user, userVisitedPlaces, localScore, exactRank = null) {
+function buildPersonalLeaderboardFallback(user, visitedPlaces, localScore, exactRank = null) {
+    const visitedPlacesArray = getProfileVisitedPlacesArray(visitedPlaces);
     return {
         uid: user.uid,
         displayName: user.displayName || 'Bark Ranger',
         totalPoints: localScore,
-        totalVisited: userVisitedPlaces.size,
-        hasVerified: Array.from(userVisitedPlaces.values()).some(p => p.verified),
+        totalVisited: visitedPlacesArray.length,
+        hasVerified: hasProfileVerifiedVisit(visitedPlacesArray),
         isPersonalFallback: true,
         exactRank: getSafeLeaderboardRank(exactRank)
     };
@@ -672,8 +709,8 @@ async function loadLeaderboard() {
 
         const user = firebase.auth().currentUser;
         if (user && !topUsers.find(u => u.uid === user.uid)) {
-            const userVisitedPlaces = window.BARK.userVisitedPlaces;
-            const localScore = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints).totalScore;
+            const visitedPlaces = getProfileVisitedPlacesArray();
+            const localScore = window.BARK.calculateVisitScore(visitedPlaces, window.currentWalkPoints).totalScore;
 
             let exactRank = null;
             try {
@@ -690,7 +727,7 @@ async function loadLeaderboard() {
                 if (countMatched !== null) exactRank = countMatched + 1;
             } catch (e) { console.warn('REST API aggregate rank lookup failed.', e); }
 
-            topUsers.push(buildPersonalLeaderboardFallback(user, userVisitedPlaces, localScore, exactRank));
+            topUsers.push(buildPersonalLeaderboardFallback(user, visitedPlaces, localScore, exactRank));
         }
 
         cachedLeaderboardData = topUsers;
@@ -720,8 +757,8 @@ async function loadMoreLeaderboard() {
 
         const user = firebase.auth().currentUser;
         if (user && !cachedLeaderboardData.find(u => u.uid === user.uid)) {
-            const userVisitedPlaces = window.BARK.userVisitedPlaces;
-            const localScore = window.BARK.calculateVisitScore(userVisitedPlaces, window.currentWalkPoints).totalScore;
+            const visitedPlaces = getProfileVisitedPlacesArray();
+            const localScore = window.BARK.calculateVisitScore(visitedPlaces, window.currentWalkPoints).totalScore;
             let exactRank = null;
 
             try {
@@ -738,7 +775,7 @@ async function loadMoreLeaderboard() {
                 if (countMatched !== null) exactRank = countMatched + 1;
             } catch (e) { console.warn('REST API aggregate rank lookup failed in loadMore', e); }
 
-            cachedLeaderboardData.push(buildPersonalLeaderboardFallback(user, userVisitedPlaces, localScore, exactRank));
+            cachedLeaderboardData.push(buildPersonalLeaderboardFallback(user, visitedPlaces, localScore, exactRank));
         }
 
         renderLeaderboard(cachedLeaderboardData);

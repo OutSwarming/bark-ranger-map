@@ -6,7 +6,6 @@
     window.BARK = window.BARK || {};
 
     const APP_STATE_KEYS = [
-        'userVisitedPlaces',
         'activePin',
         'activeSwagFilters',
         'activeSearchQuery',
@@ -107,7 +106,6 @@
     }
 
     function hydrateFallbackValues() {
-        fallbackValues.userVisitedPlaces = hasBarkSource('userVisitedPlaces') ? window.BARK.userVisitedPlaces : new Map();
         fallbackValues.activePin = hasBarkSource('activePin') ? window.BARK.activePinMarker : null;
         fallbackValues.activeSwagFilters = hasBarkSource('activeSwagFilters') ? window.BARK.activeSwagFilters : new Set();
         fallbackValues.activeSearchQuery = hasBarkSource('activeSearchQuery') ? window.BARK.activeSearchQuery : '';

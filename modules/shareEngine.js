@@ -8,6 +8,28 @@ function getParkRepo() {
     return window.BARK.repos && window.BARK.repos.ParkRepo;
 }
 
+function getVaultRepo() {
+    return window.BARK.repos && window.BARK.repos.VaultRepo;
+}
+
+function getShareVisitedPlacesArray() {
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.getVisits === 'function') {
+        return vaultRepo.getVisits();
+    }
+
+    return [];
+}
+
+function hasShareVisitedPlace(placeOrId) {
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.hasVisit === 'function') {
+        return vaultRepo.hasVisit(placeOrId);
+    }
+
+    return false;
+}
+
 // ====== LAZY-LOAD html2canvas ======
 async function loadScreenshotEngine() {
     if (typeof html2canvas !== 'undefined') return true;
@@ -58,7 +80,7 @@ window.shareVaultCard = async function () {
 
     try {
         await loadScreenshotEngine();
-        const visitedArray = Array.from(window.BARK.userVisitedPlaces.values());
+        const visitedArray = getShareVisitedPlacesArray();
         const uid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : null;
         const achievements = await window.gamificationEngine.evaluateAndStoreAchievements(uid, visitedArray, null, window.currentWalkPoints || 0);
         const isGlobalNumberOne = achievements.mysteryFeats.some(f => f.id === 'alphaDog' && f.status === 'unlocked');
@@ -252,7 +274,7 @@ function initCSVExport() {
                 const data = p.marker._parkData;
                 const isVisited = typeof window.BARK.isParkVisited === 'function'
                     ? window.BARK.isParkVisited(data)
-                    : Boolean(window.BARK.userVisitedPlaces && window.BARK.userVisitedPlaces.has(data.id));
+                    : hasShareVisitedPlace(data);
                 return { Name: data.name, "Grid-Snap ID": data.id, State: data.state, Category: data.category || '', Cost: data.cost || '', "Swag Type": data.swagType || '', Latitude: data.lat, Longitude: data.lng, Visited: isVisited ? 1 : 0 };
             });
             const csvString = Papa.unparse(exportData);

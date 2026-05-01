@@ -9,6 +9,19 @@ function getParkRepo() {
     return window.BARK.repos && window.BARK.repos.ParkRepo;
 }
 
+function getVaultRepo() {
+    return window.BARK.repos && window.BARK.repos.VaultRepo;
+}
+
+function hasRenderVisitedPlace(placeOrId) {
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.hasVisit === 'function') {
+        return vaultRepo.hasVisit(placeOrId);
+    }
+
+    return false;
+}
+
 // ====== MARKER HELPER FUNCTIONS ======
 function getColor(type) {
     if (type === 'Tag') return '#2196F3';
@@ -94,8 +107,11 @@ function getVisitedIdsCacheKey() {
         return window.BARK._visitedIdsCacheKey;
     }
 
-    const visitedPlaces = window.BARK.userVisitedPlaces || new Map();
-    window.BARK._visitedIdsCacheKey = Array.from(visitedPlaces.keys()).sort().join(',');
+    const vaultRepo = getVaultRepo();
+    const visitedIds = vaultRepo && typeof vaultRepo.getVisitedIds === 'function'
+        ? vaultRepo.getVisitedIds()
+        : [];
+    window.BARK._visitedIdsCacheKey = Array.from(visitedIds).sort().join(',');
     return window.BARK._visitedIdsCacheKey;
 }
 
@@ -253,7 +269,7 @@ async function runAchievementEvaluation() {
 
     achievementEvalInProgress = true;
     try {
-        await window.BARK.evaluateAchievements(window.BARK.userVisitedPlaces);
+        await window.BARK.evaluateAchievements();
     } catch (error) {
         console.error('[renderEngine] achievement evaluation failed:', error);
     } finally {
@@ -305,7 +321,6 @@ function updateMarkers() {
     const activeSwagFilters = window.BARK.activeSwagFilters;
     const activeSearchQuery = window.BARK.activeSearchQuery;
     const activeTypeFilter = window.BARK.activeTypeFilter;
-    const userVisitedPlaces = window.BARK.userVisitedPlaces;
     const visitedFilterState = window.BARK.visitedFilterState;
     const _searchResultCache = window.BARK._searchResultCache;
     const queryNorm = window.BARK.normalizeText(activeSearchQuery);
@@ -349,7 +364,7 @@ function updateMarkers() {
         let matchesVisited = true;
         const isVisited = typeof window.BARK.isParkVisited === 'function'
             ? window.BARK.isParkVisited(item)
-            : userVisitedPlaces.has(item.id);
+            : hasRenderVisitedPlace(item);
         if (visitedFilterState === 'visited' && !isVisited) matchesVisited = false;
         if (visitedFilterState === 'unvisited' && isVisited) matchesVisited = false;
 

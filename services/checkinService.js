@@ -19,12 +19,48 @@ function getFirebaseService() {
     return window.BARK.services && window.BARK.services.firebase;
 }
 
-function getCurrentVisitedPlaces(userVisitedPlaces) {
-    const liveVisitedPlaces = window.BARK && window.BARK.userVisitedPlaces;
-    if (liveVisitedPlaces && typeof liveVisitedPlaces.has === 'function') {
-        return liveVisitedPlaces;
+function getVaultRepo() {
+    return window.BARK.repos && window.BARK.repos.VaultRepo;
+}
+
+function getCheckinVisitedPlacesArray() {
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.getVisits === 'function') {
+        return vaultRepo.getVisits();
     }
-    return userVisitedPlaces;
+
+    return [];
+}
+
+function getCheckinVisitedPlaceEntries(parkData) {
+    if (typeof window.BARK.getVisitedPlaceEntries === 'function') {
+        return window.BARK.getVisitedPlaceEntries(parkData);
+    }
+
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.hasVisit === 'function' && typeof vaultRepo.getVisit === 'function') {
+        return vaultRepo.hasVisit(parkData)
+            ? [{ id: parkData.id, record: vaultRepo.getVisit(parkData) }]
+            : [];
+    }
+
+    return [];
+}
+
+function getCurrentFirebaseUser() {
+    return typeof firebase !== 'undefined' && firebase.auth
+        ? firebase.auth().currentUser
+        : null;
+}
+
+function canRestoreVaultSnapshot(token, expectedUid) {
+    const user = getCurrentFirebaseUser();
+    return Boolean(user && token && (!expectedUid || user.uid === expectedUid));
+}
+
+function getCurrentFirebaseUid() {
+    const user = getCurrentFirebaseUser();
+    return user ? user.uid : null;
 }
 
 function refreshVisitedVisualState(firebaseService) {
@@ -62,7 +98,7 @@ function queueDailyStreakIncrement(firebaseService) {
     }
 }
 
-function verifyAndProcessCheckin(parkData, userLocation, userVisitedPlaces) {
+function verifyAndProcessCheckin(parkData, userLocation) {
     const result = {
         success: false,
         distance: 0,
@@ -119,7 +155,7 @@ function verifyAndProcessCheckin(parkData, userLocation, userVisitedPlaces) {
     }
 }
 
-async function verifyGpsCheckin(parkData, userVisitedPlaces) {
+async function verifyGpsCheckin(parkData) {
     const firebaseService = getFirebaseService();
 
     if (!firebaseService || typeof firebaseService.updateCurrentUserVisitedPlaces !== 'function') {
@@ -139,26 +175,34 @@ async function verifyGpsCheckin(parkData, userVisitedPlaces) {
 
     if (position && position.error) return { success: false, error: position.error };
 
-    let previousVisitedPlaces = null;
+    let token = null;
+    let tokenUid = null;
+    let rollbackToken = null;
     try {
-        const visitedPlaces = getCurrentVisitedPlaces(userVisitedPlaces);
-        if (!visitedPlaces) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
-
-        previousVisitedPlaces = new Map(visitedPlaces);
-        const checkinResult = verifyAndProcessCheckin(parkData, position.coords, visitedPlaces);
+        const checkinResult = verifyAndProcessCheckin(parkData, position.coords);
         if (!checkinResult.success) return checkinResult;
+
+        const vaultRepo = getVaultRepo();
+        if (!vaultRepo) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
+        tokenUid = getCurrentFirebaseUid();
+        token = vaultRepo.snapshot();
 
         const existingEntry = typeof window.BARK.getVisitedPlaceEntry === 'function'
             ? window.BARK.getVisitedPlaceEntry(parkData)
             : null;
+        const touchedIds = [parkData.id];
         if (existingEntry && existingEntry.id !== parkData.id) {
-            visitedPlaces.delete(existingEntry.id);
+            touchedIds.push(existingEntry.id);
+            vaultRepo.removeVisit(existingEntry.id);
             if (typeof firebaseService.stageVisitedPlaceDelete === 'function') {
                 firebaseService.stageVisitedPlaceDelete(existingEntry.id);
             }
         }
 
-        visitedPlaces.set(parkData.id, checkinResult.visitRecord);
+        vaultRepo.addVisit(checkinResult.visitRecord);
+        if (typeof vaultRepo.createRollbackToken === 'function') {
+            rollbackToken = vaultRepo.createRollbackToken(token, touchedIds);
+        }
         if (typeof firebaseService.stageVisitedPlaceUpsert === 'function') {
             firebaseService.stageVisitedPlaceUpsert(checkinResult.visitRecord);
         }
@@ -169,7 +213,7 @@ async function verifyGpsCheckin(parkData, userVisitedPlaces) {
         if (typeof window.syncState === 'function') {
             window.syncState();
         }
-        await firebaseService.updateCurrentUserVisitedPlaces(Array.from(visitedPlaces.values()));
+        await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
         queueDailyStreakIncrement(firebaseService);
 
         return {
@@ -177,31 +221,32 @@ async function verifyGpsCheckin(parkData, userVisitedPlaces) {
             action: 'verified'
         };
     } catch (error) {
-        if (parkData && typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
+        const vaultRepo = getVaultRepo();
+        if (vaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof vaultRepo.restore === 'function') {
+            vaultRepo.restore(rollbackToken || token);
+        } else if (parkData && typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
             firebaseService.clearVisitedPlacePendingMutation(parkData.id);
-        }
-        if (typeof firebaseService.replaceLocalVisitedPlaces === 'function' && previousVisitedPlaces) {
-            firebaseService.replaceLocalVisitedPlaces(previousVisitedPlaces);
         }
         console.error('[checkinService] verifyGpsCheckin failed:', error);
         return { success: false, error: 'CHECKIN_FAILED' };
     }
 }
 
-async function markAsVisited(parkData, userVisitedPlaces) {
+async function markAsVisited(parkData) {
     const firebaseService = getFirebaseService();
 
     if (!firebaseService) return { success: false, error: 'SERVICE_UNAVAILABLE' };
 
-    let previousVisitedPlaces = null;
+    let token = null;
+    let tokenUid = null;
+    let rollbackToken = null;
     try {
-        const visitedPlaces = getCurrentVisitedPlaces(userVisitedPlaces);
-        if (!visitedPlaces) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
+        const vaultRepo = getVaultRepo();
+        if (!vaultRepo) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
+        tokenUid = getCurrentFirebaseUid();
+        token = vaultRepo.snapshot();
 
-        previousVisitedPlaces = new Map(visitedPlaces);
-        const visitedEntries = typeof window.BARK.getVisitedPlaceEntries === 'function'
-            ? window.BARK.getVisitedPlaceEntries(parkData)
-            : (visitedPlaces.has(parkData.id) ? [{ id: parkData.id, record: visitedPlaces.get(parkData.id) }] : []);
+        const visitedEntries = getCheckinVisitedPlaceEntries(parkData);
 
         if (visitedEntries.length > 0) {
             if (visitedEntries.some(entry => entry.record && entry.record.verified)) {
@@ -212,12 +257,14 @@ async function markAsVisited(parkData, userVisitedPlaces) {
                 return { success: false, error: 'SERVICE_UNAVAILABLE' };
             }
 
-            visitedEntries.forEach(entry => {
-                visitedPlaces.delete(entry.id);
-                if (typeof firebaseService.stageVisitedPlaceDelete === 'function') {
-                    firebaseService.stageVisitedPlaceDelete(entry.id);
-                }
-            });
+            const entryIds = visitedEntries.map(entry => entry.id);
+            vaultRepo.removeVisits(entryIds);
+            if (typeof vaultRepo.createRollbackToken === 'function') {
+                rollbackToken = vaultRepo.createRollbackToken(token, entryIds);
+            }
+            if (typeof firebaseService.stageVisitedPlaceDelete === 'function') {
+                entryIds.forEach(firebaseService.stageVisitedPlaceDelete);
+            }
             if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
                 window.BARK.invalidateVisitedIdsCache();
             }
@@ -225,7 +272,7 @@ async function markAsVisited(parkData, userVisitedPlaces) {
             if (typeof window.syncState === 'function') {
                 window.syncState();
             }
-            await firebaseService.updateCurrentUserVisitedPlaces(Array.from(visitedPlaces.values()));
+            await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
             return { success: true, action: 'removed' };
         }
 
@@ -236,7 +283,10 @@ async function markAsVisited(parkData, userVisitedPlaces) {
         }
 
         const visitRecord = createVisitRecord(parkData, false);
-        visitedPlaces.set(parkData.id, visitRecord);
+        vaultRepo.addVisit(visitRecord);
+        if (typeof vaultRepo.createRollbackToken === 'function') {
+            rollbackToken = vaultRepo.createRollbackToken(token, [parkData.id]);
+        }
         if (typeof firebaseService.stageVisitedPlaceUpsert === 'function') {
             firebaseService.stageVisitedPlaceUpsert(visitRecord);
         }
@@ -251,17 +301,17 @@ async function markAsVisited(parkData, userVisitedPlaces) {
         if (canSyncProgress) {
             await firebaseService.syncUserProgress();
         } else {
-            await firebaseService.updateCurrentUserVisitedPlaces(Array.from(visitedPlaces.values()));
+            await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
         }
 
         queueDailyStreakIncrement(firebaseService);
         return { success: true, action: 'added', visitRecord };
     } catch (error) {
-        if (parkData && typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
+        const vaultRepo = getVaultRepo();
+        if (vaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof vaultRepo.restore === 'function') {
+            vaultRepo.restore(rollbackToken || token);
+        } else if (parkData && typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
             firebaseService.clearVisitedPlacePendingMutation(parkData.id);
-        }
-        if (typeof firebaseService.replaceLocalVisitedPlaces === 'function' && previousVisitedPlaces) {
-            firebaseService.replaceLocalVisitedPlaces(previousVisitedPlaces);
         }
         console.error('[checkinService] markAsVisited failed:', error);
         return { success: false, error: 'VISIT_UPDATE_FAILED' };

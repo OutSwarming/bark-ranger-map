@@ -49,6 +49,19 @@ function getParkRepo() {
     return window.BARK.repos && window.BARK.repos.ParkRepo;
 }
 
+function getVaultRepo() {
+    return window.BARK.repos && window.BARK.repos.VaultRepo;
+}
+
+function hasTripVisitedPlace(placeOrId) {
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.hasVisit === 'function') {
+        return vaultRepo.hasVisit(placeOrId);
+    }
+
+    return false;
+}
+
 (function () {
     let tripLayerGroup = null;
     // Stable identity: stop.id when available, otherwise "lat,lng". Reusing
@@ -116,7 +129,7 @@ function getParkRepo() {
         const parkData = getOfficialParkData(stop);
         const isVisited = typeof window.BARK.isParkVisited === 'function'
             ? window.BARK.isParkVisited(parkData)
-            : Boolean(window.BARK.userVisitedPlaces && window.BARK.userVisitedPlaces.has(stop.id));
+            : hasTripVisitedPlace(stop);
         const style = window.MapMarkerConfig && typeof window.MapMarkerConfig.getPinStyle === 'function'
             ? window.MapMarkerConfig.getPinStyle(parkData, isVisited)
             : {

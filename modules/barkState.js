@@ -45,7 +45,6 @@ let activeSwagFilters = new Set();
 let activeSearchQuery = '';
 let activeTypeFilter = 'all';
 
-let userVisitedPlaces = new Map();
 let visitedFilterState = localStorage.getItem('barkVisitedFilter') || 'all';
 
 // ====== TRIP PLANNER STATE ======
@@ -77,7 +76,6 @@ Object.defineProperties(window.BARK, {
     activeSwagFilters:  { get() { return activeSwagFilters; },  set(v) { activeSwagFilters = v; } },
     activeSearchQuery:  { get() { return activeSearchQuery; },  set(v) { activeSearchQuery = v; } },
     activeTypeFilter:   { get() { return activeTypeFilter; },   set(v) { activeTypeFilter = v; } },
-    userVisitedPlaces:  { get() { return userVisitedPlaces; },  set(v) { userVisitedPlaces = v; } },
     visitedFilterState: { get() { return visitedFilterState; }, set(v) { visitedFilterState = v; } },
     tripDays:           { get() { return tripDays; },           set(v) { tripDays = v; } },
     activeDayIdx:       { get() { return activeDayIdx; },       set(v) { activeDayIdx = v; } },

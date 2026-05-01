@@ -7,6 +7,10 @@ function getParkRepo() {
     return window.BARK.repos && window.BARK.repos.ParkRepo;
 }
 
+function getVaultRepo() {
+    return window.BARK.repos && window.BARK.repos.VaultRepo;
+}
+
 class MarkerLayerManager {
     constructor({ map, plainLayer, clusterLayer }) {
         this.map = map;
@@ -36,7 +40,9 @@ class MarkerLayerManager {
 
     getVisitedState(parkData) {
         if (typeof window.BARK.isParkVisited === 'function') return window.BARK.isParkVisited(parkData);
-        return Boolean(window.BARK.userVisitedPlaces && window.BARK.userVisitedPlaces.has(parkData.id));
+        const vaultRepo = getVaultRepo();
+        if (vaultRepo && typeof vaultRepo.hasVisit === 'function') return vaultRepo.hasVisit(parkData);
+        return false;
     }
 
     getTargetLayerType() {
@@ -78,7 +84,6 @@ class MarkerLayerManager {
 
         window.BARK.renderMarkerClickPanel({
             marker,
-            userVisitedPlaces: window.BARK.userVisitedPlaces,
             syncUserProgress: window.BARK.services && window.BARK.services.firebase && window.BARK.services.firebase.syncUserProgress,
             slidePanel: document.getElementById('slide-panel'),
             titleEl: document.getElementById('panel-title'),
