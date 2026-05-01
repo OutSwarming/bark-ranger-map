@@ -187,6 +187,8 @@ Each phase has: **Goal**, **Detangle**, **Move**, **Keep**, **Add**, **Exit crit
 - `markerLayerPolicy.js` reads `window.*` exactly once at the top of `getRenderContext()`.
 - App boots and behaves identically to before.
 
+**Phase 0 status note:** Complete. The smart-marker references are gone outside this document, `markerLayerPolicy.js` now reads global state only through a frozen `getRenderContext()` boundary, the architecture rules/domain table are pinned in `CLAUDE.md`, and `plans/AI_TECHNICAL_NORTH_STAR.md` links back here. A headless smoke check against the local app verified boot, map creation, settings readiness, frozen render context, marker policy shape, and no visible map-unavailable state.
+
 **Risk:** Very low. Pure cleanup.
 
 **Estimate:** 1–2 days solo.

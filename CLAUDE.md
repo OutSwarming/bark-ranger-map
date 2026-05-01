@@ -26,6 +26,35 @@ PWA for the US B.A.R.K. Rangers program. Dog owners visit national/state parks a
 - `services/checkinService.js` owns GPS check-in validation — clean, well-structured.
 - `modules/markerLayerPolicy.js` is the single source of truth for which marker layer mode is active.
 
+## Target Architecture Rules (Phase 0+)
+These are the rules for all new work and refactors. The current codebase is still migrating toward them; do not make the old global/script-order pattern worse while doing feature work.
+
+1. **Layered reads only.** A view reads services. A service reads repositories. A repository reads transport. Never skip a layer.
+2. **One owner per concern.** If two files mutate the same data, one of them is wrong. Use the domain ownership table below.
+3. **`sync(spec)` is the contract.** Layers, panels, and visual surfaces receive a spec object. They do not read globals to fill in missing data.
+4. **No new bare `window.*` globals.** Use `window.BARK.*` until Phase 4, then migrate to ES exports.
+5. **One folder per domain.** A new feature gets its own folder under `views/`, plus `services/` and `repos/` when it owns behavior or data.
+6. **Repositories own change events.** Services subscribe to repositories. Views re-render when services tell them to. Views do not subscribe directly to repositories.
+
+## Domain Ownership Target
+If a question's answer does not fit exactly one row here, the architecture is leaking. Fix the ownership boundary before adding the feature.
+
+| Concern | Owner | Reads from | Writes to |
+|---|---|---|---|
+| Park records (canonical) | `ParkRepo` | `CsvClient` | - |
+| Spatial / viewport queries | `ParkRepo.index` (RBush) | in-memory index | - |
+| User visits + badges + streaks | `VaultRepo` | `FirestoreClient` | `FirestoreClient` |
+| Trip days / stops (saved) | `TripRepo` | `FirestoreClient` | `FirestoreClient` |
+| Generated route geometry | `TripService` (transient) | `CallableClient.route` | not persisted |
+| Search results (local + global) | `SearchService` | `ParkRepo.index`, `CallableClient.geocode` | - |
+| GPS check-ins | `CheckinService` | `ParkRepo`, browser GPS | `VaultRepo` |
+| Achievements | `AchievementService` | `VaultRepo` | `VaultRepo` |
+| Cart (local) | `OrderRepo` | localStorage | localStorage |
+| Orders / shipping | `OrderRepo` | `FirestoreClient` | `CallableClient.checkout` |
+| Auth + premium tier | `IdentityService` | Firebase Auth, `FirestoreClient` | - |
+| Settings (per-user) | `PreferencesRepo` | `FirestoreClient`, localStorage | `FirestoreClient`, localStorage |
+| Map render decisions | `RenderEngine` (pure) | repos + prefs snapshots | returns specs only |
+
 ## Goal
 Make the app production-grade for a store launch: near-100% reliability, no logic errors, clean scalable code, all existing features preserved.
 
@@ -79,7 +108,7 @@ Before major feature work, refactors, payment work, Passport/journal/photos/even
 - [x] **#22 — Removed client-side ORS key + documented rotation gate (Phase 3 of 3)** (`modules/barkConfig.js`, `index.html`, provider dashboards) ✅
 
 ## Current Work
-Phase -1 guardrails are code-complete. The client no longer ships any paid API key, admin callables are protected, auth failures surface a visible banner, saved-route loading returns data instead of rendering DOM, and settings startup order is guarded in boot. Operator gate before production: rotate the old ORS key at openrouteservice.org (issue a new key, set it as the `ORS_API_KEY` Firebase secret with `firebase functions:secrets:set ORS_API_KEY`, redeploy functions, then revoke the old key); rotate the paid Gemini key at console.cloud.google.com (mirror the same set/redeploy/revoke order using `GEMINI_PAID_API_KEY`). Until rotation completes, the old keys remain valid in git history.
+Phase 0 is complete. The orphaned smart-marker experiment references are gone outside the implementation plan, `modules/markerLayerPolicy.js` now builds a frozen render context before deriving marker policy, the target architecture rules and domain ownership table are pinned above, and `plans/AI_TECHNICAL_NORTH_STAR.md` links back to the master implementation plan. Smoke check passed against `http://127.0.0.1:4173/index.html`: map booted, settings readiness flags were true, `getRenderContext()` was frozen, `getMarkerLayerPolicy()` returned the expected shape, and the map-unavailable banner stayed hidden. Next implementation phase: Phase 1 repository seam.
 
 ---
 

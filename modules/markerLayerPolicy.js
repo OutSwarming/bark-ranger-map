@@ -1,21 +1,43 @@
 /**
  * markerLayerPolicy.js - Single source of truth for marker layer/performance mode.
  */
-window.BARK = window.BARK || {};
+const BARK_GLOBAL = window;
+BARK_GLOBAL.BARK = BARK_GLOBAL.BARK || {};
+
+function getRenderContext(zoom) {
+    const mapRef = BARK_GLOBAL.map;
+    const currentZoom = Number.isFinite(Number(zoom)) ? Number(zoom) : (mapRef ? mapRef.getZoom() : 0);
+
+    return Object.freeze({
+        zoom: currentZoom,
+        clusteringEnabled: Boolean(BARK_GLOBAL.clusteringEnabled),
+        premiumClusteringEnabled: Boolean(BARK_GLOBAL.premiumClusteringEnabled),
+        forcePlainMarkers: Boolean(BARK_GLOBAL.forcePlainMarkers),
+        stopResizing: Boolean(BARK_GLOBAL.stopResizing),
+        viewportCulling: Boolean(BARK_GLOBAL.viewportCulling),
+        lowGfxEnabled: Boolean(BARK_GLOBAL.lowGfxEnabled),
+        ultraLowEnabled: Boolean(BARK_GLOBAL.ultraLowEnabled),
+        simplifyPinsWhileMoving: Boolean(BARK_GLOBAL.simplifyPinsWhileMoving),
+        limitZoomOut: Boolean(BARK_GLOBAL.limitZoomOut)
+    });
+}
 
 function getMarkerLayerPolicy(zoom) {
-    const currentZoom = Number.isFinite(Number(zoom)) ? Number(zoom) : (window.map ? window.map.getZoom() : 0);
-    const premiumExplodesAtZoom = window.premiumClusteringEnabled && currentZoom >= 7;
-    const canCluster = window.clusteringEnabled && !window.forcePlainMarkers && !premiumExplodesAtZoom;
+    const context = getRenderContext(zoom);
+    const performanceReduced = context.lowGfxEnabled || context.ultraLowEnabled;
+    const premiumExplodesAtZoom = context.premiumClusteringEnabled && context.zoom >= 7;
+    const canCluster = context.clusteringEnabled && !context.forcePlainMarkers && !premiumExplodesAtZoom;
+    const shouldLimitZoomOut = context.limitZoomOut || performanceReduced;
 
     return {
         layerType: canCluster ? 'cluster' : 'plain',
-        freezeDuringZoom: Boolean(window.stopResizing),
-        cullPlainMarkers: Boolean(window.viewportCulling || window.forcePlainMarkers || window.lowGfxEnabled || window.ultraLowEnabled),
-        useReducedVisualsDuringMotion: Boolean(window.simplifyPinsWhileMoving || window.stopResizing || window.lowGfxEnabled || window.ultraLowEnabled),
-        limitZoomOut: Boolean(window.limitZoomOut || window.lowGfxEnabled || window.ultraLowEnabled),
-        minZoom: (window.limitZoomOut || window.lowGfxEnabled || window.ultraLowEnabled) ? 5 : null
+        freezeDuringZoom: context.stopResizing,
+        cullPlainMarkers: context.viewportCulling || context.forcePlainMarkers || performanceReduced,
+        useReducedVisualsDuringMotion: context.simplifyPinsWhileMoving || context.stopResizing || performanceReduced,
+        limitZoomOut: shouldLimitZoomOut,
+        minZoom: shouldLimitZoomOut ? 5 : null
     };
 }
 
-window.BARK.getMarkerLayerPolicy = getMarkerLayerPolicy;
+BARK_GLOBAL.BARK.getRenderContext = getRenderContext;
+BARK_GLOBAL.BARK.getMarkerLayerPolicy = getMarkerLayerPolicy;

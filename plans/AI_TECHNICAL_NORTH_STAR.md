@@ -39,6 +39,7 @@ This document is a long-term technical guide so future AI agents can:
 
 Related documents:
 
+- `plans/MASTER_PLAN_IMPLEMENTATION copy.md`: operational phase plan for the production guardrails and architecture migration. Phase -1 and Phase 0 are the current baseline before repository/service extraction.
 - `plans/CURRENT_FEATURE_MAP.md`: current feature inventory and popularity/product ranking.
 - `plans/FUTURE_ROADMAP.md`: product, monetization, and feature roadmap.
 - `plans/PRODUCTION_AUDIT_REPORT.md`: production-grade architecture audit.
@@ -1378,4 +1379,3 @@ The next version of the app should not be a giant rewrite. It should be a series
 13. Add custom personal pins.
 
 The winning technical strategy is not "perfect architecture." It is disciplined incremental cleanup so every future feature has a home and does not become another strand in the web.
-
