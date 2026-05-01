@@ -327,6 +327,29 @@ Implementation status:
 - Verification passed: `npm run test:e2e:smoke`, 9 passed.
 - Payment provider work, payment buttons, Firebase rules, ORS callable enforcement, global search gating, trail button gating, premium clustering changes, entitlement writes, and deployment remain deferred.
 
+### 4C.6 - Trail Buttons And Global Search UI Entitlement Gating
+
+Planning status:
+
+- Phase 4C.6 planning is complete in `plans/PHASE_4C6_TRAILS_GLOBAL_SEARCH_ENTITLEMENT_PLAN.md`.
+- Recommended split: implement 4C.6A trail button DOM/click-guard entitlement gating first, then handle 4C.6B global search UI/check-guard entitlement gating separately.
+- 4C.6A should cover `#toggle-virtual-trail`, `#toggle-completed-trails`, `expeditionEngine.isExpeditionPremiumUnlocked()`, trail click guards, and `flyToActiveTrail()` bypass behavior if needed.
+- 4C.6B should cover `searchEngine.isPremiumGlobalSearchUnlocked()`, inline/main global search UI copy, and UI guards before `executeGeocode(...)`.
+- ORS callable enforcement, Firebase rules, payment provider work, payment buttons, premium clustering, offline mode, and deployment remain deferred.
+
+Implementation status:
+
+- Phase 4C.6A is implemented.
+- Trail button DOM state and expedition click guards now use premium entitlement, not signed-in auth state.
+- Signed-out and signed-in free users keep `#toggle-virtual-trail` and `#toggle-completed-trails` disabled with `aria-disabled="true"`.
+- Premium/manual override users get enabled trail buttons.
+- `flyToActiveTrail()` now has an entitlement guard before it can click `#toggle-virtual-trail`.
+- User-owned expedition/profile history was not hidden.
+- `npm run test:e2e:entitlement`: PASS, 2 passed.
+- `npm run test:e2e:premium`: PASS, 2 passed.
+- `npm run test:e2e:smoke`: PASS, 9 passed.
+- Global search remains deferred to 4C.6B, and ORS/backend/rules/payment work remains deferred.
+
 ### 4D - Payment Provider Design Later
 
 Goal:

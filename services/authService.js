@@ -383,25 +383,10 @@ function stopUserSnapshotSubscription() {
     }
 }
 
-function hasCurrentAuthUser() {
-    try {
-        return Boolean(
-            typeof firebase !== 'undefined' &&
-            firebase.auth &&
-            firebase.auth().currentUser
-        );
-    } catch (error) {
-        return false;
-    }
-}
-
 function handlePremiumGating(isPremium, options = {}) {
     const premiumUi = window.BARK.authPremiumUi;
     if (premiumUi && typeof premiumUi.applyPremiumGating === 'function') {
-        premiumUi.applyPremiumGating(isPremium === true, {
-            trailsUnlocked: options.trailsUnlocked === undefined ? hasCurrentAuthUser() : options.trailsUnlocked === true,
-            reason: options.reason || null
-        });
+        premiumUi.applyPremiumGating(isPremium === true, { reason: options.reason || null });
     }
 }
 

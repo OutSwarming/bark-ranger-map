@@ -176,7 +176,7 @@ test.describe('Phase 3A premium gating smoke', () => {
             await waitForSignedInApp(page);
             await expect(page.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(false);
             await expectLowRiskPremiumControlsLocked(page);
-            await expectTrailButtonsUnlocked(page);
+            await expectTrailButtonsLocked(page);
         } finally {
             await context.close();
         }

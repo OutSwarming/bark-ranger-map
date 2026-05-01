@@ -38,16 +38,25 @@ function removeTrailLayerGroup(layerGroup) {
     }
 }
 
-function isExpeditionPremiumUnlocked() {
+function isPremiumEntitlementActive() {
+    const premiumService = window.BARK && window.BARK.services && window.BARK.services.premium;
     return Boolean(
-        typeof firebase !== 'undefined' &&
-        firebase.auth &&
-        firebase.auth().currentUser
+        premiumService &&
+        typeof premiumService.isPremium === 'function' &&
+        premiumService.isPremium()
     );
 }
 
-function blockLoggedOutTrailToggle(button) {
-    if (button) button.classList.remove('active');
+function isExpeditionPremiumUnlocked() {
+    return isPremiumEntitlementActive();
+}
+
+function blockLockedTrailToggle(button) {
+    if (button) {
+        button.classList.remove('active');
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+    }
     removeTrailLayerGroup(virtualTrailLayerGroup);
     removeTrailLayerGroup(completedTrailsLayerGroup);
 }
@@ -200,7 +209,7 @@ function initTrailToggles() {
     if (toggleVirtualBtn) {
         toggleVirtualBtn.addEventListener('click', function () {
             if (!isExpeditionPremiumUnlocked()) {
-                blockLoggedOutTrailToggle(this);
+                blockLockedTrailToggle(this);
                 return;
             }
 
@@ -226,7 +235,7 @@ function initTrailToggles() {
     if (toggleCompletedBtn) {
         toggleCompletedBtn.addEventListener('click', function () {
             if (!isExpeditionPremiumUnlocked()) {
-                blockLoggedOutTrailToggle(this);
+                blockLockedTrailToggle(this);
                 return;
             }
 
@@ -253,6 +262,11 @@ window.BARK.initTrailToggles = initTrailToggles;
 
 // ====== TRAIL NAVIGATION & EDUCATION ======
 window.flyToActiveTrail = function () {
+    if (!isExpeditionPremiumUnlocked()) {
+        blockLockedTrailToggle(document.getElementById('toggle-virtual-trail'));
+        return;
+    }
+
     if (!ensureTrailLayerGroups()) {
         alert("Trail map data is unavailable. Please refresh and try again.");
         return;

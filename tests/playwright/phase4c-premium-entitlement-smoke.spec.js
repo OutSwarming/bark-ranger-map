@@ -129,6 +129,7 @@ async function readEntitlementState(page) {
         const premiumWrap = document.getElementById('premium-filters-wrap');
         const visitedFilter = document.getElementById('visited-filter');
         const mapStyleSelect = document.getElementById('map-style-select');
+        const trailButtons = Array.from(document.querySelectorAll('#toggle-virtual-trail, #toggle-completed-trails'));
         const firestore = window.firebase.firestore();
 
         function serializeFirestoreData(value) {
@@ -281,10 +282,83 @@ async function readEntitlementState(page) {
                 visitedFilterDisabled: visitedFilter ? visitedFilter.disabled === true : null,
                 visitedFilterValue: visitedFilter ? visitedFilter.value : null,
                 mapStyleSelectDisabled: mapStyleSelect ? mapStyleSelect.disabled === true : null,
-                mapStyleSelectValue: mapStyleSelect ? mapStyleSelect.value : null
+                mapStyleSelectValue: mapStyleSelect ? mapStyleSelect.value : null,
+                trailButtons: trailButtons.map(button => ({
+                    id: button.id,
+                    disabled: button.disabled === true,
+                    ariaDisabled: button.getAttribute('aria-disabled'),
+                    active: button.classList.contains('active')
+                }))
             }
         };
     }, { expectedPremiumUid: EXPECTED_PREMIUM_UID });
+}
+
+function expectTrailButtonsLocked(state) {
+    expect(state.currentUiBehavior.trailButtons.length, 'Trail buttons should be rendered').toBeGreaterThan(0);
+    state.currentUiBehavior.trailButtons.forEach(button => {
+        expect(button.disabled, `${button.id} should be disabled`).toBe(true);
+        expect(button.ariaDisabled, `${button.id} should be aria-disabled`).toBe('true');
+        expect(button.active, `${button.id} should not be active`).toBe(false);
+    });
+}
+
+function expectTrailButtonsUnlocked(state) {
+    expect(state.currentUiBehavior.trailButtons.length, 'Trail buttons should be rendered').toBeGreaterThan(0);
+    state.currentUiBehavior.trailButtons.forEach(button => {
+        expect(button.disabled, `${button.id} should be enabled`).toBe(false);
+        expect(button.ariaDisabled, `${button.id} should not be aria-disabled`).toBe('false');
+    });
+}
+
+async function forceVirtualTrailClick(page) {
+    return page.evaluate(() => {
+        const button = document.getElementById('toggle-virtual-trail');
+        if (!button) return { present: false };
+
+        button.disabled = false;
+        button.setAttribute('aria-disabled', 'false');
+        button.classList.remove('active');
+        button.click();
+
+        return {
+            present: true,
+            active: button.classList.contains('active'),
+            disabled: button.disabled === true,
+            ariaDisabled: button.getAttribute('aria-disabled')
+        };
+    });
+}
+
+async function togglePremiumVirtualTrailIfReady(page) {
+    return page.evaluate(() => {
+        const button = document.getElementById('toggle-virtual-trail');
+        const mapReady = Boolean(
+            button &&
+            !button.disabled &&
+            typeof window.L !== 'undefined' &&
+            window.map &&
+            typeof window.map.addLayer === 'function'
+        );
+
+        if (!mapReady) {
+            return {
+                attempted: false,
+                reason: button ? 'map-or-leaflet-unavailable' : 'missing-button'
+            };
+        }
+
+        button.classList.remove('active');
+        button.click();
+        const activeAfterClick = button.classList.contains('active');
+        if (activeAfterClick) button.click();
+
+        return {
+            attempted: true,
+            activeAfterClick,
+            activeAfterCleanup: button.classList.contains('active')
+        };
+    });
 }
 
 test.describe('Phase 4C premium entitlement smoke', () => {
@@ -296,9 +370,11 @@ test.describe('Phase 4C premium entitlement smoke', () => {
         collectConsoleErrors(freePage, 'free user', consoleErrors);
 
         let freeState;
+        let freeForcedTrailClick;
         try {
             await openSignedInEntitlementApp(freePage);
             freeState = await readEntitlementState(freePage);
+            freeForcedTrailClick = await forceVirtualTrailClick(freePage);
         } finally {
             await freeContext.close();
         }
@@ -314,15 +390,24 @@ test.describe('Phase 4C premium entitlement smoke', () => {
             mapStyleSelectDisabled: true,
             mapStyleSelectValue: 'default'
         });
+        expectTrailButtonsLocked(freeState);
+        expect(freeForcedTrailClick).toMatchObject({
+            present: true,
+            active: false,
+            disabled: true,
+            ariaDisabled: 'true'
+        });
 
         const premiumContext = await browser.newContext({ storageState: premiumStorageStatePath });
         const premiumPage = await premiumContext.newPage();
         collectConsoleErrors(premiumPage, 'premium user', consoleErrors);
 
         let premiumState;
+        let premiumTrailToggle;
         try {
             await openSignedInEntitlementApp(premiumPage);
             premiumState = await readEntitlementState(premiumPage);
+            premiumTrailToggle = await togglePremiumVirtualTrailIfReady(premiumPage);
         } finally {
             await premiumContext.close();
         }
@@ -345,6 +430,13 @@ test.describe('Phase 4C premium entitlement smoke', () => {
             visitedFilterDisabled: false,
             mapStyleSelectDisabled: false
         });
+        expectTrailButtonsUnlocked(premiumState);
+        if (premiumTrailToggle.attempted) {
+            expect(premiumTrailToggle).toMatchObject({
+                activeAfterClick: true,
+                activeAfterCleanup: false
+            });
+        }
 
         expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
     });
@@ -385,6 +477,7 @@ test.describe('Phase 4C premium entitlement smoke', () => {
             mapStyleSelectDisabled: true,
             mapStyleSelectValue: 'default'
         });
+        expectTrailButtonsLocked(freeState);
         expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
     });
 });

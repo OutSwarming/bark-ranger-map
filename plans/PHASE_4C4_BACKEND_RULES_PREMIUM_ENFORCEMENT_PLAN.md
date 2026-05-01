@@ -288,6 +288,13 @@ Likely files:
 - `services/authPremiumUi.js`
 - Playwright premium/trail/global-search specs
 
+Planning status:
+
+- Phase 4C.6 planning is complete in `plans/PHASE_4C6_TRAILS_GLOBAL_SEARCH_ENTITLEMENT_PLAN.md`.
+- Recommended split: 4C.6A trail button DOM/click-guard entitlement gating first; 4C.6B global search UI/check-guard entitlement gating separately.
+- Do not combine global search with trail gating unless tests prove free users cannot reach UI geocode paths and the PR still makes no backend security claim.
+- ORS backend callable enforcement remains Phase 4C.8, not 4C.6.
+
 ### 4C.7 - Firestore Rules Draft And Rules Tests
 
 Goal:
