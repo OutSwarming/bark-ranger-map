@@ -305,6 +305,28 @@ Goal:
 
 No callable/rules implementation in this planning PR.
 
+Implementation status:
+
+- Phase 4C.4 planning is complete in `plans/PHASE_4C4_BACKEND_RULES_PREMIUM_ENFORCEMENT_PLAN.md`.
+- The plan inventories deferred premium surfaces and classifies ORS callables, entitlement writes/rules, `localStorage.premiumLoggedIn`, global search, trail buttons, and premium clustering/bubble mode.
+- No runtime code, tests, Firestore rules, backend callables, payment provider work, payment buttons, checkout, webhooks, deployment, or entitlement writes were added.
+- Recommended next slice is Phase 4C.5: remove or neutralize `localStorage.premiumLoggedIn` as a premium grant path with focused tests.
+
+### 4C.5 - Remove LocalStorage Premium Unlock
+
+Implementation status:
+
+- Phase 4C.5 is implemented.
+- `modules/dataService.js` no longer trusts `localStorage.premiumLoggedIn` for offline premium access.
+- Offline premium checks now read `premiumService.isPremium()` and fail closed when entitlement state is missing or non-premium.
+- `tests/playwright/phase4c-premium-entitlement-smoke.spec.js` now proves a signed-in free user remains non-premium and low-risk premium controls stay locked even when `localStorage.premiumLoggedIn` is set to `"true"`.
+- Residual premium storage references: none found by `rg -n "premiumLoggedIn|localStorage.*premium|sessionStorage.*premium" services modules renderers repos state engines core -g '*.js'`.
+- Verification passed: `node --check modules/dataService.js tests/playwright/phase4c-premium-entitlement-smoke.spec.js`.
+- Verification passed: `npm run test:e2e:entitlement`, 2 passed.
+- Verification passed: `npm run test:e2e:premium`, 2 passed.
+- Verification passed: `npm run test:e2e:smoke`, 9 passed.
+- Payment provider work, payment buttons, Firebase rules, ORS callable enforcement, global search gating, trail button gating, premium clustering changes, entitlement writes, and deployment remain deferred.
+
 ### 4D - Payment Provider Design Later
 
 Goal:

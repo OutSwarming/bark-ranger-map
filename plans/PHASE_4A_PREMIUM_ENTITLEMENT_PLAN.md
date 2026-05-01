@@ -611,3 +611,23 @@ Phase 4C.3 low-risk UI entitlement gating is now complete:
 - `npm run test:e2e:premium`: PASS, 2 passed.
 - `npm run test:e2e:smoke`: PASS, 9 passed.
 - No client entitlement writes, payment provider, payment buttons, email/password UI, or deployment were added.
+
+Phase 4C.4 backend/rules enforcement planning is now complete:
+
+- Plan file: `plans/PHASE_4C4_BACKEND_RULES_PREMIUM_ENFORCEMENT_PLAN.md`.
+- Deferred surfaces inventoried: trail buttons, expedition click guards, global search, offline mode / `localStorage.premiumLoggedIn`, premium clustering/bubble mode, ORS `getPremiumRoute` / `getPremiumGeocode`, entitlement writes, Firestore rules, and payment provider boundaries.
+- `functions/index.js` exists and currently protects ORS callables with auth only, not premium entitlement.
+- No root `firestore.rules` file exists in this repo at this time, and `firebase.json` does not reference one.
+- Recommended next slice is Phase 4C.5: remove or neutralize `localStorage.premiumLoggedIn` as a premium grant path with focused tests.
+- Payment provider work, checkout buttons, callable enforcement, rules changes, and deployment remain stopped until their own tested phases.
+
+Phase 4C.5 localStorage premium bypass cleanup is now implemented:
+
+- `modules/dataService.js` no longer uses `localStorage.premiumLoggedIn` as a premium unlock/grant source.
+- Offline premium checks now use the read-only entitlement service, `premiumService.isPremium()`, and fail closed when the service is missing or non-premium.
+- `tests/playwright/phase4c-premium-entitlement-smoke.spec.js` now includes a focused signed-in free-user bypass check that sets `localStorage.premiumLoggedIn = "true"` and confirms premium controls remain locked.
+- Residual runtime references to `premiumLoggedIn`, `localStorage.*premium`, or `sessionStorage.*premium`: none found in `services modules renderers repos state engines core`.
+- `npm run test:e2e:entitlement`: PASS, 2 passed.
+- `npm run test:e2e:premium`: PASS, 2 passed.
+- `npm run test:e2e:smoke`: PASS, 9 passed.
+- Payment provider work, payment buttons, Firebase rules, ORS callables, global search, trail button gating, premium clustering, entitlement writes, and deployment remain deferred.

@@ -441,7 +441,12 @@ function loadData() {
     safeDataPoll();
 
     if (!navigator.onLine) {
-        const isPremium = localStorage.getItem('premiumLoggedIn') === 'true';
+        const premiumService = window.BARK && window.BARK.services && window.BARK.services.premium;
+        const isPremium = Boolean(
+            premiumService &&
+            typeof premiumService.isPremium === 'function' &&
+            premiumService.isPremium()
+        );
         if (!isPremium && !cachedCsv) {
             alert('Network disconnected. Log in via the Profile tab to enable Premium Offline Mode.');
             clearMarkerLayersSafely();

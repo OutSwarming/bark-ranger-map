@@ -348,4 +348,43 @@ test.describe('Phase 4C premium entitlement smoke', () => {
 
         expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
     });
+
+    test('localStorage premiumLoggedIn cannot unlock signed-in free user', async ({ browser }) => {
+        const consoleErrors = [];
+        const context = await browser.newContext({ storageState: freeStorageStatePath });
+        await context.addInitScript(() => {
+            window.localStorage.setItem('premiumLoggedIn', 'true');
+        });
+        const page = await context.newPage();
+        collectConsoleErrors(page, 'free user localStorage bypass', consoleErrors);
+
+        let freeState;
+        let storedPremiumFlag;
+        try {
+            await openSignedInEntitlementApp(page);
+            storedPremiumFlag = await page.evaluate(() => window.localStorage.getItem('premiumLoggedIn'));
+            freeState = await readEntitlementState(page);
+        } finally {
+            try {
+                await page.evaluate(() => window.localStorage.removeItem('premiumLoggedIn'));
+            } catch (error) {
+                // Context cleanup is best effort; the storage state file is not mutated.
+            }
+            await context.close();
+        }
+
+        expect(storedPremiumFlag).toBe('true');
+        expect(freeState.user && freeState.user.uid, 'Free storage state should produce a signed-in Firebase user').toBeTruthy();
+        expect(freeState.isPremium, 'localStorage.premiumLoggedIn must not make a free user premium').toBe(false);
+        expect(freeState.entitlement.premium, 'Free user normalized entitlement should remain non-premium').toBe(false);
+        expect(freeState.currentUiBehavior).toMatchObject({
+            premiumWrapLocked: true,
+            premiumWrapUnlocked: false,
+            visitedFilterDisabled: true,
+            visitedFilterValue: 'all',
+            mapStyleSelectDisabled: true,
+            mapStyleSelectValue: 'default'
+        });
+        expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
+    });
 });
