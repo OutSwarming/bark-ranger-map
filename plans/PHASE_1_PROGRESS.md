@@ -8,15 +8,17 @@ Phase 1A is complete. `ParkRepo` owns canonical park records, `window.BARK.allPo
 
 Phase 1B architecture is complete. `VaultRepo` owns visit state behind explicit repository APIs, the legacy `window.BARK.userVisitedPlaces` shim has been removed, active readers/writers no longer depend on the compatibility Map surface, and 1B.4 normal-browser signed-in smoke passed.
 
-PR 1B.2 writer migration is implemented. PR 1B.2a conflict-aware rollback is implemented. PR 1B.2b pending-delete plus legacy-id canonical replacement hardening is implemented and covered by a focused repro. 1B.2 is manually smoke-verified for internal refactor progress only. Automated signed-in Playwright remains a pre-deploy blocker.
+PR 1B.2 writer migration is implemented. PR 1B.2a conflict-aware rollback is implemented. PR 1B.2b pending-delete plus legacy-id canonical replacement hardening is implemented and covered by a focused repro. 1B.2 is manually smoke-verified and automated signed-in Playwright is now unblocked through the Firebase Email/Password E2E test account.
 
-Post-1B.3 normal-browser smoke passed after the `renderEngine` frozen-array cache-key fix. Final Phase 1B architecture review returned LOW merge risk, no Phase 1B blocking issues, and `SAFE TO BEGIN PHASE 1C REVIEW? YES`. Do not deploy this branch: automated signed-in Playwright remains a pre-deploy blocker while Google OAuth blocks Playwright Chromium.
+Post-1B.3 normal-browser smoke passed after the `renderEngine` frozen-array cache-key fix. Final Phase 1B architecture review returned LOW merge risk, no Phase 1B blocking issues, and `SAFE TO BEGIN PHASE 1C REVIEW? YES`. Current signed-in Playwright smoke uses saved Firebase Email/Password storage state because Google OAuth still blocks Playwright Chromium.
 
-Phase 1C implementation and cleanup are complete. `VaultRepo` owns the visitedPlaces-only `users/{uid}` snapshot lifecycle through `startSubscription()` / `stopSubscription()`, while `authService` keeps its broad non-visit user-document listener. This was cleanup only; Phase 2 has not started, and deployment remains blocked by signed-in smoke automation.
+Phase 1C implementation and cleanup are complete. `VaultRepo` owns the visitedPlaces-only `users/{uid}` snapshot lifecycle through `startSubscription()` / `stopSubscription()`, while `authService` keeps its broad non-visit user-document listener. This was cleanup only; Phase 2 has not started in this section, and signed-in smoke automation is now available through the E2E test account.
 
 Phase 2A inventory is tracked in `plans/PHASE_2_GLOBAL_INVENTORY.md`. It is an architecture inventory only; no runtime behavior changes are included.
 
-Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Phase 2C migrated direct visited cache invalidation call sites through that coordinator while leaving visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, and ownership boundaries unchanged. Phase 2D migrated visited visual refresh call sites through the same coordinator while leaving `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, rollback logic, and ownership boundaries unchanged. Phase 2D QC and manual smoke passed. Phase 2E migrated only the three low-risk check-in direct `window.syncState()` calls through named coordinator requests, and manual smoke passed. Phase 2F.2 extracted premium gating UI into `services/authPremiumUi.js`; manual smoke is pending.
+Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Phase 2C migrated direct visited cache invalidation call sites through that coordinator while leaving visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, and ownership boundaries unchanged. Phase 2D migrated visited visual refresh call sites through the same coordinator while leaving `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, rollback logic, and ownership boundaries unchanged. Phase 2D QC and manual smoke passed. Phase 2E migrated only the three low-risk check-in direct `window.syncState()` calls through named coordinator requests, and manual smoke passed. Phase 2F.2 extracted premium gating UI into `services/authPremiumUi.js`; manual smoke passed per the post-Phase-2 report.
+
+Post-Phase-2 architecture status is tracked in `plans/POST_PHASE_2_ARCHITECTURE_REPORT.md`. Phase 3B profile/leaderboard split planning is tracked in `plans/PHASE_3B_PROFILE_LEADERBOARD_SPLIT_PLAN.md`. Phase 4A premium entitlement/paywall architecture planning is tracked in `plans/PHASE_4A_PREMIUM_ENTITLEMENT_PLAN.md`.
 
 ## Completed In This Chat
 
@@ -76,7 +78,7 @@ Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Phase 2C migrat
   - Kept a tiny `handlePremiumGating(isLoggedIn)` wrapper in `services/authService.js`, preserving existing signed-in/signed-out call sites.
   - Added `services/authPremiumUi.js` to `index.html` before `services/authService.js` and bumped the touched auth script cache bust.
   - Deferred auth listener, broad `users/{uid}` snapshot, cloud settings, walk points/streak, expedition, leaderboard, logout reset, Firestore writes, and `VaultRepo` ownership.
-  - Manual signed-in smoke remains pending; do not deploy or start Phase 2F.3 yet.
+  - Manual signed-in smoke passed after Phase 2F.2. Phase 3A.1 later added automated premium gating smoke, Phase 3A.2 later added account-switch isolation smoke, Phase 3A.3 later added profile/manage portal smoke, Phase 3A.4 later added trip planner visited styling smoke, and Phase 3A.5 later added settings persistence smoke. The full current bundle command is `npm run test:e2e:smoke`, which passed with 9 tests using Firebase Email/Password E2E storage states; do not deploy or start further Phase 3 work without accepted release smoke.
 
 ## 1C.1 Implementation Notes
 
@@ -100,7 +102,7 @@ Design constraints followed:
 - `node tests/phase1b-pending-delete-canonical-replacement.test.js`: PASS
 - `git diff --check`: PASS
 - Manual signed-in smoke: PASS before 1C.2 cleanup
-- Automated signed-in Playwright: still a pre-deploy blocker because Google OAuth blocks Playwright Chromium.
+- Automated signed-in Playwright: PASS via Firebase Email/Password E2E storage state. `npm run test:e2e:phase1b` passed with 3 tests. Google OAuth remains blocked in Playwright, but real users still use Google sign-in and no email/password UI was added.
 
 1C.2 cleanup verification status:
 
@@ -112,7 +114,7 @@ Design constraints followed:
 - `node tests/phase1b-pending-delete-canonical-replacement.test.js`: PASS
 - `git diff --check`: PASS
 - Manual signed-in smoke after 1C.2 cleanup: PENDING
-- Automated signed-in Playwright: still a pre-deploy blocker because Google OAuth blocks Playwright Chromium.
+- Automated signed-in Playwright: PASS via Firebase Email/Password E2E storage state. `npm run test:e2e:phase1b` passed with 3 tests. Google OAuth remains blocked in Playwright, but real users still use Google sign-in and no email/password UI was added.
 
 ## Resolved Rollback Blocker
 
@@ -189,12 +191,11 @@ Manual browser checks passed:
 
 Playwright status:
 
-- `npx playwright test tests/playwright/phase1b-visited-smoke.spec.js --reporter=list` runs, but automated signed-in execution is currently blocked by the auth provider.
-- Automated signed-in Playwright smoke is currently blocked because the app uses Google sign-in only and Google OAuth rejects Playwright Chromium as insecure. This is a test harness/auth-provider limitation, not a proven app logic failure.
-- Automated signed-in Playwright smoke remains a pre-deploy blocker. For internal refactor progress only, manual signed-in smoke may be used because the public app remains on the old stable version.
-- Do not deploy this branch until signed-in smoke is automated or manually repeated and accepted before release.
-- Firebase Email/Password test auth may be enabled later for automation, but do not add it now.
-- Do not add email/password UI to the app as part of this task.
+- Automated signed-in Playwright smoke is now unblocked by using the Firebase Email/Password E2E test account to create `BARK_E2E_STORAGE_STATE`.
+- `npm run test:e2e:phase1b`: PASS, 3 passed.
+- Google OAuth still rejects Playwright Chromium, so the harness should continue to use Email/Password storage state for automation.
+- Real users still use Google sign-in. No email/password UI was added to the runtime app.
+- Do not commit `storage-state.json`, saved browser state, or real credentials.
 
 Manual signed-in Phase 1B.2 smoke checklist:
 
@@ -246,10 +247,10 @@ Result fields:
 1B.2 verification status:
 
 - Manual signed-in Phase 1B.2 smoke: PASS
-- Automated Playwright signed-in smoke: blocked by Google OAuth; remains pre-deploy blocker
-- 1B.2 status: verified for internal refactor progress only
+- Automated Playwright signed-in smoke: PASS via Firebase Email/Password E2E storage state; `npm run test:e2e:phase1b` passed with 3 tests
+- 1B.2 status: verified by manual smoke and current automated signed-in smoke
 - Safe next step: 1B.3 reader migration
-- Still not safe to deploy
+- Deployment still requires the usual final release smoke on the deploy candidate
 
 ## 1B.3 Reader Migration
 
@@ -283,7 +284,7 @@ Remaining `userVisitedPlaces` references after 1B.3:
 - Active reader that still must migrate: none found.
 - Active writer regression: none found.
 
-Normal-browser signed-in smoke after 1B.3 passed before 1B.4 shim deletion review. Automated signed-in Playwright remains a pre-deploy blocker while Google OAuth blocks Playwright Chromium.
+Normal-browser signed-in smoke after 1B.3 passed before 1B.4 shim deletion review. Automated signed-in Playwright is now unblocked through the Firebase Email/Password E2E test account; Google OAuth remains blocked in Playwright Chromium.
 
 ## 1B.4 Shim Deletion
 
@@ -312,7 +313,7 @@ Remaining references:
 - Runtime `userVisitedPlaces`: none found.
 - Runtime legacy map-view helper references: none found.
 - Runtime/test `userVisitedPlaces` references: none found outside docs/history.
-- Playwright smoke coverage now targets `VaultRepo` APIs; automated signed-in execution remains blocked by Google OAuth until the auth provider or test harness changes.
+- Playwright smoke coverage now targets `VaultRepo` APIs. Automated signed-in execution is now unblocked through Firebase Email/Password storage state; Google OAuth remains blocked in Playwright.
 
 Manual signed-in smoke after 1B.4:
 
@@ -330,9 +331,9 @@ Final Phase 1B architecture review:
 - Merge risk: LOW
 - Blocking issues: none for Phase 1B architecture completion
 - Phase 1B architecture: complete
-- Automated signed-in Playwright: still a pre-deploy blocker
+- Automated signed-in Playwright: PASS via Firebase Email/Password E2E storage state; `npm run test:e2e:phase1b` passed with 3 tests
 - Safe next step: Phase 1C snapshot ownership design review, not implementation
 
 ## Stop Line
 
-Stop after Phase 1C.2 cleanup and verification. Do not deploy, do not begin Phase 2, and do not move additional ownership boundaries. The remaining pre-deploy blocker is signed-in smoke automation or an accepted release smoke substitute.
+Stop after Phase 1C.2 cleanup and verification. Do not deploy, do not begin Phase 2, and do not move additional ownership boundaries from this historical stop point. Current signed-in smoke automation is unblocked through the Firebase Email/Password E2E test account, but deployment still requires final release smoke on the deploy candidate.

@@ -362,6 +362,32 @@ Phase 3B.2 is now complete. The next profile/leaderboard step should be Phase 3B
 
 Phase 4A premium entitlement/paywall architecture planning is complete in `plans/PHASE_4A_PREMIUM_ENTITLEMENT_PLAN.md`. It is plan-only: no payment provider, payment buttons, entitlement runtime code, Firebase rules, tests, or deployment were added. The recommended model is external-provider source of truth, Firestore client-readable entitlement cache, and admin override support for beta/testers.
 
+Phase 4B is complete as a read-only entitlement skeleton:
+
+- Added `services/premiumService.js`.
+- Exposes `window.BARK.services.premium` / `window.BARK.premiumService`.
+- Normalizes missing/null entitlement to free and computes premium only for `premium === true` plus `active` or `manual_active` status.
+- `authService` now resets premium state on account change/sign-out and feeds `data.entitlement` from the existing broad user snapshot.
+- Existing `authPremiumUi` sign-in-only gating is unchanged; Phase 4C is the future entitlement-based UI switch.
+- No Firestore writes, payment provider, checkout, payment buttons, Firebase rules, localStorage premium trust, or deployment were added.
+- Verification passed: syntax checks, entitlement reference grep, premium smoke, focused settings smoke, full smoke bundle rerun with 9 tests, browser smoke for old premium UI behavior, auth snapshot entitlement feed check, and `git diff --check`.
+
+Phase 4C.1 planning is complete in `plans/PHASE_4C_ENTITLEMENT_UI_GATING_PLAN.md`. It recommends updating tests/test data before switching runtime gating, gating only low-risk premium UI controls first, and deferring global search, offline mode, ORS callables, premium clustering, payment provider work, payment buttons, Firebase rules, and deployment.
+
+Phase 4C.2 entitlement smoke scaffolding is added:
+
+- Added `tests/playwright/phase4c-premium-entitlement-smoke.spec.js`.
+- Added npm script `test:e2e:entitlement`.
+- `npm run test:e2e:entitlement`: PASS, 1 passed.
+- `npm run test:e2e:phase1b`: PASS, 3 passed.
+- The test verifies `premiumService.isPremium()` is false for the free signed-in storage state and true for the premium/manual override storage state.
+- Premium Firestore doc exists at `users/F8hS3KCvBBX4giarDtnJHDQSMmz2`, with `entitlement` stored as a Firestore map.
+- Premium storage state is local-only and must not be committed.
+- It does not require UI controls to differ yet; the UI switch remains Phase 4C.3.
+- No runtime app code, authPremiumUi behavior, premiumService behavior, Firestore writes, payment logic, email/password UI, or deployment changes were made.
+- Google OAuth remains blocked in Playwright; E2E uses Firebase Email/Password storage state while real users still use Google sign-in.
+- Phase 4C.3 UI entitlement gating switch is now ready to implement next.
+
 ## 10. Stop / Do-Not-Do List
 
 - Do not start additional Phase 3 work beyond the completed Phase 3A.1 premium gating, Phase 3A.2 account-switch, Phase 3A.3 profile/manage, Phase 3A.4 trip planner visited styling, Phase 3A.5 settings persistence, Phase 3B.1 planning, and Phase 3B.2 leaderboard renderer extraction slices in this task.
