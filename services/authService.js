@@ -24,6 +24,21 @@ function getVaultRepo() {
     return window.BARK.repos && window.BARK.repos.VaultRepo;
 }
 
+function refreshVisitedCache(reason) {
+    const coordinator = window.BARK && window.BARK.refreshCoordinator;
+    if (coordinator && typeof coordinator.refreshVisitedCache === 'function') {
+        coordinator.refreshVisitedCache(reason);
+        return true;
+    }
+
+    if (window.BARK && typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+        window.BARK.invalidateVisitedIdsCache();
+        return true;
+    }
+
+    return false;
+}
+
 function hasAuthVisitedPlace(placeOrId) {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.hasVisit === 'function') {
@@ -310,9 +325,7 @@ function buildVaultRepoSubscriptionOptions() {
             }
         },
         invalidateVisitedIdsCache() {
-            if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-                window.BARK.invalidateVisitedIdsCache();
-            }
+            refreshVisitedCache('vault-snapshot-reconcile');
         },
         refreshVisitedVisualState: firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function'
             ? () => firebaseService.refreshVisitedVisualState()
@@ -496,9 +509,7 @@ function resetVisitedAndPanelState() {
         vaultRepo.clear();
     }
 
-    if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-        window.BARK.invalidateVisitedIdsCache();
-    } else if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
+    if (!refreshVisitedCache('auth-reset-visited-panel') && typeof window.BARK.invalidateMarkerVisibility === 'function') {
         window.BARK.invalidateMarkerVisibility();
     }
     if (firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function') {
@@ -746,9 +757,7 @@ function initFirebase() {
                         if (vaultRepo && typeof vaultRepo.clear === 'function') {
                             vaultRepo.clear();
                         }
-                        if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-                            window.BARK.invalidateVisitedIdsCache();
-                        }
+                        refreshVisitedCache('auth-no-session-visit-clear');
                         const firebaseService = window.BARK.services && window.BARK.services.firebase;
                         if (firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function') {
                             firebaseService.refreshVisitedVisualState();

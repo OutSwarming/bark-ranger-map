@@ -6,7 +6,7 @@ Date: 2026-05-01
 
 Phase 1 finished the two highest-value ownership moves: `ParkRepo` owns park data, and `VaultRepo` owns visit state plus the `visitedPlaces` snapshot lifecycle. The remaining Phase 2 debt is not one obvious data owner. It is runtime coordination: many modules still publish and consume global functions, raw `window` flags, localStorage-backed state, and refresh side effects directly.
 
-This document began as the 2A inventory. It now also records the 2B additive seam status below; the inventory tables remain architecture notes rather than a refactor plan that changes behavior by themselves.
+This document began as the 2A inventory. It now also records the 2B additive seam and 2C visited-cache migration status below; the inventory tables remain architecture notes rather than a refactor plan that changes behavior by themselves.
 
 Main findings:
 
@@ -35,7 +35,21 @@ No existing manual refresh calls were removed. No Firestore writes, auth/session
 
 Active-pin button refresh is still private auth/panel DOM logic. Phase 2B intentionally did not copy that DOM update into the coordinator; expose or move it only in a later focused Phase 2C/2D design.
 
-Phase 2C should migrate one low-risk refresh category at a time, starting with visit-derived refresh call sites only after this seam has been smoke-verified.
+Phase 2C migrated one low-risk refresh category: direct visited cache invalidation call sites now route through `refreshCoordinator.refreshVisitedCache(reason)` by way of file-local safe helpers. Visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, and ownership boundaries were not moved.
+
+Phase 2C visited cache invalidation planning and implementation notes are captured in `plans/PHASE_2C_VISITED_CACHE_PLAN.md`. Phase 2D has not started.
+
+## Phase 2C Status
+
+Phase 2C is implemented as a cache-invalidation-only migration. It changed direct inline `window.BARK.invalidateVisitedIdsCache()` call sites in these files:
+
+- `services/authService.js`
+- `services/firebaseService.js`
+- `services/checkinService.js`
+
+Residual `invalidateVisitedIdsCache` grep matches are expected only in file-local helper fallbacks, the `VaultRepo` callback option method name in `authService`, and the `modules/RefreshCoordinator.js` seam internals. No direct inline global invalidation call sites remain outside those compatibility paths.
+
+Manual smoke after 2C is pending. No deployment has happened.
 
 ## Commands Run
 
@@ -247,20 +261,24 @@ Acceptance:
 - App behavior should be identical.
 - Manual smoke can be short because this is additive.
 
-### 2C - Move Visit Cache/Marker/Trip Refresh Into Coordinator
+### 2C - Move Visited Cache Invalidation Into Coordinator
 
-Goal: make visit-state refresh intent explicit.
+Status: implemented for visited cache invalidation only.
 
-Suggested scope:
+Goal: make visited cache invalidation intent explicit before broader refresh migration.
 
-- Have VaultRepo snapshot `onChange` and visit write success paths call one coordinator method.
-- Coordinator performs the existing sequence:
-  - invalidate visited IDs
-  - refresh marker styles
-  - refresh trip badge styles
-  - request `syncState`
-  - request stats/profile refresh if needed
-- Keep Firestore write payloads, rollback, and pending mutation semantics unchanged.
+Implemented scope:
+
+- Replaced direct inline `window.BARK.invalidateVisitedIdsCache()` calls in visit-state mutation/reconcile/logout paths with file-local helpers that call `refreshCoordinator.refreshVisitedCache(reason)`.
+- Kept fallback behavior if `RefreshCoordinator` is absent.
+- Kept Firestore write payloads, rollback, pending mutation semantics, visual refresh, `syncState()`, auth/session logic, and ownership boundaries unchanged.
+
+Deferred from 2C:
+
+- Marker style refresh.
+- Trip badge refresh.
+- `syncState()` migration.
+- Stats/profile/leaderboard refresh.
 
 ### 2D - Reduce Direct `syncState()` Calls
 
@@ -309,7 +327,7 @@ Defer until coordinator and smoke coverage are stable:
 
 ## 8. Safest First Implementation PR
 
-Recommended first implementation PR after this inventory: **Phase 2B, additive coordinator only**.
+Recommended first implementation PR after this inventory was **Phase 2B, additive coordinator only**. That seam is now complete, and Phase 2C migrated visited cache invalidation only.
 
 Why this is safest:
 
@@ -338,6 +356,6 @@ Minimum 2B success criteria:
 - Do not centralize cache invalidation and split auth hydrators in the same PR.
 - Do not move walk points/streak or leaderboard ownership until after refresh coordination is stable.
 
-## Final Answer
+## Current Stop Point
 
-Ready to implement Phase 2B? **YES**, with the strict scope that 2B is additive coordinator infrastructure only. It should not move ownership, alter write behavior, change auth/session flow, or rewrite UI.
+Phase 2C is complete pending manual smoke. Phase 2D is safe to plan next, but it has not started. Do not deploy, do not migrate visual refresh yet, and do not combine the next refresh migration with auth/session or Firestore ownership work.

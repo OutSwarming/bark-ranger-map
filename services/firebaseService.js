@@ -67,6 +67,21 @@ function getVaultRepo() {
     return window.BARK.repos && window.BARK.repos.VaultRepo;
 }
 
+function refreshVisitedCache(reason) {
+    const coordinator = window.BARK && window.BARK.refreshCoordinator;
+    if (coordinator && typeof coordinator.refreshVisitedCache === 'function') {
+        coordinator.refreshVisitedCache(reason);
+        return true;
+    }
+
+    if (window.BARK && typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+        window.BARK.invalidateVisitedIdsCache();
+        return true;
+    }
+
+    return false;
+}
+
 function cleanValue(value) {
     if (value === undefined || value === null) return '';
     return String(value).trim();
@@ -374,9 +389,7 @@ function reconcileVisitedPlacesSnapshot(placeList, metadata = {}) {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.reconcileSnapshot === 'function') {
         const result = vaultRepo.reconcileSnapshot(placeList, metadata);
-        if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-            window.BARK.invalidateVisitedIdsCache();
-        }
+        refreshVisitedCache('firebase-reconcile-snapshot');
         refreshVisitedVisualState();
         return result;
     }
@@ -402,9 +415,7 @@ function replaceLocalVisitedPlaces(visitedMap, options = {}) {
         throw new Error('VaultRepo unavailable for visited-place replacement.');
     }
 
-    if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-        window.BARK.invalidateVisitedIdsCache();
-    }
+    refreshVisitedCache('firebase-replace-local-visits');
     refreshVisitedVisualState();
 }
 
@@ -569,9 +580,7 @@ async function removeVisitedPlace(placeOrId) {
                 rollbackToken = vaultRepo.createRollbackToken(token, entryIds);
             }
             entryIds.forEach(stageVisitedPlaceDelete);
-            if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-                window.BARK.invalidateVisitedIdsCache();
-            }
+            refreshVisitedCache('firebase-remove-visit');
             refreshVisitedVisualState();
             await syncUserProgress();
             window.syncState();

@@ -16,7 +16,7 @@ Phase 1C implementation and cleanup are complete. `VaultRepo` owns the visitedPl
 
 Phase 2A inventory is tracked in `plans/PHASE_2_GLOBAL_INVENTORY.md`. It is an architecture inventory only; no runtime behavior changes are included.
 
-Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Existing manual refresh calls remain in place; Phase 2C has not started.
+Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Phase 2C migrated direct visited cache invalidation call sites through that coordinator while leaving visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, and ownership boundaries unchanged. Phase 2D has not started.
 
 ## Completed In This Chat
 
@@ -52,6 +52,10 @@ Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Existing manual
   - Removed unused `VaultRepo.mutate()` after confirming it had zero real callers.
   - Renamed the local auth UI refresh helper to `refreshAuthSnapshotUi()` without changing its behavior.
   - Added a short rollback comment documenting that pending local state may remain until an authoritative snapshot reconciles it.
+- Implemented Phase 2C visited cache invalidation cleanup:
+  - Added file-local `refreshVisitedCache(reason)` helpers in `services/authService.js`, `services/firebaseService.js`, and `services/checkinService.js`.
+  - Routed direct visited cache invalidation call sites through `window.BARK.refreshCoordinator.refreshVisitedCache(reason)` with the legacy invalidator as a fallback.
+  - Left visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, VaultRepo ownership, and rollback behavior unchanged.
 
 ## 1C.1 Implementation Notes
 

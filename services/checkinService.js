@@ -23,6 +23,21 @@ function getVaultRepo() {
     return window.BARK.repos && window.BARK.repos.VaultRepo;
 }
 
+function refreshVisitedCache(reason) {
+    const coordinator = window.BARK && window.BARK.refreshCoordinator;
+    if (coordinator && typeof coordinator.refreshVisitedCache === 'function') {
+        coordinator.refreshVisitedCache(reason);
+        return true;
+    }
+
+    if (window.BARK && typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+        window.BARK.invalidateVisitedIdsCache();
+        return true;
+    }
+
+    return false;
+}
+
 function getCheckinVisitedPlacesArray() {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.getVisits === 'function') {
@@ -206,9 +221,7 @@ async function verifyGpsCheckin(parkData) {
         if (typeof firebaseService.stageVisitedPlaceUpsert === 'function') {
             firebaseService.stageVisitedPlaceUpsert(checkinResult.visitRecord);
         }
-        if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-            window.BARK.invalidateVisitedIdsCache();
-        }
+        refreshVisitedCache('checkin-verified-add');
         refreshVisitedVisualState(firebaseService);
         if (typeof window.syncState === 'function') {
             window.syncState();
@@ -265,9 +278,7 @@ async function markAsVisited(parkData) {
             if (typeof firebaseService.stageVisitedPlaceDelete === 'function') {
                 entryIds.forEach(firebaseService.stageVisitedPlaceDelete);
             }
-            if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-                window.BARK.invalidateVisitedIdsCache();
-            }
+            refreshVisitedCache('checkin-unmark-remove');
             refreshVisitedVisualState(firebaseService);
             if (typeof window.syncState === 'function') {
                 window.syncState();
@@ -290,9 +301,7 @@ async function markAsVisited(parkData) {
         if (typeof firebaseService.stageVisitedPlaceUpsert === 'function') {
             firebaseService.stageVisitedPlaceUpsert(visitRecord);
         }
-        if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-            window.BARK.invalidateVisitedIdsCache();
-        }
+        refreshVisitedCache('checkin-mark-add');
         refreshVisitedVisualState(firebaseService);
         if (typeof window.syncState === 'function') {
             window.syncState();
