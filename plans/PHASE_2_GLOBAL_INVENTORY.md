@@ -6,7 +6,7 @@ Date: 2026-05-01
 
 Phase 1 finished the two highest-value ownership moves: `ParkRepo` owns park data, and `VaultRepo` owns visit state plus the `visitedPlaces` snapshot lifecycle. The remaining Phase 2 debt is not one obvious data owner. It is runtime coordination: many modules still publish and consume global functions, raw `window` flags, localStorage-backed state, and refresh side effects directly.
 
-This document began as the 2A inventory. It now also records the 2B additive seam, 2C visited-cache migration status, 2D visited-visual-refresh migration, and 2E `syncState()` planning below; the inventory tables remain architecture notes rather than a refactor plan that changes behavior by themselves.
+This document began as the 2A inventory. It now also records the 2B additive seam, 2C visited-cache migration status, 2D visited-visual-refresh migration, 2E `syncState()` cleanup, and 2F authService split planning below; the inventory tables remain architecture notes rather than a refactor plan that changes behavior by themselves.
 
 Main findings:
 
@@ -37,7 +37,7 @@ Active-pin button refresh is still private auth/panel DOM logic. Phase 2B intent
 
 Phase 2C migrated one low-risk refresh category: direct visited cache invalidation call sites now route through `refreshCoordinator.refreshVisitedCache(reason)` by way of file-local safe helpers. Visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, and ownership boundaries were not moved.
 
-Phase 2C visited cache invalidation planning and implementation notes are captured in `plans/PHASE_2C_VISITED_CACHE_PLAN.md`. Phase 2D migrated visited visual refresh requests through `refreshCoordinator.refreshVisitedVisuals(reason)` only; implementation notes are captured in `plans/PHASE_2D_VISITED_VISUAL_REFRESH_PLAN.md`. Phase 2E is implemented in `plans/PHASE_2E_SYNCSTATE_PLAN.md` as a narrow direct-`syncState()` cleanup only; manual smoke is pending.
+Phase 2C visited cache invalidation planning and implementation notes are captured in `plans/PHASE_2C_VISITED_CACHE_PLAN.md`. Phase 2D migrated visited visual refresh requests through `refreshCoordinator.refreshVisitedVisuals(reason)` only; implementation notes are captured in `plans/PHASE_2D_VISITED_VISUAL_REFRESH_PLAN.md`. Phase 2E is implemented in `plans/PHASE_2E_SYNCSTATE_PLAN.md` as a narrow direct-`syncState()` cleanup only; manual smoke passed. Phase 2F.2 extracted premium gating UI into `services/authPremiumUi.js`; manual smoke is pending.
 
 ## Phase 2C Status
 
@@ -74,7 +74,17 @@ Phase 2E is implemented as a narrow reduction of direct `window.syncState()` cal
 - `requestStateSync(reason)`
 - `requestVisitStateSync(reason)`
 
-2E did not remove or rewrite `window.syncState()`. It did not migrate search/filter, map movement/culling, settings effects, data load, auth hydration/logout, panel DOM action, stats/profile/leaderboard, Firestore writes, or `VaultRepo` ownership. Manual smoke remains pending.
+2E did not remove or rewrite `window.syncState()`. It did not migrate search/filter, map movement/culling, settings effects, data load, auth hydration/logout, panel DOM action, stats/profile/leaderboard, Firestore writes, or `VaultRepo` ownership. Manual smoke passed.
+
+## Phase 2F Status
+
+Phase 2F.2 is implemented in `plans/PHASE_2F_AUTHSERVICE_SPLIT_PLAN.md` as a small authService responsibility extraction. Manual smoke is pending.
+
+Implemented first extraction:
+
+- Extract only premium gating UI logic from `services/authService.js` into a small helper module.
+
+2F.2 did not move the auth listener, broad `users/{uid}` snapshot, cloud settings hydration, walk points/streak, expedition sync, leaderboard trigger, logout reset, Firestore writes, `VaultRepo` ownership, or login/logout UI behavior.
 
 ## Commands Run
 
@@ -334,7 +344,7 @@ Stop lines:
 
 ### 2E - Reduce Direct `syncState()` Calls
 
-Status: implemented in `plans/PHASE_2E_SYNCSTATE_PLAN.md`; manual smoke pending.
+Status: implemented in `plans/PHASE_2E_SYNCSTATE_PLAN.md`; manual smoke passed.
 
 Goal: replace a small set of direct heartbeat calls with named refresh requests while keeping `window.syncState()` as the implementation detail.
 
@@ -350,11 +360,17 @@ Acceptance:
 - Check-in call sites became intent-oriented, not removed wholesale.
 - Search/filter, map movement/culling, settings effects, data load, auth hydration/logout, panel DOM action, stats/profile/leaderboard, and Firestore-adjacent helpers remain deferred.
 
-### 2F - Split Small `authService` Hydrators
+### 2F - Split Small `authService` Responsibility
+
+Status: 2F.2 implemented in `plans/PHASE_2F_AUTHSERVICE_SPLIT_PLAN.md`; manual smoke pending.
 
 Goal: reduce file size and coupling while keeping auth session ownership in `authService`.
 
-Safe candidates:
+Implemented first slice:
+
+- Extracted premium gating UI logic into `services/authPremiumUi.js`.
+
+Deferred candidates:
 
 - Cloud settings hydration helper module.
 - Profile counter/walk point hydration helper.
@@ -381,7 +397,7 @@ Defer until coordinator and smoke coverage are stable:
 
 ## 8. Safest First Implementation PR
 
-Recommended first implementation PR after this inventory was **Phase 2B, additive coordinator only**. That seam is now complete, Phase 2C migrated visited cache invalidation only, Phase 2D migrated visited visual refresh only, and Phase 2E migrated only the three check-in direct `syncState()` calls. Phase 2E manual smoke remains pending.
+Recommended first implementation PR after this inventory was **Phase 2B, additive coordinator only**. That seam is now complete, Phase 2C migrated visited cache invalidation only, Phase 2D migrated visited visual refresh only, Phase 2E migrated only the three check-in direct `syncState()` calls, and Phase 2F.2 extracted premium gating UI only. Phase 2F.2 manual smoke remains pending.
 
 Why this is safest:
 
@@ -412,4 +428,4 @@ Minimum 2B success criteria:
 
 ## Current Stop Point
 
-Phase 2C is complete; manual smoke passed. Phase 2D visited visual refresh migration is implemented in `plans/PHASE_2D_VISITED_VISUAL_REFRESH_PLAN.md`; QC and manual smoke passed. Phase 2E narrow check-in direct-`syncState()` cleanup is implemented in `plans/PHASE_2E_SYNCSTATE_PLAN.md`; manual smoke is pending. Do not deploy, do not start Phase 2F, and do not combine further direct-`syncState()` cleanup with auth/session, Firestore, stats/profile/leaderboard, map render cadence, search/filter cadence, or `VaultRepo` ownership work.
+Phase 2C is complete; manual smoke passed. Phase 2D visited visual refresh migration is implemented in `plans/PHASE_2D_VISITED_VISUAL_REFRESH_PLAN.md`; QC and manual smoke passed. Phase 2E narrow check-in direct-`syncState()` cleanup is implemented in `plans/PHASE_2E_SYNCSTATE_PLAN.md`; manual smoke passed. Phase 2F.2 premium gating UI extraction is implemented in `plans/PHASE_2F_AUTHSERVICE_SPLIT_PLAN.md`; manual smoke is pending. Do not deploy, do not start Phase 2F.3, and do not combine authService extraction with further direct-`syncState()` cleanup, auth/session movement, Firestore, stats/profile/leaderboard, map render cadence, search/filter cadence, or `VaultRepo` ownership work.
