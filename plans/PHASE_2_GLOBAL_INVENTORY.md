@@ -49,7 +49,7 @@ Phase 2C is implemented as a cache-invalidation-only migration. It changed direc
 
 Residual `invalidateVisitedIdsCache` grep matches are expected only in file-local helper fallbacks, the `VaultRepo` callback option method name in `authService`, and the `modules/RefreshCoordinator.js` seam internals. No direct inline global invalidation call sites remain outside those compatibility paths.
 
-Manual smoke after 2C is pending. No deployment has happened.
+Manual smoke after 2C passed. Console errors: none reported. No deployment has happened.
 
 ## Commands Run
 
@@ -358,4 +358,4 @@ Minimum 2B success criteria:
 
 ## Current Stop Point
 
-Phase 2C is complete pending manual smoke. Phase 2D is safe to plan next, but it has not started. Do not deploy, do not migrate visual refresh yet, and do not combine the next refresh migration with auth/session or Firestore ownership work.
+Phase 2C is complete; manual smoke passed. Phase 2D is safe to plan next, but it has not started. Do not deploy, do not migrate visual refresh yet, and do not combine the next refresh migration with auth/session or Firestore ownership work.

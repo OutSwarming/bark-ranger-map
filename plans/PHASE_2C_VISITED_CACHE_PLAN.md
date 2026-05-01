@@ -225,7 +225,7 @@ Manual/runtime smoke:
 - Confirm marker visited styling still updates.
 - Confirm no console errors.
 
-Manual smoke after Phase 2C: **PENDING**.
+Manual smoke after Phase 2C: **PASS**. Console errors: none reported.
 
 ## Stop Lines
 
@@ -241,4 +241,4 @@ Manual smoke after Phase 2C: **PENDING**.
 
 ## Final Answer
 
-Phase 2C implementation is **complete pending manual smoke**, with the strict scope of replacing visited cache invalidation call sites in place through a safe coordinator helper. Do not migrate visual refresh, `syncState()`, stats/profile, leaderboard, auth/session, Firestore writes, or ownership boundaries in the same PR.
+Phase 2C implementation is **complete; manual smoke passed**, with the strict scope of replacing visited cache invalidation call sites in place through a safe coordinator helper. Do not migrate visual refresh, `syncState()`, stats/profile, leaderboard, auth/session, Firestore writes, or ownership boundaries in the same PR.
