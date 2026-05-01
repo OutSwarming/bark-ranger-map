@@ -16,6 +16,10 @@ function showAuthFailureNotice(message) {
     if (typeof window.dismissBarkLoader === 'function') window.dismissBarkLoader();
 }
 
+function getParkRepo() {
+    return window.BARK.repos && window.BARK.repos.ParkRepo;
+}
+
 const STANDALONE_CLOUD_SETTING_CONTROLS = {
     rememberMapPosition: 'remember-map-toggle',
     startNationalView: 'national-view-toggle',
@@ -155,7 +159,9 @@ function handleCloudSettingsHydration(data, metadata = {}) {
 
         window.BARK.applyGlobalStyles();
         if (typeof window.BARK.applyMapPerformancePolicy === 'function') window.BARK.applyMapPerformancePolicy();
-        if (typeof window.syncState === 'function' && window.parkLookup && window.parkLookup.size > 0) {
+        const parkRepo = getParkRepo();
+        const hasParkData = parkRepo && parkRepo.getAll().length > 0;
+        if (typeof window.syncState === 'function' && hasParkData) {
             window.syncState();
         }
 
@@ -478,7 +484,8 @@ function resetMapViewToGuestDefault() {
 }
 
 function restoreGuestMarkerLayer() {
-    const points = Array.isArray(window.BARK.allPoints) ? window.BARK.allPoints : [];
+    const parkRepo = getParkRepo();
+    const points = parkRepo ? parkRepo.getAll() : [];
     if (!points.length) return;
 
     points.forEach(point => {

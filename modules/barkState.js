@@ -15,8 +15,8 @@ window.BARK.APP_VERSION = APP_VERSION;
 window.BARK.setAppVersion = function (v) { APP_VERSION = v; window.BARK.APP_VERSION = v; };
 
 // ====== GLOBAL LOOKUP ENGINE (v25 Performance) ======
-// Populated by dataService with canonical Park IDs from the source sheet.
-window.parkLookup = new Map();
+// Owned by ParkRepo in Phase 1A; kept as a legacy global for current consumers.
+window.parkLookup = window.parkLookup instanceof Map ? window.parkLookup : new Map();
 
 // ====== SAFETY & COST CONTROLS ======
 let globalRequestCounter = 0;
@@ -35,7 +35,6 @@ function incrementRequestCount() {
 window.BARK.incrementRequestCount = incrementRequestCount;
 
 // ====== CORE DATA STATE ======
-let allPoints = [];
 let _searchResultCache = { query: '', matchedIds: null };
 let activePinMarker = null;
 
@@ -77,7 +76,6 @@ window._lastSyncedScore = window._lastSyncedScore || 0;
 // ====== EXPOSE STATE TO BARK NAMESPACE ======
 // Using property accessors so modules always get live references
 Object.defineProperties(window.BARK, {
-    allPoints:          { get() { return allPoints; },          set(v) { allPoints = v; } },
     _searchResultCache: { get() { return _searchResultCache; }, set(v) { _searchResultCache = v; } },
     activePinMarker:    { get() { return activePinMarker; },    set(v) { activePinMarker = v; } },
     activeSwagFilters:  { get() { return activeSwagFilters; },  set(v) { activeSwagFilters = v; } },

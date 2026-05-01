@@ -14,6 +14,10 @@ const SEARCH_GLOBAL_MIN_LENGTH = 3;
 const INLINE_PLANNER_SEARCH_TYPES = ['start', 'end'];
 let suppressInlinePlannerSuggestionsUntil = 0;
 
+function getParkRepo() {
+    return window.BARK.repos && window.BARK.repos.ParkRepo;
+}
+
 // ====== TEXT NORMALIZATION ======
 function normalizeText(text) {
     if (!text) return '';
@@ -91,7 +95,8 @@ function isPremiumGlobalSearchUnlocked() {
 
 function getLocalParkMatches(query, limit = SEARCH_SUGGESTION_LIMIT) {
     const queryNorm = normalizeText(query);
-    const allPoints = Array.isArray(window.BARK.allPoints) ? window.BARK.allPoints : [];
+    const parkRepo = getParkRepo();
+    const allPoints = parkRepo ? parkRepo.getAll() : [];
 
     if (!queryNorm) return [];
 
@@ -596,7 +601,8 @@ function initSearchEngine() {
         if (runId !== activeSearchRunId) return;
 
         const queryNorm = normalizeText(window.BARK.activeSearchQuery);
-        const allPoints = Array.isArray(window.BARK.allPoints) ? window.BARK.allPoints : [];
+        const parkRepo = getParkRepo();
+        const allPoints = parkRepo ? parkRepo.getAll() : [];
 
         if (!queryNorm) {
             resetSearchCache();

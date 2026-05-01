@@ -25,10 +25,6 @@ const CSV_COLUMNS = {
 };
 
 const SWAG_TYPE_COLUMNS = ['Swag Type', 'Swag', 'Swag Available'];
-const DATA_REFRESH_SAFETY_MIN_PREVIOUS_COUNT = 50;
-const DATA_REFRESH_SAFETY_MAX_COUNT_DROP_RATIO = 0.10;
-const DATA_REFRESH_SAFETY_MAX_ID_DROP_RATIO = 0.10;
-const DATA_REFRESH_SAFETY_MIN_ID_DROP_COUNT = 25;
 
 function cleanCSVValue(value) {
     if (value === undefined || value === null) return '';
@@ -97,21 +93,7 @@ function isCanonicalParkId(id) {
     return Boolean(value && value.toLowerCase() !== 'unknown' && !isLegacyParkId(value));
 }
 
-function shouldRejectDataRefresh(previousCount, nextCount, droppedIdCount) {
-    if (previousCount < DATA_REFRESH_SAFETY_MIN_PREVIOUS_COUNT || droppedIdCount === 0) return false;
-
-    const countDrop = Math.max(0, previousCount - nextCount);
-    const rejectedByCountCollapse = (countDrop / previousCount) >= DATA_REFRESH_SAFETY_MAX_COUNT_DROP_RATIO;
-    const rejectedByIdCollapse = droppedIdCount >= Math.max(
-        DATA_REFRESH_SAFETY_MIN_ID_DROP_COUNT,
-        Math.ceil(previousCount * DATA_REFRESH_SAFETY_MAX_ID_DROP_RATIO)
-    );
-
-    return rejectedByCountCollapse || rejectedByIdCollapse;
-}
-
 function processParsedResults(results) {
-    const previousPoints = Array.isArray(window.BARK.allPoints) ? window.BARK.allPoints : [];
     const newAllPoints = [];
     const seenParkIds = new Set();
     let missingParkIdCount = 0;
@@ -184,39 +166,18 @@ function processParsedResults(results) {
         console.warn(`[dataService] Skipped ${duplicateParkIdCount} duplicate Park ID row(s). Check the sheet before publishing.`);
     }
 
-    const nextIds = new Set(newAllPoints.map(point => point.id));
-    const droppedCanonicalIds = previousPoints
-        .map(point => point && point.id)
-        .filter(isCanonicalParkId)
-        .filter(id => !nextIds.has(id));
-
-    if (shouldRejectDataRefresh(previousPoints.length, newAllPoints.length, droppedCanonicalIds.length)) {
-        console.warn('[dataService] Rejected destructive data refresh. A background CSV poll attempted to drop existing Park IDs.', {
-            previousCount: previousPoints.length,
-            nextCount: newAllPoints.length,
-            droppedCount: droppedCanonicalIds.length,
-            sampleDroppedIds: droppedCanonicalIds.slice(0, 10)
-        });
-        return false;
+    const parkRepo = window.BARK.repos && window.BARK.repos.ParkRepo;
+    if (!parkRepo || typeof parkRepo.replaceAll !== 'function') {
+        throw new Error('ParkRepo is required before dataService can publish park data.');
     }
 
-    if (droppedCanonicalIds.length > 0 && window.BARK.debugDataRefresh === true) {
-        console.info('[dataService] Accepted data refresh with minor Park ID changes.', {
-            previousCount: previousPoints.length,
-            nextCount: newAllPoints.length,
-            changedCount: droppedCanonicalIds.length,
-            sampleChangedIds: droppedCanonicalIds.slice(0, 10)
-        });
-    }
-
-    window.BARK.allPoints = newAllPoints;
+    const replaceResult = parkRepo.replaceAll(newAllPoints, { debug: window.BARK.debugDataRefresh === true });
+    if (!replaceResult.accepted) return false;
 
     // Hydrate canonical counts for gamification
     if (window.gamificationEngine && newAllPoints.length > 0) {
         window.gamificationEngine.updateCanonicalCountsFromPoints(newAllPoints);
     }
-
-    window.BARK._markerDataRevision = (window.BARK._markerDataRevision || 0) + 1;
 
     const firebaseService = window.BARK.services && window.BARK.services.firebase;
     if (firebaseService && typeof firebaseService.normalizeLocalVisitedPlacesToCanonical === 'function') {

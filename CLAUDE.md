@@ -108,7 +108,7 @@ Before major feature work, refactors, payment work, Passport/journal/photos/even
 - [x] **#22 — Removed client-side ORS key + documented rotation gate (Phase 3 of 3)** (`modules/barkConfig.js`, `index.html`, provider dashboards) ✅
 
 ## Current Work
-Phase 0 is complete. The orphaned smart-marker experiment references are gone outside the implementation plan, `modules/markerLayerPolicy.js` now builds a frozen render context before deriving marker policy, the target architecture rules and domain ownership table are pinned above, and `plans/AI_TECHNICAL_NORTH_STAR.md` links back to the master implementation plan. Smoke check passed against `http://127.0.0.1:4173/index.html`: map booted, settings readiness flags were true, `getRenderContext()` was frozen, `getMarkerLayerPolicy()` returned the expected shape, and the map-unavailable banner stayed hidden. Next implementation phase: Phase 1 repository seam.
+Phase 1A ParkRepo seam is complete. `repos/ParkRepo.js` owns canonical park records, `dataService.js` publishes CSV data through `ParkRepo.replaceAll()`, the direct `window.BARK.allPoints` / `window.allPoints` JS reads are gone, and touched lookup-by-id paths use `ParkRepo.getById()` / `getLookup()`. Local smoke passed against `http://127.0.0.1:4173/index.html`: CSV data loaded into `ParkRepo`, local search returned `Acadia`, reload still booted with repo data, map booted, and marker policy/render context checks stayed green. Next: Phase 1B VaultRepo Map ownership.
 
 ---
 

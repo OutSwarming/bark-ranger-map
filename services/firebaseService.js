@@ -37,6 +37,10 @@
 window.BARK = window.BARK || {};
 window.BARK.services = window.BARK.services || {};
 
+function getParkRepo() {
+    return window.BARK.repos && window.BARK.repos.ParkRepo;
+}
+
 function getCurrentUser() {
     if (typeof firebase === 'undefined') return null;
     return firebase.auth().currentUser;
@@ -145,7 +149,8 @@ function isParkVisited(placeOrId) {
 }
 
 function getCanonicalParkCandidates(visit) {
-    const points = Array.isArray(window.BARK.allPoints) ? window.BARK.allPoints : [];
+    const parkRepo = getParkRepo();
+    const points = parkRepo ? parkRepo.getAll() : [];
     if (!visit || points.length === 0) return [];
 
     const visitId = cleanValue(visit.id);
@@ -213,7 +218,8 @@ function canonicalizeVisitedPlacesMap(options = {}) {
         return { changed: false, unresolvedLegacyIds: [], nextMap: new Map() };
     }
 
-    const points = Array.isArray(window.BARK.allPoints) ? window.BARK.allPoints : [];
+    const parkRepo = getParkRepo();
+    const points = parkRepo ? parkRepo.getAll() : [];
     if (points.length === 0) {
         return { changed: false, unresolvedLegacyIds: [], nextMap: visitedPlaces };
     }

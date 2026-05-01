@@ -4,6 +4,10 @@
  */
 window.BARK = window.BARK || {};
 
+function getParkRepo() {
+    return window.BARK.repos && window.BARK.repos.ParkRepo;
+}
+
 // ====== MANAGE PORTAL ======
 function padDatePart(value) {
     return String(value).padStart(2, '0');
@@ -205,14 +209,16 @@ async function evaluateAchievements(visitedPlacesMap) {
         if (!rawVisit || typeof rawVisit !== 'object') return rawVisit;
 
         const visit = { ...rawVisit };
-        if (!visit.state && window.parkLookup && typeof window.parkLookup.get === 'function') {
-            const mapPoint = window.parkLookup.get(visit.id);
+        const parkRepo = getParkRepo();
+        if (!visit.state && parkRepo && typeof parkRepo.getById === 'function') {
+            const mapPoint = parkRepo.getById(visit.id);
             if (mapPoint && mapPoint.state) visit.state = mapPoint.state;
         }
         return visit;
     });
     const userLocationMarker = window.BARK.getUserLocationMarker();
-    const allPoints = window.BARK.allPoints;
+    const parkRepo = getParkRepo();
+    const allPoints = parkRepo ? parkRepo.getAll() : [];
 
     let userId = null;
     if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
@@ -443,7 +449,8 @@ function updateStatsUI() {
     const verifiedEl = document.getElementById('stat-verified');
     const regularEl = document.getElementById('stat-regular');
     const statesEl = document.getElementById('stat-states');
-    const allPoints = window.BARK.allPoints;
+    const parkRepo = getParkRepo();
+    const allPoints = parkRepo ? parkRepo.getAll() : [];
     const userVisitedPlaces = window.BARK.userVisitedPlaces;
 
     if (!scoreEl || !verifiedEl || !regularEl || !statesEl) return;

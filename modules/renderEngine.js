@@ -5,6 +5,10 @@
  */
 window.BARK = window.BARK || {};
 
+function getParkRepo() {
+    return window.BARK.repos && window.BARK.repos.ParkRepo;
+}
+
 // ====== MARKER HELPER FUNCTIONS ======
 function getColor(type) {
     if (type === 'Tag') return '#2196F3';
@@ -296,7 +300,8 @@ function updateMarkers() {
         return;
     }
 
-    const allPoints = window.BARK.allPoints;
+    const parkRepo = getParkRepo();
+    const allPoints = parkRepo ? parkRepo.getAll() : [];
     const activeSwagFilters = window.BARK.activeSwagFilters;
     const activeSearchQuery = window.BARK.activeSearchQuery;
     const activeTypeFilter = window.BARK.activeTypeFilter;

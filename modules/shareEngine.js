@@ -4,6 +4,10 @@
  */
 window.BARK = window.BARK || {};
 
+function getParkRepo() {
+    return window.BARK.repos && window.BARK.repos.ParkRepo;
+}
+
 // ====== LAZY-LOAD html2canvas ======
 async function loadScreenshotEngine() {
     if (typeof html2canvas !== 'undefined') return true;
@@ -241,7 +245,8 @@ function initCSVExport() {
     const exportCsvBtn = document.getElementById('export-csv-btn');
     if (exportCsvBtn) {
         exportCsvBtn.addEventListener('click', () => {
-            const allPoints = window.BARK.allPoints;
+            const parkRepo = getParkRepo();
+            const allPoints = parkRepo ? parkRepo.getAll() : [];
             if (!allPoints || allPoints.length === 0) { alert("Map data hasn't loaded fully yet."); return; }
             const exportData = allPoints.map(p => {
                 const data = p.marker._parkData;

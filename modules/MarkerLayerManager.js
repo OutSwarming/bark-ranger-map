@@ -3,6 +3,10 @@
  */
 window.BARK = window.BARK || {};
 
+function getParkRepo() {
+    return window.BARK.repos && window.BARK.repos.ParkRepo;
+}
+
 class MarkerLayerManager {
     constructor({ map, plainLayer, clusterLayer }) {
         this.map = map;
@@ -279,11 +283,11 @@ class MarkerLayerManager {
         window.BARK._lastLayerType = targetLayerType;
     }
 
-    applyVisibility(points = window.BARK.allPoints || [], options = {}) {
+    applyVisibility(points = (getParkRepo() ? getParkRepo().getAll() : []), options = {}) {
         this.moveMarkersToLayer(points, this.getTargetLayerType(), options);
     }
 
-    sync(points = window.BARK.allPoints || [], options = {}) {
+    sync(points = (getParkRepo() ? getParkRepo().getAll() : []), options = {}) {
         const incomingIds = new Set();
         const shouldApplyLayers = options.applyLayers !== false;
         const targetLayerType = shouldApplyLayers ? this.getTargetLayerType() : null;
@@ -303,7 +307,8 @@ class MarkerLayerManager {
             }
 
             point.marker = marker;
-            window.parkLookup.set(point.id, point);
+            const parkRepo = getParkRepo();
+            if (parkRepo && parkRepo.getLookup) parkRepo.getLookup().set(point.id, point);
         });
 
         this.markers.forEach((marker, id) => {
@@ -311,7 +316,8 @@ class MarkerLayerManager {
 
             this.removeMarker(marker);
             this.markers.delete(id);
-            window.parkLookup.delete(id);
+            const parkRepo = getParkRepo();
+            if (parkRepo && parkRepo.getLookup) parkRepo.getLookup().delete(id);
 
             if (window.BARK.activePinMarker === marker) {
                 window.BARK.activePinMarker = null;
@@ -319,9 +325,13 @@ class MarkerLayerManager {
             }
         });
 
-        window.parkLookup.forEach((_, id) => {
-            if (!incomingIds.has(id)) window.parkLookup.delete(id);
-        });
+        const parkRepo = getParkRepo();
+        if (parkRepo && parkRepo.getLookup) {
+            const lookup = parkRepo.getLookup();
+            lookup.forEach((_, id) => {
+                if (!incomingIds.has(id)) lookup.delete(id);
+            });
+        }
 
         if (shouldApplyLayers) {
             this.moveMarkersToLayer(points, targetLayerType);
