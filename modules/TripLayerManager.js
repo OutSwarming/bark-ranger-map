@@ -37,13 +37,17 @@
  * Future refactor warning:
  *   Custom towns and geocoded trip stops are not official BARK places. This
  *   overlay may display them, but it should not promote them into `allPoints`
- *   or `parkLookup`. A future card controller should accept a normalized
+ *   or ParkRepo. A future card controller should accept a normalized
  *   place reference such as:
  *     { kind: 'official', placeId, tripStopId? }
  *     { kind: 'tripPlace', customPlaceId, tripStopId }
  *   and decide which card sections to render outside the map layer.
  */
 window.BARK = window.BARK || {};
+
+function getParkRepo() {
+    return window.BARK.repos && window.BARK.repos.ParkRepo;
+}
 
 (function () {
     let tripLayerGroup = null;
@@ -87,8 +91,9 @@ window.BARK = window.BARK || {};
 
     function getOfficialParkData(stop) {
         if (!stop || !stop.id) return null;
-        if (window.parkLookup && typeof window.parkLookup.get === 'function') {
-            const point = window.parkLookup.get(stop.id);
+        const parkRepo = getParkRepo();
+        if (parkRepo && typeof parkRepo.getById === 'function') {
+            const point = parkRepo.getById(stop.id);
             if (point) return point;
         }
         return stop;
@@ -251,7 +256,8 @@ window.BARK = window.BARK || {};
 
     function forwardClickToParkPanel(parkId) {
         if (!parkId) return false;
-        const point = window.parkLookup ? window.parkLookup.get(parkId) : null;
+        const parkRepo = getParkRepo();
+        const point = parkRepo ? parkRepo.getById(parkId) : null;
         if (!point || !point.marker) return false;
         const manager = window.BARK.markerManager;
         if (manager && typeof manager.renderMarkerPanel === 'function') {

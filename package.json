@@ -12,5 +12,8 @@
     "node": "20"
   },
   "main": "index.js",
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
+  }
 }

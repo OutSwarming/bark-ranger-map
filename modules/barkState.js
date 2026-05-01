@@ -14,10 +14,6 @@ console.log(`B.A.R.K. Engine v${APP_VERSION}: Performance Optimized`);
 window.BARK.APP_VERSION = APP_VERSION;
 window.BARK.setAppVersion = function (v) { APP_VERSION = v; window.BARK.APP_VERSION = v; };
 
-// ====== GLOBAL LOOKUP ENGINE (v25 Performance) ======
-// Owned by ParkRepo in Phase 1A; kept as a legacy global for current consumers.
-window.parkLookup = window.parkLookup instanceof Map ? window.parkLookup : new Map();
-
 // ====== SAFETY & COST CONTROLS ======
 let globalRequestCounter = 0;
 window.SESSION_MAX_REQUESTS = 2000;

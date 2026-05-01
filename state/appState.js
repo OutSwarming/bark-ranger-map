@@ -19,8 +19,7 @@
         'tripEndNode',
         'isTripEditMode',
         'isAdmin',
-        'currentWalkPoints',
-        'parkLookup'
+        'currentWalkPoints'
     ];
 
     const BARK_ALIASES = {
@@ -108,7 +107,6 @@
     }
 
     function hydrateFallbackValues() {
-        const parkRepo = window.BARK.repos && window.BARK.repos.ParkRepo;
         fallbackValues.userVisitedPlaces = hasBarkSource('userVisitedPlaces') ? window.BARK.userVisitedPlaces : new Map();
         fallbackValues.activePin = hasBarkSource('activePin') ? window.BARK.activePinMarker : null;
         fallbackValues.activeSwagFilters = hasBarkSource('activeSwagFilters') ? window.BARK.activeSwagFilters : new Set();
@@ -123,7 +121,6 @@
         fallbackValues.isTripEditMode = typeof window.isTripEditMode !== 'undefined' ? window.isTripEditMode : false;
         fallbackValues.isAdmin = typeof window.isAdmin !== 'undefined' ? window.isAdmin : false;
         fallbackValues.currentWalkPoints = typeof window.currentWalkPoints !== 'undefined' ? window.currentWalkPoints : 0;
-        fallbackValues.parkLookup = parkRepo ? parkRepo.getLookup() : (window.parkLookup instanceof Map ? window.parkLookup : new Map());
     }
 
     function installLegacyWindowMirrors() {

@@ -108,7 +108,7 @@ Before major feature work, refactors, payment work, Passport/journal/photos/even
 - [x] **#22 — Removed client-side ORS key + documented rotation gate (Phase 3 of 3)** (`modules/barkConfig.js`, `index.html`, provider dashboards) ✅
 
 ## Current Work
-Phase 1A ParkRepo seam is complete. `repos/ParkRepo.js` owns canonical park records, `dataService.js` publishes CSV data through `ParkRepo.replaceAll()`, the direct `window.BARK.allPoints` / `window.allPoints` JS reads are gone, and touched lookup-by-id paths use `ParkRepo.getById()` / `getLookup()`. Local smoke passed against `http://127.0.0.1:4173/index.html`: CSV data loaded into `ParkRepo`, local search returned `Acadia`, reload still booted with repo data, map booted, and marker policy/render context checks stayed green. Next: Phase 1B VaultRepo Map ownership.
+Phase 1A ParkRepo seam is complete. `repos/ParkRepo.js` owns canonical park records and a module-private lookup Map, `dataService.js` publishes CSV data through `ParkRepo.replaceAll()`, direct `window.BARK.allPoints` / `window.allPoints` JS reads are gone, and the legacy `window.parkLookup` global is gone. Local smoke passed against `http://127.0.0.1:4173/index.html`: CSV data loaded into `ParkRepo`, local search returned `Acadia`, an official park synced through `TripLayerManager`, reload still booted with repo data, map booted, and marker policy/render context checks stayed green. Next: Phase 1B VaultRepo Map ownership.
 
 ---
 

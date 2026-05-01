@@ -308,7 +308,7 @@ class MarkerLayerManager {
 
             point.marker = marker;
             const parkRepo = getParkRepo();
-            if (parkRepo && parkRepo.getLookup) parkRepo.getLookup().set(point.id, point);
+            if (parkRepo && typeof parkRepo.setMarkerBackedPark === 'function') parkRepo.setMarkerBackedPark(point);
         });
 
         this.markers.forEach((marker, id) => {
@@ -317,7 +317,7 @@ class MarkerLayerManager {
             this.removeMarker(marker);
             this.markers.delete(id);
             const parkRepo = getParkRepo();
-            if (parkRepo && parkRepo.getLookup) parkRepo.getLookup().delete(id);
+            if (parkRepo && typeof parkRepo.removePark === 'function') parkRepo.removePark(id);
 
             if (window.BARK.activePinMarker === marker) {
                 window.BARK.activePinMarker = null;
@@ -326,12 +326,7 @@ class MarkerLayerManager {
         });
 
         const parkRepo = getParkRepo();
-        if (parkRepo && parkRepo.getLookup) {
-            const lookup = parkRepo.getLookup();
-            lookup.forEach((_, id) => {
-                if (!incomingIds.has(id)) lookup.delete(id);
-            });
-        }
+        if (parkRepo && typeof parkRepo.pruneToIds === 'function') parkRepo.pruneToIds(incomingIds);
 
         if (shouldApplyLayers) {
             this.moveMarkersToLayer(points, targetLayerType);

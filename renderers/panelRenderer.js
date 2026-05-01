@@ -24,7 +24,7 @@
  *        rich editors for every marker during map rendering.
  *
  *   Important separation:
- *     Official data should remain read-only from allPoints/CSV/parkLookup.
+ *     Official data should remain read-only from ParkRepo/CSV.
  *     Personal data should live in a user-owned service/collection and be
  *     composed into the panel at render time. Avoid copying personal notes or
  *     photo refs into marker fingerprints, allPoints, or saved route stops; it

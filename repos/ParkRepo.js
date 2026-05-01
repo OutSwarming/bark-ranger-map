@@ -14,10 +14,8 @@
 
     let allPoints = [];
     let markerDataRevision = 0;
-    const lookup = window.parkLookup instanceof Map ? window.parkLookup : new Map();
+    const lookup = new Map();
     const listeners = new Set();
-
-    window.parkLookup = lookup;
 
     function cleanValue(value) {
         if (value === undefined || value === null) return '';
@@ -60,6 +58,22 @@
 
     function getRevision() {
         return markerDataRevision;
+    }
+
+    function setMarkerBackedPark(point) {
+        if (!point || !point.id) return;
+        lookup.set(point.id, point);
+    }
+
+    function removePark(id) {
+        lookup.delete(id);
+    }
+
+    function pruneToIds(ids) {
+        if (!(ids instanceof Set)) return;
+        lookup.forEach((_, id) => {
+            if (!ids.has(id)) lookup.delete(id);
+        });
     }
 
     function notify(change) {
@@ -168,6 +182,9 @@
         getById,
         getLookup,
         getRevision,
+        setMarkerBackedPark,
+        removePark,
+        pruneToIds,
         replaceAll,
         subscribe
     };
