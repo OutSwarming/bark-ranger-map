@@ -666,3 +666,27 @@ Phase 4C.6B global search UI entitlement gating is now implemented:
 - `npm run test:e2e:premium`: PASS, 2 passed.
 - `npm run test:e2e:smoke`: PASS, 9 passed.
 - ORS backend callables, `services/orsService.js`, `functions/index.js`, Firebase rules, trip route generation, payment provider/buttons, offline mode, premium clustering, entitlement writes, and deployment remain deferred.
+
+Phase 4C.7 Firestore rules entitlement protection planning is now complete:
+
+- Plan file: `plans/PHASE_4C7_FIRESTORE_RULES_ENTITLEMENT_PLAN.md`.
+- Inventory confirmed no root `firestore.rules` file exists and `firebase.json` does not reference Firestore rules or emulator config.
+- No repo-local Firestore rules test harness currently exists.
+- Recommended first rules approach is a beta-compatible owner-write baseline with explicit forbidden-field checks for entitlement, provider/payment, and admin fields.
+- The plan also calls out `users/{uid}.isAdmin` as an adjacent protected field because `functions/index.js` reads it for admin callable authorization.
+- Recommended test harness is `@firebase/rules-unit-testing` with Node 20 `node:test` and Firebase emulator execution.
+- Do not deploy rules until emulator tests, E2E smoke, and manual release smoke pass.
+- ORS backend callable enforcement remains deferred to Phase 4C.8; payment provider/buttons and deployment remain stopped.
+
+Phase 4C.7B local Firestore rules baseline is now implemented:
+
+- Added source-controlled `firestore.rules`.
+- Added Firestore rules and emulator config to `firebase.json`.
+- Added `tests/rules/firestore-entitlement.rules.test.js`.
+- Added npm script `test:rules` and repo-local rules tooling dependencies.
+- Rules protect entitlement, premium/provider/payment, and admin fields from client self-writes.
+- Current app-owned user writes remain compatible for settings, visited places, saved routes, and owner leaderboard writes.
+- `npm run test:rules`: PASS, 10 tests passed.
+- `npm run test:e2e:smoke`: PASS, 9 tests passed.
+- Rules were not deployed.
+- ORS callable entitlement enforcement remains deferred to Phase 4C.8.

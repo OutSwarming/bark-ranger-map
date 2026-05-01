@@ -388,3 +388,43 @@ Next backend-heavy PR after that:
 Ready to implement next premium enforcement slice?
 
 YES, for Phase 4C.5 localStorage premium unlock removal/audit with focused tests. NO for payment provider work, checkout buttons, money collection, rules deployment without tests, or ORS callable changes without a function/rules test plan.
+
+## Phase 4C.7A Planning Update
+
+Phase 4C.7 Firestore rules entitlement protection planning is complete in `plans/PHASE_4C7_FIRESTORE_RULES_ENTITLEMENT_PLAN.md`.
+
+Current confirmed state:
+
+- No root `firestore.rules` file exists in this repo.
+- `firebase.json` still configures Functions and Hosting only; it does not reference Firestore rules or emulator config.
+- No repo-local rules test harness exists yet.
+- Current client write surfaces still require compatibility for `visitedPlaces`, `settings`, streak/progress fields, expedition fields, saved routes, and leaderboard/profile score fields.
+- Rules must protect not only premium entitlement/provider fields, but also `isAdmin` and adjacent admin fields because backend admin callables currently trust `users/{uid}.isAdmin`.
+
+Recommended next implementation PR:
+
+- Phase 4C.7B should add a source-controlled `firestore.rules` baseline, emulator config, and rules-test tooling only.
+- Use owner-only reads/writes with explicit forbidden-field checks for entitlement/provider/admin fields as the first beta-compatible baseline.
+- Do not deploy rules until Phase 4C.7C/4C.7D emulator tests and app smoke tests pass.
+- ORS callable entitlement enforcement remains Phase 4C.8.
+
+## Phase 4C.7B Local Rules Baseline Update
+
+Phase 4C.7B is now implemented and verified locally:
+
+- Added `firestore.rules`.
+- Added Firestore rules reference and emulator config to `firebase.json`.
+- Added `tests/rules/firestore-entitlement.rules.test.js`.
+- Added npm script `test:rules` with repo-local rules test tooling.
+- Rules block client writes to entitlement, premium/provider/payment, and admin fields.
+- Rules preserve required owner writes for current app data including settings, `visitedPlaces`, own saved routes, and owner leaderboard compatibility.
+- Rules deny client deletion of `users/{uid}`.
+- `npm run test:rules`: PASS, 10 tests passed.
+- `npm run test:e2e:smoke`: PASS, 9 tests passed.
+- Rules were not deployed.
+
+Remaining backend/security work:
+
+- Mechanical QC for 4C.7B.
+- Reviewed rules deployment gate later, after explicit approval.
+- Phase 4C.8 ORS callable entitlement enforcement remains separate and not started here.

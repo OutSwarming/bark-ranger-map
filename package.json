@@ -11,7 +11,8 @@
     "test:e2e:smoke": "playwright test tests/playwright/phase1b-visited-smoke.spec.js tests/playwright/phase3a-premium-gating-smoke.spec.js tests/playwright/phase3a-account-switch-smoke.spec.js tests/playwright/phase3a-settings-persistence-smoke.spec.js tests/playwright/phase3a-profile-manage-smoke.spec.js tests/playwright/phase3a-trip-planner-visited-smoke.spec.js --workers=1 --reporter=list",
     "test:e2e:premium": "playwright test tests/playwright/phase3a-premium-gating-smoke.spec.js --reporter=list",
     "test:e2e:entitlement": "playwright test tests/playwright/phase4c-premium-entitlement-smoke.spec.js --reporter=list",
-    "test:e2e:global-search": "playwright test tests/playwright/phase4c-global-search-entitlement-smoke.spec.js --reporter=list"
+    "test:e2e:global-search": "playwright test tests/playwright/phase4c-global-search-entitlement-smoke.spec.js --reporter=list",
+    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/rules/firestore-entitlement.rules.test.js\""
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -26,6 +27,9 @@
   "main": "index.js",
   "private": true,
   "devDependencies": {
-    "@playwright/test": "^1.59.1"
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "@playwright/test": "^1.59.1",
+    "firebase": "^11.10.0",
+    "firebase-tools": "^13.35.1"
   }
 }

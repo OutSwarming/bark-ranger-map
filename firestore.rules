@@ -1,0 +1,101 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function protectedUserKeys() {
+      return [
+        'entitlement',
+        'premium',
+        'premiumStatus',
+        'subscription',
+        'subscriptions',
+        'plan',
+        'manualOverride',
+        'providerCustomerId',
+        'providerSubscriptionId',
+        'stripeCustomerId',
+        'stripeSubscriptionId',
+        'lemonSqueezyCustomerId',
+        'lemonSqueezySubscriptionId',
+        'currentPeriodEnd',
+        'source',
+        'status',
+        'checkoutSessionId',
+        'provider',
+        'paymentProvider',
+        'paymentStatus',
+        'isAdmin',
+        'admin',
+        'role',
+        'roles',
+        'customClaims'
+      ];
+    }
+
+    function createsNoProtectedUserKeys() {
+      return !request.resource.data.keys().hasAny(protectedUserKeys());
+    }
+
+    function changesNoProtectedUserKeys() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedUserKeys());
+    }
+
+    function leaderboardWritableKeys() {
+      return [
+        'displayName',
+        'photoURL',
+        'totalPoints',
+        'totalVisited',
+        'hasVerified',
+        'lastUpdated'
+      ];
+    }
+
+    function createsOnlyLeaderboardKeys() {
+      return request.resource.data.keys().hasOnly(leaderboardWritableKeys());
+    }
+
+    function changesOnlyLeaderboardKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(leaderboardWritableKeys());
+    }
+
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && createsNoProtectedUserKeys();
+      allow update: if isOwner(uid) && changesNoProtectedUserKeys();
+      allow delete: if false;
+
+      match /savedRoutes/{routeId} {
+        allow read, create, update, delete: if isOwner(uid);
+      }
+
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+    match /leaderboard/{uid} {
+      allow read: if true;
+      allow create: if isOwner(uid) && createsOnlyLeaderboardKeys();
+      allow update: if isOwner(uid) && changesOnlyLeaderboardKeys();
+      allow delete: if false;
+    }
+
+    match /system/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
