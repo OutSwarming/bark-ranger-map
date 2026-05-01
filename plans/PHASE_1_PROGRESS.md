@@ -14,6 +14,10 @@ Post-1B.3 normal-browser smoke passed after the `renderEngine` frozen-array cach
 
 Phase 1C implementation and cleanup are complete. `VaultRepo` owns the visitedPlaces-only `users/{uid}` snapshot lifecycle through `startSubscription()` / `stopSubscription()`, while `authService` keeps its broad non-visit user-document listener. This was cleanup only; Phase 2 has not started, and deployment remains blocked by signed-in smoke automation.
 
+Phase 2A inventory is tracked in `plans/PHASE_2_GLOBAL_INVENTORY.md`. It is an architecture inventory only; no runtime behavior changes are included.
+
+Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Existing manual refresh calls remain in place; Phase 2C has not started.
+
 ## Completed In This Chat
 
 - Added `repos/VaultRepo.js` with private `visits`, private `pending`, `revision`, listeners, public mutation/query APIs, and a temporary legacy Map shim.
