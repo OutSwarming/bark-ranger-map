@@ -227,15 +227,6 @@
         return replaceAll(nextVisitsArray);
     }
 
-    function mutate(mutator) {
-        if (typeof mutator !== 'function') {
-            throw new Error('[VaultRepo] mutate(fn) requires a function.');
-        }
-        const nextVisits = cloneMap(visits);
-        mutator(nextVisits);
-        return commit('mutate', cloneMap(nextVisits));
-    }
-
     function clear() {
         pending.clear();
         canonicalReplacementIds.clear();
@@ -317,6 +308,7 @@
     }
 
     function restoreOperationRollback(token) {
+        // If newer state has landed, rollback may preserve pending local state until an authoritative snapshot reconciles it.
         const nextVisits = new Map(visits);
         const nextPending = new Map(pending);
         const restored = new Set();
@@ -665,7 +657,6 @@
         removeVisits,
         replaceAll,
         setVisits,
-        mutate,
         clear,
         snapshot,
         createRollbackToken,

@@ -12,7 +12,7 @@ PR 1B.2 writer migration is implemented. PR 1B.2a conflict-aware rollback is imp
 
 Post-1B.3 normal-browser smoke passed after the `renderEngine` frozen-array cache-key fix. Final Phase 1B architecture review returned LOW merge risk, no Phase 1B blocking issues, and `SAFE TO BEGIN PHASE 1C REVIEW? YES`. Do not deploy this branch: automated signed-in Playwright remains a pre-deploy blocker while Google OAuth blocks Playwright Chromium.
 
-PR 1C.1 is implemented locally. `VaultRepo` now owns the visitedPlaces-only `users/{uid}` snapshot lifecycle through `startSubscription()` / `stopSubscription()`, while `authService` keeps its broad non-visit user-document listener. 1C.2 cleanup has not started, and deployment remains blocked.
+Phase 1C implementation and cleanup are complete. `VaultRepo` owns the visitedPlaces-only `users/{uid}` snapshot lifecycle through `startSubscription()` / `stopSubscription()`, while `authService` keeps its broad non-visit user-document listener. This was cleanup only; Phase 2 has not started, and deployment remains blocked by signed-in smoke automation.
 
 ## Completed In This Chat
 
@@ -43,6 +43,11 @@ PR 1C.1 is implemented locally. `VaultRepo` now owns the visitedPlaces-only `use
   - Stopped the broad auth-owned user snapshot before opening a replacement.
   - Kept `stopSubscription()` unsubscribe-only; sign-out explicitly stops then clears via the existing runtime reset.
   - Added `tests/phase1c-vault-subscription.test.js`.
+- Completed PR 1C.2 cleanup:
+  - Removed dead `handleVisitedPlacesSync()` from `services/authService.js` after confirming it had zero callers.
+  - Removed unused `VaultRepo.mutate()` after confirming it had zero real callers.
+  - Renamed the local auth UI refresh helper to `refreshAuthSnapshotUi()` without changing its behavior.
+  - Added a short rollback comment documenting that pending local state may remain until an authoritative snapshot reconciles it.
 
 ## 1C.1 Implementation Notes
 
@@ -50,7 +55,7 @@ Design constraints followed:
 
 - Conservative two-subscription path only: auth keeps its broad user-document listener, and `VaultRepo` owns a second visitedPlaces-only listener.
 - No subscription bus, no Phase 2 cache invalidation rewrite, no non-visit user-field ownership move, and no deployment.
-- `handleVisitedPlacesSync()` remains for 1C.2 cleanup; auth's broad snapshot no longer calls it.
+- `handleVisitedPlacesSync()` was removed during 1C.2 cleanup; auth's broad snapshot has no visit hydrator.
 - `VaultRepo.startSubscription()` owns same-uid idempotency, different-uid stop/clear/restart, stale callback guards, metadata-preserving reconciliation, injected canonicalization, and post-reconcile `onChange`.
 - `VaultRepo.stopSubscription()` only unsubscribes and preserves visits/pending state.
 - `_firstServerPayloadReceived`, `_serverPayloadSettled`, `_cloudSettingsLoaded`, cloud settings, admin, walk points, streak, expedition, leaderboard, saved routes, loader, premium gating, visit writers, and rollback logic remain outside `VaultRepo`.
@@ -60,12 +65,24 @@ Design constraints followed:
 - `node --check repos/VaultRepo.js services/authService.js services/firebaseService.js services/checkinService.js`: PASS
 - `rg "userVisitedPlaces" --glob '!plans/**' --glob '!*.md' --glob '!tests/**'`: PASS, no runtime matches
 - Legacy map-view helper runtime search excluding docs/tests: PASS, no runtime matches
-- `rg "handleVisitedPlacesSync\\(" services/authService.js`: PASS, definition only; no active auth snapshot call
+- `rg "handleVisitedPlacesSync\\(" services/authService.js`: PASS at 1C.1, definition only; no active auth snapshot call
 - `rg "visitedSnapshotUnsubscribe|onSnapshot" services/authService.js repos/VaultRepo.js`: PASS, broad auth listener remains and repo visit listener exists
 - `node tests/phase1c-vault-subscription.test.js`: PASS
 - `node tests/phase1b-pending-delete-canonical-replacement.test.js`: PASS
 - `git diff --check`: PASS
-- Manual signed-in smoke: PENDING
+- Manual signed-in smoke: PASS before 1C.2 cleanup
+- Automated signed-in Playwright: still a pre-deploy blocker because Google OAuth blocks Playwright Chromium.
+
+1C.2 cleanup verification status:
+
+- `node --check services/authService.js repos/VaultRepo.js`: PASS
+- `rg "handleVisitedPlacesSync\\(" services modules renderers repos engines 2>/dev/null || true`: PASS, no matches
+- `rg "userVisitedPlaces" --glob '!plans/**' --glob '!*.md' --glob '!tests/**'`: PASS, no runtime matches
+- `rg "__legacyMapView" --glob '!plans/**' --glob '!*.md' --glob '!tests/**'`: PASS, no runtime matches
+- `node tests/phase1c-vault-subscription.test.js`: PASS
+- `node tests/phase1b-pending-delete-canonical-replacement.test.js`: PASS
+- `git diff --check`: PASS
+- Manual signed-in smoke after 1C.2 cleanup: PENDING
 - Automated signed-in Playwright: still a pre-deploy blocker because Google OAuth blocks Playwright Chromium.
 
 ## Resolved Rollback Blocker
@@ -289,4 +306,4 @@ Final Phase 1B architecture review:
 
 ## Stop Line
 
-Next work should be Phase 1C snapshot ownership design review only. Do not start Phase 1C implementation, move snapshot ownership, or deploy this branch yet.
+Stop after Phase 1C.2 cleanup and verification. Do not deploy, do not begin Phase 2, and do not move additional ownership boundaries. The remaining pre-deploy blocker is signed-in smoke automation or an accepted release smoke substitute.

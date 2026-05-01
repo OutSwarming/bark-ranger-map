@@ -265,37 +265,6 @@ function handleExpeditionSync(data) {
     }
 }
 
-function handleVisitedPlacesSync(placeList, metadata = {}) {
-    try {
-        if (Array.isArray(placeList)) {
-            const firebaseService = window.BARK.services && window.BARK.services.firebase;
-            if (
-                firebaseService &&
-                typeof firebaseService.reconcileVisitedPlacesSnapshot === 'function'
-            ) {
-                firebaseService.reconcileVisitedPlacesSnapshot(placeList, metadata);
-            } else {
-                const vaultRepo = getVaultRepo();
-                if (vaultRepo && typeof vaultRepo.replaceAll === 'function') {
-                    vaultRepo.replaceAll(placeList);
-                }
-                if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
-                    window.BARK.invalidateVisitedIdsCache();
-                }
-                if (firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function') {
-                    firebaseService.refreshVisitedVisualState();
-                }
-            }
-            if (firebaseService && typeof firebaseService.normalizeLocalVisitedPlacesToCanonical === 'function') {
-                firebaseService.normalizeLocalVisitedPlacesToCanonical({ writeBack: true })
-                    .catch(error => console.error('[authService] visited-place canonicalization failed:', error));
-            }
-        }
-    } catch (error) {
-        console.error("[authService] visited places sync failed:", error);
-    }
-}
-
 function refreshActivePinVisitedButton() {
     if (!window.BARK.activePinMarker || !window.BARK.activePinMarker._parkData || !document.getElementById('mark-visited-btn')) return;
 
@@ -315,7 +284,7 @@ function refreshActivePinVisitedButton() {
     }
 }
 
-function refreshVisitDerivedAuthUi() {
+function refreshAuthSnapshotUi() {
     if (typeof window.syncState === 'function') window.syncState();
     if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
     refreshActivePinVisitedButton();
@@ -352,7 +321,7 @@ function buildVaultRepoSubscriptionOptions() {
             ? options => firebaseService.normalizeLocalVisitedPlacesToCanonical(options)
             : null,
         onChange() {
-            refreshVisitDerivedAuthUi();
+            refreshAuthSnapshotUi();
         },
         onError(error) {
             console.error('[authService] visitedPlaces snapshot failed:', error);
@@ -735,7 +704,7 @@ function initFirebase() {
 
                                         handleExpeditionSync(data);
                                     }
-                                    refreshVisitDerivedAuthUi();
+                                    refreshAuthSnapshotUi();
 
                                     if (!window._leaderboardLoadedOnce) {
                                         window._leaderboardLoadedOnce = true;

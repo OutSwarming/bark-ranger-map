@@ -181,7 +181,7 @@ Final Phase 1B review:
 
 ## Phase 1C - VaultRepo Snapshot Ownership
 
-Status: PR 1C.1 is implemented locally. `VaultRepo` owns the visitedPlaces-only snapshot lifecycle; `authService` keeps the broad user-document listener for non-visit fields. 1C.2 cleanup has not started. Manual signed-in smoke is still pending, and automated signed-in Playwright remains a pre-deploy blocker.
+Status: Phase 1C implementation and cleanup are complete. `VaultRepo` owns the visitedPlaces-only snapshot lifecycle; `authService` keeps the broad user-document listener for non-visit fields. 1C.2 was cleanup only, Phase 2 has not started, and automated signed-in Playwright remains a pre-deploy blocker.
 
 Move this last. It touches auth-state races and listener cleanup:
 
@@ -204,11 +204,11 @@ Goal: move Firestore listener ownership after Map mutation/read ownership is alr
 
 - [x] `node --check repos/VaultRepo.js services/authService.js services/firebaseService.js services/checkinService.js`
 - [x] Runtime legacy visit shim and legacy map-view helper searches return no matches outside docs/tests.
-- [x] `handleVisitedPlacesSync()` remains definition-only in auth; no active auth snapshot call remains.
+- [x] At 1C.1, `handleVisitedPlacesSync()` remained definition-only in auth; no active auth snapshot call remained.
 - [x] `node tests/phase1c-vault-subscription.test.js`
 - [x] `node tests/phase1b-pending-delete-canonical-replacement.test.js`
 - [x] `git diff --check`
-- [ ] Manual signed-in smoke after 1C.1.
+- [x] Manual signed-in smoke after 1C.1.
 - [ ] Automated signed-in Playwright before deployment, or accepted manual substitute before release.
 
 #### 1C.2 Cleanup pass
@@ -217,16 +217,31 @@ Goal: remove leftover listener-era coupling and document the final ownership bou
 
 | File | Planned change | Done |
 |---|---|---|
-| `services/authService.js` | Remove visited snapshot listener state such as `visitedSnapshotUnsubscribe` after ownership moves. | [ ] |
-| `repos/VaultRepo.js` | Document the final public API and event semantics. | [ ] |
-| `plans/PHASE_1_CONSUMERS.md` | Mark Phase 1C complete and record final verification commands. | [ ] |
-| Static checks | Confirm no direct Firestore visited-place snapshot setup remains outside `repos/VaultRepo.js`. | [ ] |
+| `services/authService.js` | Remove dead auth-owned visit hydration code after ownership moves. | [x] |
+| `repos/VaultRepo.js` | Remove unused generic mutation helper and document rollback reconciliation semantics. | [x] |
+| `plans/PHASE_1_CONSUMERS.md` | Mark Phase 1C complete and record final verification commands. | [x] |
+| Static checks | Confirm no direct Firestore visited-place snapshot setup remains outside `repos/VaultRepo.js`. | [x] |
 | Playwright smoke tests | Run the full visit lifecycle smoke suite after cleanup. | [ ] |
 
 - [x] visitedPlaces-only `users/{uid}` `onSnapshot` ownership moves from `services/authService.js` to `repos/VaultRepo.js`.
 - [x] Auth starts/stops the repo subscription, but the repo owns visited-place hydration.
 - [x] Preserve `_firstServerPayloadReceived`, `_serverPayloadSettled`, `_cloudSettingsLoaded`, listener cleanup, and optimistic rollback behavior.
-- [x] Do not start 1C.2 cleanup: `handleVisitedPlacesSync()` remains until a separate cleanup pass.
+- [x] Removed dead `handleVisitedPlacesSync()` after grep proved it had zero callers.
+- [x] Removed unused `VaultRepo.mutate()` after grep proved it had zero real callers.
+- [x] Renamed `refreshVisitDerivedAuthUi()` to `refreshAuthSnapshotUi()` as a local mechanical cleanup.
+- [x] No Phase 2 cleanup, cache invalidation centralization, auth UI change, write-logic change, or ownership move was included.
+
+1C.2 verification:
+
+- [x] `node --check services/authService.js repos/VaultRepo.js`
+- [x] `rg "handleVisitedPlacesSync\\(" services modules renderers repos engines 2>/dev/null || true`
+- [x] `rg "userVisitedPlaces" --glob '!plans/**' --glob '!*.md' --glob '!tests/**'`
+- [x] `rg "__legacyMapView" --glob '!plans/**' --glob '!*.md' --glob '!tests/**'`
+- [x] `node tests/phase1c-vault-subscription.test.js`
+- [x] `node tests/phase1b-pending-delete-canonical-replacement.test.js`
+- [x] `git diff --check`
+- [ ] Manual signed-in smoke after 1C.2 cleanup.
+- [ ] Automated signed-in Playwright before deployment, or accepted manual substitute before release.
 
 ## Deferred Out Of Phase 1
 

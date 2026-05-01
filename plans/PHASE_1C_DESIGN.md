@@ -298,13 +298,13 @@ Expected result:
 - Keep auth-owned non-visit snapshot lifecycle intact.
 - Record final Phase 1C verification.
 
-## Blocking Questions
+## Accepted Cleanup Decisions
 
-- Should `VaultRepo.startSubscription()` call `normalizeLocalVisitedPlacesToCanonical({ writeBack: true })` through an injected callback, or should canonicalization move fully into `VaultRepo` later?
-- Should `VaultRepo.stopSubscription()` only unsubscribe, or should it optionally clear state when called with `{ clear: true }`?
-- Should visit snapshot errors surface through the existing auth failure notice, a new repo-specific warning, or console-only for 1C.1?
-- Should `authService` explicitly stop before start on user switch, or should `VaultRepo.startSubscription()` own same-user/new-user idempotency entirely?
-- Is the temporary second user-document listener acceptable for staging read costs during 1C.1?
+- `handleVisitedPlacesSync()` was removed after grep proved it had zero callers.
+- `VaultRepo.mutate()` was removed after grep proved it had zero real callers.
+- `refreshVisitDerivedAuthUi()` was renamed to `refreshAuthSnapshotUi()` as a local mechanical cleanup.
+- `VaultRepo.stopSubscription()` remains unsubscribe-only; sign-out clear stays explicit in auth-owned runtime reset.
+- Canonicalization remains injected from auth/firebase service plumbing; no Phase 2 cache invalidation rewrite or ownership move was included.
 
 ## Acceptance Criteria
 
@@ -325,6 +325,6 @@ Expected result:
 
 ## Final Statement
 
-Recommended architecture: conservative two-subscription 1C.1, with `VaultRepo` owning only the visitedPlaces snapshot lifecycle and `authService` retaining all other user-document concerns.
+Final architecture: conservative two-subscription Phase 1C, with `VaultRepo` owning only the visitedPlaces snapshot lifecycle and `authService` retaining all other user-document concerns.
 
-Ready for 1C implementation? NO. This design should be reviewed and the blocking questions answered or explicitly accepted before implementation starts.
+Ready for Phase 2? NO. Phase 1C cleanup is complete, but automated signed-in Playwright remains a pre-deploy blocker until the auth automation problem is solved or an accepted release smoke substitute is recorded.
