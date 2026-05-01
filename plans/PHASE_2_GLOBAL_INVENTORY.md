@@ -6,15 +6,15 @@ Date: 2026-05-01
 
 Phase 1 finished the two highest-value ownership moves: `ParkRepo` owns park data, and `VaultRepo` owns visit state plus the `visitedPlaces` snapshot lifecycle. The remaining Phase 2 debt is not one obvious data owner. It is runtime coordination: many modules still publish and consume global functions, raw `window` flags, localStorage-backed state, and refresh side effects directly.
 
-This document began as the 2A inventory. It now also records the 2B additive seam and 2C visited-cache migration status below; the inventory tables remain architecture notes rather than a refactor plan that changes behavior by themselves.
+This document began as the 2A inventory. It now also records the 2B additive seam, 2C visited-cache migration status, and 2D visited-visual-refresh plan below; the inventory tables remain architecture notes rather than a refactor plan that changes behavior by themselves.
 
 Main findings:
 
 | Finding | Impact | Suggested phase |
 |---|---|---|
-| `window.syncState()` is the central heartbeat, but many modules call it directly. | Coupled refresh timing; hard to reason about marker/profile/achievement work after state changes. | 2B/2D |
-| Visit refresh is split across `invalidateVisitedIdsCache()`, `refreshVisitedVisualState()`, marker manager style refresh, trip badge refresh, `syncState()`, and stats refresh. | Correctness depends on each write path remembering the right refresh sequence. | 2B/2C |
-| `authService.js` still coordinates auth state, cloud settings hydration, admin, walk points/streak, expedition hydration, leaderboard, loader, logout runtime reset, and UI visibility. | High blast radius for any auth cleanup. | 2E, carefully |
+| `window.syncState()` is the central heartbeat, but many modules call it directly. | Coupled refresh timing; hard to reason about marker/profile/achievement work after state changes. | 2E/later |
+| Visit refresh is split across `invalidateVisitedIdsCache()`, `refreshVisitedVisualState()`, marker manager style refresh, trip badge refresh, `syncState()`, and stats refresh. | Correctness depends on each write path remembering the right refresh sequence. | 2B/2C/2D |
+| `authService.js` still coordinates auth state, cloud settings hydration, admin, walk points/streak, expedition hydration, leaderboard, loader, logout runtime reset, and UI visibility. | High blast radius for any auth cleanup. | 2F/later, carefully |
 | `profileEngine.js` owns stats DOM, manage portal, achievements, leaderboard writes/reads, rank UI, and score sync. | Mixed UI and Firestore concerns around user score/leaderboard. | Defer or split after coordinator work |
 | `settingsController.js` owns local setting effects, cloud autosave flags, settings UI rendering, map style/performance effects, and expedition overlay refresh. | Settings changes fan out directly into several runtime subsystems. | Medium-risk later PR |
 | `state/appState.js` mirrors several legacy globals but is not yet the sole state API. | Some state has two access paths, so ownership is more documentary than enforced. | Later, after coordinator |
@@ -33,11 +33,11 @@ Phase 2B added `modules/RefreshCoordinator.js` as an additive seam loaded after 
 
 No existing manual refresh calls were removed. No Firestore writes, auth/session logic, VaultRepo ownership, or UI behavior changed. The coordinator does not own data and does not subscribe to `VaultRepo`.
 
-Active-pin button refresh is still private auth/panel DOM logic. Phase 2B intentionally did not copy that DOM update into the coordinator; expose or move it only in a later focused Phase 2C/2D design.
+Active-pin button refresh is still private auth/panel DOM logic. Phase 2B intentionally did not copy that DOM update into the coordinator; expose or move it only in a later focused design.
 
 Phase 2C migrated one low-risk refresh category: direct visited cache invalidation call sites now route through `refreshCoordinator.refreshVisitedCache(reason)` by way of file-local safe helpers. Visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, and ownership boundaries were not moved.
 
-Phase 2C visited cache invalidation planning and implementation notes are captured in `plans/PHASE_2C_VISITED_CACHE_PLAN.md`. Phase 2D has not started.
+Phase 2C visited cache invalidation planning and implementation notes are captured in `plans/PHASE_2C_VISITED_CACHE_PLAN.md`. Phase 2D migrated visited visual refresh requests through `refreshCoordinator.refreshVisitedVisuals(reason)` only; implementation notes are captured in `plans/PHASE_2D_VISITED_VISUAL_REFRESH_PLAN.md`.
 
 ## Phase 2C Status
 
@@ -50,6 +50,20 @@ Phase 2C is implemented as a cache-invalidation-only migration. It changed direc
 Residual `invalidateVisitedIdsCache` grep matches are expected only in file-local helper fallbacks, the `VaultRepo` callback option method name in `authService`, and the `modules/RefreshCoordinator.js` seam internals. No direct inline global invalidation call sites remain outside those compatibility paths.
 
 Manual smoke after 2C passed. Console errors: none reported. No deployment has happened.
+
+## Phase 2D Status
+
+Phase 2D is implemented as a visited-visual-refresh-only migration through `window.BARK.refreshCoordinator.refreshVisitedVisuals(reason)`.
+
+2D changed runtime call sites only in:
+
+- `services/authService.js`
+- `services/firebaseService.js`
+- `services/checkinService.js`
+
+2D did not migrate the `modules/renderEngine.js` trip badge refresh that runs during marker render/filter changes, because replacing that path with full visited visual refresh could create extra marker refresh work during pan/zoom or filter-driven render cycles.
+
+2D did not migrate `window.syncState()`, stats/profile/leaderboard, Firestore writes, auth/session ownership, or `VaultRepo` ownership. Direct `syncState()` cleanup is deferred until after visited cache and visited visual refresh migration are smoke-verified.
 
 ## Commands Run
 
@@ -191,15 +205,15 @@ Line counts from the required `wc -l`:
 | State domain | Current owner | Current coordination paths | Desired owner | Phase 2 note |
 |---|---|---|---|---|
 | Park data | `ParkRepo` | `dataService` loads CSV, `renderEngine`/search/profile/trip read repo. | `ParkRepo` remains owner. | Complete; avoid reopening. |
-| Visit data | `VaultRepo` | `firebaseService` writes, `checkinService` optimistic updates, `VaultRepo` snapshot, render/profile refresh globals. | `VaultRepo` remains data owner; coordinator owns refresh reactions. | 2C target. |
+| Visit data | `VaultRepo` | `firebaseService` writes, `checkinService` optimistic updates, `VaultRepo` snapshot, render/profile refresh globals. | `VaultRepo` remains data owner; coordinator owns refresh reactions. | 2C cache migration complete; 2D visual refresh migration implemented with manual smoke pending. |
 | Auth session | `authService` | Firebase auth observer, auth UI, premium gating, sign-out reset. | `authService` remains owner for now. | Stop line: do not move yet. |
-| Cloud settings | `settingsStore` plus `authService` hydration and `settingsController` autosave | Global revision flags and raw setting mirrors. | `settingsStore` for local state; small cloud settings hydrator/service later. | 2E/later. |
+| Cloud settings | `settingsStore` plus `authService` hydration and `settingsController` autosave | Global revision flags and raw setting mirrors. | `settingsStore` for local state; small cloud settings hydrator/service later. | 2F/later. |
 | Walk points/streak | `authService`, `firebaseService`, `expeditionEngine`, `profileEngine` | Raw `window.currentWalkPoints`, localStorage streak fallback, profile score sync. | Dedicated progress/profile state service eventually. | HIGH risk; defer. |
 | Expedition | `expeditionEngine`, hydrated by `authService` | Auth broad snapshot calls expedition renderers; settings refreshes overlays. | Expedition controller/service. | Defer until coordinator exists. |
 | Leaderboard | `profileEngine`, triggered by `authService` | `loadLeaderboard`, `_lastLeaderboardDoc`, `_leaderboardLoadedOnce`, `_lastSyncedScore`. | Profile/leaderboard module, not auth. | Medium/high; after 2B. |
 | Trip planner | `tripPlannerCore`, `TripLayerManager`, `routeRenderer`, `barkState` | `tripDays`, `activeDayIdx`, bare window handlers, route loads. | Trip planner store/controller. | Medium; separate from visit refresh. |
 | Active marker/panel | `barkState`, `MarkerLayerManager`, `panelRenderer`, `authService` reset | `activePinMarker`, `clearActivePin`, panel refresh. | Panel/selection controller. | Medium; after marker refresh coordinator. |
-| Map filters/search | `barkState`, `searchEngine`, `uiController`, `renderEngine` | Search cache, filter state, `syncState()`. | Search/filter store with coordinator refresh. | Medium; good 2D candidate. |
+| Map filters/search | `barkState`, `searchEngine`, `uiController`, `renderEngine` | Search cache, filter state, `syncState()`. | Search/filter store with coordinator refresh. | Medium; defer until after 2D visual refresh. |
 | UI settings | `settingsStore`, `settingsController`, raw `window.*` mirrors | localStorage, cloud autosave, effects scheduler. | Settings store plus effect coordinator. | Medium; avoid auth movement. |
 
 ## 6. Risk Ranking
@@ -280,11 +294,38 @@ Deferred from 2C:
 - `syncState()` migration.
 - Stats/profile/leaderboard refresh.
 
-### 2D - Reduce Direct `syncState()` Calls
+### 2D - Move Visited Visual Refresh Into Coordinator
 
-Goal: replace direct heartbeat calls with named refresh requests.
+Status: implemented in `plans/PHASE_2D_VISITED_VISUAL_REFRESH_PLAN.md`; manual smoke pending.
 
-Suggested order:
+Goal: route visit-state visual refresh requests through the Phase 2B coordinator:
+
+```js
+window.BARK.refreshCoordinator.refreshVisitedVisuals(reason)
+```
+
+Scope:
+
+- Migrated only the visited visual refresh calls in visit mutation, snapshot reconciliation, and logout/reset paths.
+- Use file-local safe helpers where needed.
+- Preserve ordering after `VaultRepo` mutation/reconcile and visited cache invalidation, and before existing `syncState()`, stats/profile, or Firestore follow-up calls.
+- Kept `firebaseService.refreshVisitedVisualState()` as a legacy implementation/fallback during 2D.
+- Deferred `modules/renderEngine.js` trip badge refresh because it belongs to marker render/filter cadence, not visit-state mutation.
+
+Stop lines:
+
+- Do not migrate `syncState()`.
+- Do not migrate stats/profile/leaderboard.
+- Do not change Firestore writes.
+- Do not change auth/session ownership.
+- Do not change `VaultRepo` ownership.
+- Do not deploy.
+
+### 2E - Reduce Direct `syncState()` Calls
+
+Goal: replace direct heartbeat calls with named refresh requests after 2D is smoke-verified.
+
+Suggested future order:
 
 1. Search/filter callers.
 2. UI view toggles.
@@ -296,7 +337,7 @@ Acceptance:
 - `syncState()` remains the implementation detail.
 - Call sites become intent-oriented, not removed wholesale.
 
-### 2E - Split Small `authService` Hydrators
+### 2F - Split Small `authService` Hydrators
 
 Goal: reduce file size and coupling while keeping auth session ownership in `authService`.
 
@@ -327,7 +368,7 @@ Defer until coordinator and smoke coverage are stable:
 
 ## 8. Safest First Implementation PR
 
-Recommended first implementation PR after this inventory was **Phase 2B, additive coordinator only**. That seam is now complete, and Phase 2C migrated visited cache invalidation only.
+Recommended first implementation PR after this inventory was **Phase 2B, additive coordinator only**. That seam is now complete, Phase 2C migrated visited cache invalidation only, and Phase 2D migrated visited visual refresh only. Phase 2D manual smoke remains pending.
 
 Why this is safest:
 
@@ -358,4 +399,4 @@ Minimum 2B success criteria:
 
 ## Current Stop Point
 
-Phase 2C is complete; manual smoke passed. Phase 2D is safe to plan next, but it has not started. Do not deploy, do not migrate visual refresh yet, and do not combine the next refresh migration with auth/session or Firestore ownership work.
+Phase 2C is complete; manual smoke passed. Phase 2D visited visual refresh migration is implemented in `plans/PHASE_2D_VISITED_VISUAL_REFRESH_PLAN.md`; manual smoke is pending. Do not deploy, do not start Phase 2E, do not migrate `syncState()`, and do not combine the next refresh migration with auth/session, Firestore, stats/profile/leaderboard, or `VaultRepo` ownership work.

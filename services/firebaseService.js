@@ -82,6 +82,17 @@ function refreshVisitedCache(reason) {
     return false;
 }
 
+function refreshVisitedVisuals(reason) {
+    const coordinator = window.BARK && window.BARK.refreshCoordinator;
+    if (coordinator && typeof coordinator.refreshVisitedVisuals === 'function') {
+        coordinator.refreshVisitedVisuals(reason);
+        return true;
+    }
+
+    refreshVisitedVisualState();
+    return true;
+}
+
 function cleanValue(value) {
     if (value === undefined || value === null) return '';
     return String(value).trim();
@@ -390,7 +401,7 @@ function reconcileVisitedPlacesSnapshot(placeList, metadata = {}) {
     if (vaultRepo && typeof vaultRepo.reconcileSnapshot === 'function') {
         const result = vaultRepo.reconcileSnapshot(placeList, metadata);
         refreshVisitedCache('firebase-reconcile-snapshot');
-        refreshVisitedVisualState();
+        refreshVisitedVisuals('firebase-reconcile-snapshot');
         return result;
     }
     return makeVisitedPlaceMap(placeList);
@@ -416,7 +427,7 @@ function replaceLocalVisitedPlaces(visitedMap, options = {}) {
     }
 
     refreshVisitedCache('firebase-replace-local-visits');
-    refreshVisitedVisualState();
+    refreshVisitedVisuals('firebase-replace-local-visits');
 }
 
 async function attemptDailyStreakIncrement() {
@@ -581,7 +592,7 @@ async function removeVisitedPlace(placeOrId) {
             }
             entryIds.forEach(stageVisitedPlaceDelete);
             refreshVisitedCache('firebase-remove-visit');
-            refreshVisitedVisualState();
+            refreshVisitedVisuals('firebase-remove-visit');
             await syncUserProgress();
             window.syncState();
             window.BARK.renderManagePortal();

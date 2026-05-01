@@ -38,6 +38,22 @@ function refreshVisitedCache(reason) {
     return false;
 }
 
+function refreshVisitedVisuals(reason, firebaseService = null) {
+    const coordinator = window.BARK && window.BARK.refreshCoordinator;
+    if (coordinator && typeof coordinator.refreshVisitedVisuals === 'function') {
+        coordinator.refreshVisitedVisuals(reason);
+        return true;
+    }
+
+    const fallbackFirebaseService = firebaseService || (window.BARK.services && window.BARK.services.firebase);
+    if (fallbackFirebaseService && typeof fallbackFirebaseService.refreshVisitedVisualState === 'function') {
+        fallbackFirebaseService.refreshVisitedVisualState();
+        return true;
+    }
+
+    return false;
+}
+
 function getCheckinVisitedPlacesArray() {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.getVisits === 'function') {
@@ -76,12 +92,6 @@ function canRestoreVaultSnapshot(token, expectedUid) {
 function getCurrentFirebaseUid() {
     const user = getCurrentFirebaseUser();
     return user ? user.uid : null;
-}
-
-function refreshVisitedVisualState(firebaseService) {
-    if (firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function') {
-        firebaseService.refreshVisitedVisualState();
-    }
 }
 
 function createVisitRecord(parkData, verified) {
@@ -222,7 +232,7 @@ async function verifyGpsCheckin(parkData) {
             firebaseService.stageVisitedPlaceUpsert(checkinResult.visitRecord);
         }
         refreshVisitedCache('checkin-verified-add');
-        refreshVisitedVisualState(firebaseService);
+        refreshVisitedVisuals('checkin-verified-add', firebaseService);
         if (typeof window.syncState === 'function') {
             window.syncState();
         }
@@ -279,7 +289,7 @@ async function markAsVisited(parkData) {
                 entryIds.forEach(firebaseService.stageVisitedPlaceDelete);
             }
             refreshVisitedCache('checkin-unmark-remove');
-            refreshVisitedVisualState(firebaseService);
+            refreshVisitedVisuals('checkin-unmark-remove', firebaseService);
             if (typeof window.syncState === 'function') {
                 window.syncState();
             }
@@ -302,7 +312,7 @@ async function markAsVisited(parkData) {
             firebaseService.stageVisitedPlaceUpsert(visitRecord);
         }
         refreshVisitedCache('checkin-mark-add');
-        refreshVisitedVisualState(firebaseService);
+        refreshVisitedVisuals('checkin-mark-add', firebaseService);
         if (typeof window.syncState === 'function') {
             window.syncState();
         }

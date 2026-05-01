@@ -16,7 +16,7 @@ Phase 1C implementation and cleanup are complete. `VaultRepo` owns the visitedPl
 
 Phase 2A inventory is tracked in `plans/PHASE_2_GLOBAL_INVENTORY.md`. It is an architecture inventory only; no runtime behavior changes are included.
 
-Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Phase 2C migrated direct visited cache invalidation call sites through that coordinator while leaving visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, and ownership boundaries unchanged. Phase 2D has not started.
+Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Phase 2C migrated direct visited cache invalidation call sites through that coordinator while leaving visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, and ownership boundaries unchanged. Phase 2D migrated visited visual refresh call sites through the same coordinator while leaving `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, rollback logic, and ownership boundaries unchanged. Phase 2D manual smoke is pending; Phase 2E has not started.
 
 ## Completed In This Chat
 
@@ -56,6 +56,12 @@ Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Phase 2C migrat
   - Added file-local `refreshVisitedCache(reason)` helpers in `services/authService.js`, `services/firebaseService.js`, and `services/checkinService.js`.
   - Routed direct visited cache invalidation call sites through `window.BARK.refreshCoordinator.refreshVisitedCache(reason)` with the legacy invalidator as a fallback.
   - Left visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, VaultRepo ownership, and rollback behavior unchanged.
+- Implemented Phase 2D visited visual refresh cleanup:
+  - Added file-local `refreshVisitedVisuals(reason)` helpers in `services/authService.js`, `services/firebaseService.js`, and `services/checkinService.js`.
+  - Routed visit mutation, snapshot reconcile, and logout/reset visual refresh call sites through `window.BARK.refreshCoordinator.refreshVisitedVisuals(reason)` with legacy visual refresh fallbacks.
+  - Left `firebaseService.refreshVisitedVisualState()` as the legacy implementation/export.
+  - Left `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, VaultRepo ownership, and rollback behavior unchanged.
+  - Manual signed-in smoke remains pending; do not deploy or start Phase 2E yet.
 
 ## 1C.1 Implementation Notes
 

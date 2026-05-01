@@ -39,6 +39,22 @@ function refreshVisitedCache(reason) {
     return false;
 }
 
+function refreshVisitedVisuals(reason, firebaseService = null) {
+    const coordinator = window.BARK && window.BARK.refreshCoordinator;
+    if (coordinator && typeof coordinator.refreshVisitedVisuals === 'function') {
+        coordinator.refreshVisitedVisuals(reason);
+        return true;
+    }
+
+    const fallbackFirebaseService = firebaseService || (window.BARK.services && window.BARK.services.firebase);
+    if (fallbackFirebaseService && typeof fallbackFirebaseService.refreshVisitedVisualState === 'function') {
+        fallbackFirebaseService.refreshVisitedVisualState();
+        return true;
+    }
+
+    return false;
+}
+
 function hasAuthVisitedPlace(placeOrId) {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.hasVisit === 'function') {
@@ -327,9 +343,7 @@ function buildVaultRepoSubscriptionOptions() {
         invalidateVisitedIdsCache() {
             refreshVisitedCache('vault-snapshot-reconcile');
         },
-        refreshVisitedVisualState: firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function'
-            ? () => firebaseService.refreshVisitedVisualState()
-            : null,
+        refreshVisitedVisualState: () => refreshVisitedVisuals('vault-snapshot-reconcile', firebaseService),
         normalizeLocalVisitedPlacesToCanonical: firebaseService && typeof firebaseService.normalizeLocalVisitedPlacesToCanonical === 'function'
             ? options => firebaseService.normalizeLocalVisitedPlacesToCanonical(options)
             : null,
@@ -512,9 +526,7 @@ function resetVisitedAndPanelState() {
     if (!refreshVisitedCache('auth-reset-visited-panel') && typeof window.BARK.invalidateMarkerVisibility === 'function') {
         window.BARK.invalidateMarkerVisibility();
     }
-    if (firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function') {
-        firebaseService.refreshVisitedVisualState();
-    }
+    refreshVisitedVisuals('auth-reset-visited-panel', firebaseService);
 
     if (typeof window.BARK.clearActivePin === 'function') window.BARK.clearActivePin();
 
@@ -759,9 +771,7 @@ function initFirebase() {
                         }
                         refreshVisitedCache('auth-no-session-visit-clear');
                         const firebaseService = window.BARK.services && window.BARK.services.firebase;
-                        if (firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function') {
-                            firebaseService.refreshVisitedVisualState();
-                        }
+                        refreshVisitedVisuals('auth-no-session-visit-clear', firebaseService);
                         if (typeof window.BARK.clearActivePin === 'function') window.BARK.clearActivePin();
                         applyGuestZoomLimitDefault();
                         resetMapViewToGuestDefault();
