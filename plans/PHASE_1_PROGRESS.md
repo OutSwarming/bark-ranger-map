@@ -16,7 +16,7 @@ Phase 1C implementation and cleanup are complete. `VaultRepo` owns the visitedPl
 
 Phase 2A inventory is tracked in `plans/PHASE_2_GLOBAL_INVENTORY.md`. It is an architecture inventory only; no runtime behavior changes are included.
 
-Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Phase 2C migrated direct visited cache invalidation call sites through that coordinator while leaving visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, and ownership boundaries unchanged. Phase 2D migrated visited visual refresh call sites through the same coordinator while leaving `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, rollback logic, and ownership boundaries unchanged. Phase 2D manual smoke is pending; Phase 2E has not started.
+Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Phase 2C migrated direct visited cache invalidation call sites through that coordinator while leaving visual refresh, `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, and ownership boundaries unchanged. Phase 2D migrated visited visual refresh call sites through the same coordinator while leaving `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, rollback logic, and ownership boundaries unchanged. Phase 2D QC and manual smoke passed. Phase 2E migrated only the three low-risk check-in direct `window.syncState()` calls through named coordinator requests. Phase 2E manual smoke is pending; Phase 2F has not started.
 
 ## Completed In This Chat
 
@@ -61,7 +61,14 @@ Phase 2B added an additive `modules/RefreshCoordinator.js` seam. Phase 2C migrat
   - Routed visit mutation, snapshot reconcile, and logout/reset visual refresh call sites through `window.BARK.refreshCoordinator.refreshVisitedVisuals(reason)` with legacy visual refresh fallbacks.
   - Left `firebaseService.refreshVisitedVisualState()` as the legacy implementation/export.
   - Left `syncState()`, stats/profile/leaderboard, Firestore writes, auth/session logic, VaultRepo ownership, and rollback behavior unchanged.
-  - Manual signed-in smoke remains pending; do not deploy or start Phase 2E yet.
+- Phase 2D QC and manual signed-in smoke passed.
+- Implemented Phase 2E direct `syncState()` cleanup:
+  - Created `plans/PHASE_2E_SYNCSTATE_PLAN.md`.
+  - Added narrow `requestStateSync(reason)` / `requestVisitStateSync(reason)` coordinator methods.
+  - Added a file-local `requestVisitStateSync(reason)` helper in `services/checkinService.js`.
+  - Migrated only the three low-risk check-in visit mutation direct `window.syncState()` call sites in the first implementation slice.
+  - Deferred auth/session, Firestore-adjacent helpers, stats/profile/leaderboard, search/filter, settings, map render cadence, data load, panel DOM actions, and renderEngine changes.
+  - Manual signed-in smoke remains pending; do not deploy or start Phase 2F yet.
 
 ## 1C.1 Implementation Notes
 

@@ -54,6 +54,21 @@ function refreshVisitedVisuals(reason, firebaseService = null) {
     return false;
 }
 
+function requestVisitStateSync(reason) {
+    const coordinator = window.BARK && window.BARK.refreshCoordinator;
+    if (coordinator && typeof coordinator.requestVisitStateSync === 'function') {
+        coordinator.requestVisitStateSync(reason);
+        return true;
+    }
+
+    if (typeof window.syncState === 'function') {
+        window.syncState();
+        return true;
+    }
+
+    return false;
+}
+
 function getCheckinVisitedPlacesArray() {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.getVisits === 'function') {
@@ -233,9 +248,7 @@ async function verifyGpsCheckin(parkData) {
         }
         refreshVisitedCache('checkin-verified-add');
         refreshVisitedVisuals('checkin-verified-add', firebaseService);
-        if (typeof window.syncState === 'function') {
-            window.syncState();
-        }
+        requestVisitStateSync('checkin-verified-add');
         await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
         queueDailyStreakIncrement(firebaseService);
 
@@ -290,9 +303,7 @@ async function markAsVisited(parkData) {
             }
             refreshVisitedCache('checkin-unmark-remove');
             refreshVisitedVisuals('checkin-unmark-remove', firebaseService);
-            if (typeof window.syncState === 'function') {
-                window.syncState();
-            }
+            requestVisitStateSync('checkin-unmark-remove');
             await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
             return { success: true, action: 'removed' };
         }
@@ -313,9 +324,7 @@ async function markAsVisited(parkData) {
         }
         refreshVisitedCache('checkin-mark-add');
         refreshVisitedVisuals('checkin-mark-add', firebaseService);
-        if (typeof window.syncState === 'function') {
-            window.syncState();
-        }
+        requestVisitStateSync('checkin-mark-add');
 
         if (canSyncProgress) {
             await firebaseService.syncUserProgress();

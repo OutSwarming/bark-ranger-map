@@ -12,6 +12,8 @@
         visitedVisualRefreshCount: 0,
         visitDerivedUiRefreshCount: 0,
         allVisitDerivedRefreshCount: 0,
+        stateSyncRequestCount: 0,
+        visitStateSyncRequestCount: 0,
         lastReason: null
     };
 
@@ -104,6 +106,23 @@
         });
     }
 
+    function requestStateSync(reason) {
+        const lastReason = remember(reason);
+        stats.stateSyncRequestCount++;
+        debugLog('requestStateSync', { reason: lastReason });
+
+        callExisting('syncState', () => {
+            if (typeof window.syncState === 'function') window.syncState();
+        });
+    }
+
+    function requestVisitStateSync(reason) {
+        const lastReason = remember(reason);
+        stats.visitStateSyncRequestCount++;
+        debugLog('requestVisitStateSync', { reason: lastReason });
+        requestStateSync(lastReason);
+    }
+
     function refreshAllVisitDerived(reason) {
         const lastReason = remember(reason);
         stats.allVisitDerivedRefreshCount++;
@@ -123,6 +142,8 @@
         refreshVisitedVisuals,
         refreshVisitDerivedUi,
         refreshAllVisitDerived,
+        requestStateSync,
+        requestVisitStateSync,
         getStats
     };
 })();
