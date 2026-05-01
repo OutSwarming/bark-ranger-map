@@ -5,7 +5,7 @@
 window.BARK = window.BARK || {};
 window.BARK.services = window.BARK.services || {};
 
-let visitedSnapshotUnsubscribe = null;
+let userSnapshotUnsubscribe = null;
 let authenticatedSessionSeen = false;
 let lastAuthenticatedUid = null;
 
@@ -18,6 +18,19 @@ function showAuthFailureNotice(message) {
 
 function getParkRepo() {
     return window.BARK.repos && window.BARK.repos.ParkRepo;
+}
+
+function getVaultRepo() {
+    return window.BARK.repos && window.BARK.repos.VaultRepo;
+}
+
+function hasAuthVisitedPlace(placeOrId) {
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.hasVisit === 'function') {
+        return vaultRepo.hasVisit(placeOrId);
+    }
+
+    return false;
 }
 
 const STANDALONE_CLOUD_SETTING_CONTROLS = {
@@ -258,22 +271,13 @@ function handleVisitedPlacesSync(placeList, metadata = {}) {
             const firebaseService = window.BARK.services && window.BARK.services.firebase;
             if (
                 firebaseService &&
-                typeof firebaseService.reconcileVisitedPlacesSnapshot === 'function' &&
-                typeof firebaseService.replaceLocalVisitedPlaces === 'function'
+                typeof firebaseService.reconcileVisitedPlacesSnapshot === 'function'
             ) {
-                firebaseService.replaceLocalVisitedPlaces(
-                    firebaseService.reconcileVisitedPlacesSnapshot(placeList, metadata)
-                );
+                firebaseService.reconcileVisitedPlacesSnapshot(placeList, metadata);
             } else {
-                const visitedPlaces = window.BARK.userVisitedPlaces instanceof Map
-                    ? window.BARK.userVisitedPlaces
-                    : new Map();
-                visitedPlaces.clear();
-                placeList.forEach(obj => {
-                    if (obj && obj.id) visitedPlaces.set(obj.id, obj);
-                });
-                if (!(window.BARK.userVisitedPlaces instanceof Map)) {
-                    window.BARK.userVisitedPlaces = visitedPlaces;
+                const vaultRepo = getVaultRepo();
+                if (vaultRepo && typeof vaultRepo.replaceAll === 'function') {
+                    vaultRepo.replaceAll(placeList);
                 }
                 if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
                     window.BARK.invalidateVisitedIdsCache();
@@ -289,6 +293,97 @@ function handleVisitedPlacesSync(placeList, metadata = {}) {
         }
     } catch (error) {
         console.error("[authService] visited places sync failed:", error);
+    }
+}
+
+function refreshActivePinVisitedButton() {
+    if (!window.BARK.activePinMarker || !window.BARK.activePinMarker._parkData || !document.getElementById('mark-visited-btn')) return;
+
+    const d = window.BARK.activePinMarker._parkData;
+    const btn = document.getElementById('mark-visited-btn');
+    const btnText = document.getElementById('mark-visited-text');
+    const isVisited = typeof window.BARK.isParkVisited === 'function'
+        ? window.BARK.isParkVisited(d)
+        : hasAuthVisitedPlace(d);
+
+    if (isVisited) {
+        btn.classList.add('visited');
+        if (btnText) btnText.textContent = 'Visited!';
+    } else {
+        btn.classList.remove('visited');
+        if (btnText) btnText.textContent = 'Mark as Visited';
+    }
+}
+
+function refreshVisitDerivedAuthUi() {
+    if (typeof window.syncState === 'function') window.syncState();
+    if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
+    refreshActivePinVisitedButton();
+}
+
+function getFirebaseService() {
+    return window.BARK.services && window.BARK.services.firebase;
+}
+
+function buildVaultRepoSubscriptionOptions() {
+    const firebaseRef = typeof firebase !== 'undefined' ? firebase : null;
+    const firebaseService = getFirebaseService();
+
+    return {
+        firebase: firebaseRef,
+        getCurrentUid() {
+            const currentUser = firebaseRef && firebaseRef.auth ? firebaseRef.auth().currentUser : null;
+            return currentUser ? currentUser.uid : null;
+        },
+        incrementRequestCount() {
+            if (typeof window.BARK.incrementRequestCount === 'function') {
+                window.BARK.incrementRequestCount();
+            }
+        },
+        invalidateVisitedIdsCache() {
+            if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
+                window.BARK.invalidateVisitedIdsCache();
+            }
+        },
+        refreshVisitedVisualState: firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function'
+            ? () => firebaseService.refreshVisitedVisualState()
+            : null,
+        normalizeLocalVisitedPlacesToCanonical: firebaseService && typeof firebaseService.normalizeLocalVisitedPlacesToCanonical === 'function'
+            ? options => firebaseService.normalizeLocalVisitedPlacesToCanonical(options)
+            : null,
+        onChange() {
+            refreshVisitDerivedAuthUi();
+        },
+        onError(error) {
+            console.error('[authService] visitedPlaces snapshot failed:', error);
+            showAuthFailureNotice('Sign-in connected, but visit sync failed. Saved progress may be offline for this session.');
+        }
+    };
+}
+
+function startVaultRepoVisitSubscription(user) {
+    const vaultRepo = getVaultRepo();
+    if (!vaultRepo || typeof vaultRepo.startSubscription !== 'function') {
+        throw new Error('VaultRepo.startSubscription is required for visited-place sync.');
+    }
+    return vaultRepo.startSubscription(user.uid, buildVaultRepoSubscriptionOptions());
+}
+
+function stopVaultRepoVisitSubscription() {
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.stopSubscription === 'function') {
+        vaultRepo.stopSubscription();
+    }
+}
+
+function stopUserSnapshotSubscription() {
+    if (!userSnapshotUnsubscribe) return;
+    const unsubscribe = userSnapshotUnsubscribe;
+    userSnapshotUnsubscribe = null;
+    try {
+        unsubscribe();
+    } catch (error) {
+        console.error('[authService] user snapshot unsubscribe failed:', error);
     }
 }
 
@@ -427,10 +522,9 @@ function resetVisitedAndPanelState() {
         firebaseService.clearVisitedPlacePendingMutations();
     }
 
-    if (window.BARK.userVisitedPlaces instanceof Map) {
-        window.BARK.userVisitedPlaces.clear();
-    } else {
-        window.BARK.userVisitedPlaces = new Map();
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.clear === 'function') {
+        vaultRepo.clear();
     }
 
     if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
@@ -590,9 +684,18 @@ function initFirebase() {
                     if (logoutBtn) logoutBtn.style.display = 'block';
                     if (profileName) profileName.textContent = user.displayName || user.email || 'Bark Ranger';
 
+                    stopUserSnapshotSubscription();
+
+                    try {
+                        startVaultRepoVisitSubscription(user);
+                    } catch (error) {
+                        console.error("[authService] subscribe visited places failed:", error);
+                        showAuthFailureNotice('Sign-in connected, but visit sync could not start. Saved progress may be offline for this session.');
+                    }
+
                     try {
                         window.BARK.incrementRequestCount();
-                        visitedSnapshotUnsubscribe = firebase.firestore().collection('users').doc(user.uid)
+                        userSnapshotUnsubscribe = firebase.firestore().collection('users').doc(user.uid)
                             .onSnapshot((doc) => {
                                 try {
                                     const currentUser = firebase.auth().currentUser;
@@ -607,8 +710,6 @@ function initFirebase() {
                                         const data = doc.data();
 
                                         handleCloudSettingsHydration(data, doc.metadata);
-
-                                        const placeList = data.visitedPlaces || [];
 
                                         handleAdminCheck(data, user);
 
@@ -633,12 +734,8 @@ function initFirebase() {
                                         window.currentWalkPoints = Math.round(walkVal * 100) / 100;
 
                                         handleExpeditionSync(data);
-                                        handleVisitedPlacesSync(placeList, doc.metadata);
-                                    } else {
-                                        handleVisitedPlacesSync([], doc.metadata);
                                     }
-                                    window.syncState();
-                                    if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
+                                    refreshVisitDerivedAuthUi();
 
                                     if (!window._leaderboardLoadedOnce) {
                                         window._leaderboardLoadedOnce = true;
@@ -646,22 +743,6 @@ function initFirebase() {
                                     }
 
                                     window.dismissBarkLoader();
-
-                                    if (window.BARK.activePinMarker && window.BARK.activePinMarker._parkData && document.getElementById('mark-visited-btn')) {
-                                        const d = window.BARK.activePinMarker._parkData;
-                                        const btn = document.getElementById('mark-visited-btn');
-                                        const btnText = document.getElementById('mark-visited-text');
-                                        const isVisited = typeof window.BARK.isParkVisited === 'function'
-                                            ? window.BARK.isParkVisited(d)
-                                            : window.BARK.userVisitedPlaces.has(d.id);
-                                        if (isVisited) {
-                                            btn.classList.add('visited');
-                                            btnText.textContent = 'Visited!';
-                                        } else {
-                                            btn.classList.remove('visited');
-                                            btnText.textContent = 'Mark as Visited';
-                                        }
-                                    }
                                 } catch (error) {
                                     console.error("[authService] user snapshot handling failed:", error);
                                     showAuthFailureNotice('Sign-in failed while syncing your account. Cloud sync and saved progress are offline for this session.');
@@ -682,10 +763,8 @@ function initFirebase() {
                     authenticatedSessionSeen = false;
                     lastAuthenticatedUid = null;
 
-                    if (visitedSnapshotUnsubscribe) {
-                        visitedSnapshotUnsubscribe();
-                        visitedSnapshotUnsubscribe = null;
-                    }
+                    stopUserSnapshotSubscription();
+                    stopVaultRepoVisitSubscription();
 
                     if (loginContainer) loginContainer.style.display = 'block';
                     if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
@@ -694,7 +773,10 @@ function initFirebase() {
                     if (shouldResetRuntime) {
                         resetLoggedOutRuntimeState();
                     } else {
-                        window.BARK.userVisitedPlaces.clear();
+                        const vaultRepo = getVaultRepo();
+                        if (vaultRepo && typeof vaultRepo.clear === 'function') {
+                            vaultRepo.clear();
+                        }
                         if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
                             window.BARK.invalidateVisitedIdsCache();
                         }

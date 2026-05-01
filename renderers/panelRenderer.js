@@ -41,9 +41,25 @@
  */
 window.BARK = window.BARK || {};
 
+function getVaultRepo() {
+    return window.BARK.repos && window.BARK.repos.VaultRepo;
+}
+
+function getPanelVisitEntry(place) {
+    if (typeof window.BARK.getVisitedPlaceEntry === 'function') {
+        return window.BARK.getVisitedPlaceEntry(place);
+    }
+
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.hasVisit === 'function' && typeof vaultRepo.getVisit === 'function') {
+        return vaultRepo.hasVisit(place) ? { id: place.id, record: vaultRepo.getVisit(place) } : null;
+    }
+
+    return null;
+}
+
 function renderMarkerClickPanel(context) {
     const marker = context.marker;
-    const userVisitedPlaces = context.userVisitedPlaces;
     const slidePanel = context.slidePanel;
     const titleEl = context.titleEl;
     const infoSection = context.infoSection;
@@ -202,9 +218,7 @@ function renderMarkerClickPanel(context) {
         if (firebaseService && firebaseService.getCurrentUser()) {
             visitedSection.style.display = 'grid';
 
-            const visitedEntry = typeof window.BARK.getVisitedPlaceEntry === 'function'
-                ? window.BARK.getVisitedPlaceEntry(d)
-                : (userVisitedPlaces.has(d.id) ? { id: d.id, record: userVisitedPlaces.get(d.id) } : null);
+            const visitedEntry = getPanelVisitEntry(d);
 
             if (visitedEntry) {
                 const cachedObj = visitedEntry.record;
@@ -268,7 +282,7 @@ function renderMarkerClickPanel(context) {
                 verifyBtnText.textContent = 'Locating...';
 
                 try {
-                    const checkinResult = await checkinService.verifyGpsCheckin(d, window.BARK.userVisitedPlaces);
+                    const checkinResult = await checkinService.verifyGpsCheckin(d);
                     if (checkinResult.success) {
                         alert(`Check-in Verified! You earned 2 points.`);
 
@@ -315,7 +329,7 @@ function renderMarkerClickPanel(context) {
                 }
 
                 try {
-                    const visitResult = await checkinService.markAsVisited(d, window.BARK.userVisitedPlaces);
+                    const visitResult = await checkinService.markAsVisited(d);
                     if (!visitResult.success) {
                         if (visitResult.error === 'UNCHECK_LOCKED') {
                             alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
