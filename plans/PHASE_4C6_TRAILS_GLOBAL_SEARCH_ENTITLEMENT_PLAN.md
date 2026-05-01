@@ -298,6 +298,25 @@ Expected files:
 - global-search Playwright smoke tests
 - docs
 
+Implementation status:
+
+- Phase 4C.6B is implemented.
+- `modules/searchEngine.js` now uses `premiumService.isPremium()` for `isPremiumGlobalSearchUnlocked()` instead of Firebase current user.
+- Signed-out users see sign-in-oriented global search copy/prompt.
+- Signed-in free users see upgrade/premium global search copy/prompt and do not intentionally reach the UI geocode path.
+- Premium/manual override users can use the global search UI path.
+- Main search federated/global search and inline planner global search now re-check entitlement before calling `executeGeocode(...)`.
+- `executeGeocode(...)` now fail-closes before ORS geocode for non-premium users, while leaving the local GPS "my location/current location" path alone.
+- `tests/playwright/phase4c-global-search-entitlement-smoke.spec.js` covers signed-out locked, signed-in free locked/no ORS call, and premium/manual override allowed with a stubbed `window.BARK.services.ors.geocode`.
+- Added npm script `test:e2e:global-search`.
+- Verification passed: `node --check modules/searchEngine.js`.
+- Verification passed: `node --check tests/playwright/phase4c-global-search-entitlement-smoke.spec.js`.
+- Verification passed: `npm run test:e2e:global-search`, 3 passed.
+- Verification passed: `npm run test:e2e:entitlement`, 2 passed.
+- Verification passed: `npm run test:e2e:premium`, 2 passed.
+- Verification passed: `npm run test:e2e:smoke`, 9 passed.
+- No ORS backend callable, `services/orsService.js`, `functions/index.js`, Firebase rules, trip route generation, payment provider, payment button, offline mode, premium clustering, entitlement write, or deployment changes were made.
+
 ### 4C.7 - Firestore Rules Tests
 
 Scope:
@@ -340,6 +359,10 @@ Phase 4C.6A status:
 
 Complete. The trail button DOM state, expedition click guards, and `flyToActiveTrail()` bypass guard now use premium entitlement state, and focused Playwright coverage passed.
 
-Ready for 4C.6B?
+Phase 4C.6B status:
 
-YES, after this slice is reviewed, but only for global search UI/check-guard entitlement gating. Do not include ORS backend enforcement, Firebase rules, payment work, premium clustering, offline mode, or deployment in 4C.6B.
+Complete. Global search UI and client check guards now use premium entitlement state, and focused Playwright coverage passed with ORS/geocode stubbed.
+
+Ready for 4C.7 / 4C.8?
+
+YES, after this slice is reviewed, for Firestore rules tests and ORS backend callable entitlement enforcement planning/implementation. Do not add payment provider work, payment buttons, premium clustering, offline mode, or deployment yet.

@@ -350,6 +350,19 @@ Implementation status:
 - `npm run test:e2e:smoke`: PASS, 9 passed.
 - Global search remains deferred to 4C.6B, and ORS/backend/rules/payment work remains deferred.
 
+Implementation status for 4C.6B:
+
+- Phase 4C.6B is implemented.
+- `modules/searchEngine.js` now uses premium entitlement for global search UI/check guards.
+- Signed-out users get sign-in-oriented global search copy/prompt.
+- Signed-in free users get upgrade/premium global search copy/prompt and do not intentionally reach the UI geocode path.
+- Premium/manual override users can reach the global search UI path.
+- Main search and inline planner global search re-check entitlement before calling `executeGeocode(...)`.
+- `executeGeocode(...)` fail-closes before ORS geocode for non-premium users, while leaving the GPS "my location/current location" path alone.
+- Added `tests/playwright/phase4c-global-search-entitlement-smoke.spec.js` and npm script `test:e2e:global-search`.
+- `npm run test:e2e:global-search`: PASS, 3 passed.
+- ORS backend callable enforcement remains deferred to Phase 4C.8; `services/orsService.js`, `functions/index.js`, Firebase rules, trip route generation, payment provider/buttons, offline mode, premium clustering, entitlement writes, and deployment remain untouched/deferred.
+
 ### 4D - Payment Provider Design Later
 
 Goal:

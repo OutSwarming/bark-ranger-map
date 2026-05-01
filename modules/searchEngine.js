@@ -87,10 +87,42 @@ function scoreSearchItem(item, queryNorm) {
 
 function isPremiumGlobalSearchUnlocked() {
     return Boolean(
-        typeof firebase !== 'undefined' &&
-        firebase.auth &&
-        firebase.auth().currentUser
+        window.BARK &&
+        window.BARK.services &&
+        window.BARK.services.premium &&
+        typeof window.BARK.services.premium.isPremium === 'function' &&
+        window.BARK.services.premium.isPremium()
     );
+}
+
+function isSignedInForGlobalSearchPrompt() {
+    try {
+        return Boolean(
+            typeof firebase !== 'undefined' &&
+            firebase.auth &&
+            firebase.auth().currentUser
+        );
+    } catch (error) {
+        return false;
+    }
+}
+
+function getGlobalSearchLockCopy() {
+    if (isSignedInForGlobalSearchPrompt()) {
+        return {
+            hint: 'Upgrade to unlock global search',
+            alert: 'Searching for custom towns and locations is a Premium feature. Upgrade to unlock global search.'
+        };
+    }
+
+    return {
+        hint: 'Sign in to unlock global search',
+        alert: 'Searching for custom towns and locations is a Premium feature. Please sign in via the Profile tab.'
+    };
+}
+
+function alertGlobalSearchLocked() {
+    alert(getGlobalSearchLockCopy().alert);
 }
 
 function getLocalParkMatches(query, limit = SEARCH_SUGGESTION_LIMIT) {
@@ -254,10 +286,11 @@ function appendInlineGlobalSearchButton(type, query, suggestBox) {
         hint.style.color = '#166534';
         hint.textContent = 'Query global database';
     } else {
+        const lockCopy = getGlobalSearchLockCopy();
         globalBtn.style.opacity = '0.7';
         label.style.color = '#64748b';
         label.textContent = `Search global towns for "${query}"`;
-        hint.textContent = 'Sign in to unlock global routing';
+        hint.textContent = lockCopy.hint;
     }
 
     textWrap.appendChild(label);
@@ -266,8 +299,8 @@ function appendInlineGlobalSearchButton(type, query, suggestBox) {
     globalBtn.appendChild(textWrap);
 
     bindSuggestionSelection(globalBtn, () => {
-        if (!isPremium) {
-            alert('Searching for custom towns and locations is a Premium feature. Please log in via the Profile tab.');
+        if (!isPremiumGlobalSearchUnlocked()) {
+            alertGlobalSearchLocked();
             return;
         }
 
@@ -345,7 +378,7 @@ function runInlinePlannerSearch(type, options = {}) {
     if (!options.executeGlobal || matches.length > 0 || query.length < SEARCH_GLOBAL_MIN_LENGTH) return;
 
     if (!isPremiumGlobalSearchUnlocked()) {
-        alert('Searching for custom towns and locations is a Premium feature. Please log in via the Profile tab.');
+        alertGlobalSearchLocked();
         return;
     }
 
@@ -454,10 +487,11 @@ function initSearchEngine() {
             hint.style.color = '#166534';
             hint.textContent = 'Query global database';
         } else {
+            const lockCopy = getGlobalSearchLockCopy();
             federatedBtn.style.opacity = '0.7';
             label.style.color = '#64748b';
             label.textContent = `Search global towns for "${activeQuery}"`;
-            hint.textContent = 'Sign in to unlock global routing';
+            hint.textContent = lockCopy.hint;
         }
 
         textWrap.appendChild(label);
@@ -466,8 +500,8 @@ function initSearchEngine() {
         federatedBtn.appendChild(textWrap);
 
         federatedBtn.addEventListener('click', () => {
-            if (!isPremium) {
-                alert('Searching for custom towns and locations is a Premium feature. Please log in via the Profile tab.');
+            if (!isPremiumGlobalSearchUnlocked()) {
+                alertGlobalSearchLocked();
                 return;
             }
             const queryToFetch = window.BARK.activeSearchQuery;
@@ -752,6 +786,12 @@ async function executeGeocode(query, targetType) {
     }
 
     // Standard API Search
+    if (!isPremiumGlobalSearchUnlocked()) {
+        alertGlobalSearchLocked();
+        clearGeocodeSearchStatus(DOM, targetType);
+        return;
+    }
+
     try {
         window.BARK.incrementRequestCount();
         const data = await window.BARK.services.ors.geocode(query, { size: 5, country: 'US' });

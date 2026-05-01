@@ -631,3 +631,38 @@ Phase 4C.5 localStorage premium bypass cleanup is now implemented:
 - `npm run test:e2e:premium`: PASS, 2 passed.
 - `npm run test:e2e:smoke`: PASS, 9 passed.
 - Payment provider work, payment buttons, Firebase rules, ORS callables, global search, trail button gating, premium clustering, entitlement writes, and deployment remain deferred.
+
+Phase 4C.6 trail/global-search entitlement planning is now complete:
+
+- Plan file: `plans/PHASE_4C6_TRAILS_GLOBAL_SEARCH_ENTITLEMENT_PLAN.md`.
+- Recommended split: 4C.6A trail button DOM/click-guard entitlement gating first; 4C.6B global search UI/check-guard entitlement gating separately.
+- 4C.6A should include `#toggle-virtual-trail`, `#toggle-completed-trails`, `expeditionEngine.isExpeditionPremiumUnlocked()`, trail click guards, and `flyToActiveTrail()` bypass behavior if needed.
+- 4C.6B should include `searchEngine.isPremiumGlobalSearchUnlocked()`, global search UI copy, and UI guards before `executeGeocode(...)`.
+- ORS backend callable enforcement, Firebase rules, payment provider/buttons, premium clustering, offline mode, entitlement writes, and deployment remain deferred.
+
+Phase 4C.6A trail entitlement gating is now implemented:
+
+- Trail button DOM state now follows premium entitlement instead of login state.
+- `expeditionEngine.isExpeditionPremiumUnlocked()` now uses `premiumService.isPremium()`.
+- Signed-in free users are blocked by both disabled trail buttons and expedition click guards.
+- Premium/manual override users can enable trail controls.
+- `flyToActiveTrail()` now checks entitlement before clicking `#toggle-virtual-trail`.
+- User-owned expedition/profile history was not hidden.
+- `npm run test:e2e:entitlement`: PASS, 2 passed.
+- `npm run test:e2e:premium`: PASS, 2 passed.
+- `npm run test:e2e:smoke`: PASS, 9 passed.
+- Global search remains deferred to 4C.6B; ORS backend callables, Firebase rules, payment provider/buttons, offline mode, premium clustering, entitlement writes, and deployment remain deferred.
+
+Phase 4C.6B global search UI entitlement gating is now implemented:
+
+- `modules/searchEngine.js` now gates global search UI/check guards with `premiumService.isPremium()` instead of Firebase current user.
+- Signed-out users get sign-in copy/prompt for global search.
+- Signed-in free users get upgrade/premium copy/prompt and do not intentionally reach UI geocode.
+- Premium/manual override users can reach the global search UI path.
+- Focused Playwright coverage stubs `window.BARK.services.ors.geocode` to avoid real ORS quota.
+- Added npm script `test:e2e:global-search`.
+- `npm run test:e2e:global-search`: PASS, 3 passed.
+- `npm run test:e2e:entitlement`: PASS, 2 passed.
+- `npm run test:e2e:premium`: PASS, 2 passed.
+- `npm run test:e2e:smoke`: PASS, 9 passed.
+- ORS backend callables, `services/orsService.js`, `functions/index.js`, Firebase rules, trip route generation, payment provider/buttons, offline mode, premium clustering, entitlement writes, and deployment remain deferred.

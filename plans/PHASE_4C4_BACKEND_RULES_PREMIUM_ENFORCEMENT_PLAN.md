@@ -295,6 +295,15 @@ Planning status:
 - Do not combine global search with trail gating unless tests prove free users cannot reach UI geocode paths and the PR still makes no backend security claim.
 - ORS backend callable enforcement remains Phase 4C.8, not 4C.6.
 
+Implementation status:
+
+- Phase 4C.6A trail entitlement gating is complete.
+- Phase 4C.6B global search UI entitlement gating is complete.
+- `modules/searchEngine.js` now gates global search UI/check guards by `premiumService.isPremium()`.
+- Signed-in free users are blocked in the UI and focused Playwright coverage confirms they do not call the stubbed ORS geocode path.
+- Premium/manual override users can reach the global search UI path with ORS geocode stubbed in Playwright to avoid quota.
+- Backend callable enforcement still has not been implemented. `getPremiumRoute` and `getPremiumGeocode` must still be protected server-side in Phase 4C.8 before this is considered secure.
+
 ### 4C.7 - Firestore Rules Draft And Rules Tests
 
 Goal:
