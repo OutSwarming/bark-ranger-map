@@ -2,13 +2,40 @@
 
 Date: 2026-05-02
 
-Status: planning only. Do not edit runtime app code, add frontend checkout buttons, add webhook handling, deploy, use live mode, or collect money in Phase 4E.
+Status: Phase 4E backend-only local implementation is complete. Do not edit runtime app code, add frontend checkout buttons, add webhook handling, deploy, use live mode, or collect money in Phase 4E.
 
-Readiness verdict: NOT READY to implement until the Lemon Squeezy test-mode store/product/variant/API-key values exist and are handed to the implementation task. ORS key rotation is owned separately by the maintainer and remains a public/paid launch blocker, not a blocker for backend-only test-mode checkout planning.
+Readiness verdict: local implementation complete; NOT READY to deploy and NOT READY to collect money. Deployment still requires setting the Firebase Functions secret, explicit deploy approval, and later webhook/entitlement work before paid launch. ORS key rotation is owned separately by the maintainer and remains a public/paid launch blocker.
+
+Implementation update:
+
+- Added backend callable `createCheckoutSession`.
+- The callable requires Firebase auth and trusts only `context.auth.uid`.
+- The callable reads `LEMONSQUEEZY_API_KEY` from Firebase/backend secret env.
+- The callable forces store ID `363425`, annual variant ID `1604336`, and app base URL `https://outswarming.github.io/bark-ranger-map/`.
+- The callable creates a Lemon Squeezy test-mode hosted checkout and includes `checkout_data.custom.firebase_uid = context.auth.uid`.
+- The callable returns only the hosted checkout URL.
+- No API key was committed.
+- No frontend button, paywall modal, webhook, entitlement write, Firestore rules change, deploy, or live money collection was added.
+
+Current pricing note:
+
+- Phase 4D recommended `$15/year` for beta planning.
+- The current Lemon Squeezy test variant configured for Phase 4E is `$9.99/year`.
+- The backend forces variant ID `1604336`; the client cannot choose price, product, store, or variant.
+
+Verification status:
+
+- `node --check functions/index.js`: PASS.
+- `node --check functions/tests/checkout-session.test.js`: PASS.
+- `npm --prefix functions test`: PASS.
+- `npm run test:functions:emulator`: PASS on rerun after an initial local emulator port collision.
+- `npm run test:rules`: PASS.
+- `git diff --check`: PASS.
+- Secret scan: no Lemon Squeezy API key/JWT committed.
 
 ## Goal
 
-Plan a backend-only `createCheckoutSession` callable that creates a Lemon Squeezy hosted checkout for the `$15/year` annual beta subscription in test mode.
+Document the backend-only `createCheckoutSession` callable that creates a Lemon Squeezy hosted checkout for the `$9.99/year` annual test-mode variant.
 
 Phase 4E must prove only this narrow thing:
 
@@ -49,7 +76,7 @@ Manual setup required before implementation:
 2. Confirm the store is in **Test mode**.
 3. Create a subscription product, for example `BARK Ranger Premium`.
 4. Create one annual subscription variant:
-   - Price: `$15/year`.
+   - Current Phase 4E test variant price: `$9.99/year`.
    - Currency: USD unless product owner decides otherwise.
    - Billing interval: yearly/annual.
    - Published in test mode so test checkouts can be created.
@@ -71,27 +98,20 @@ Provider values needed by Codex before 4E implementation:
 
 - `LEMONSQUEEZY_API_KEY`: test-mode API key.
 - `LEMONSQUEEZY_STORE_ID`: test-mode store ID.
-- `LEMONSQUEEZY_VARIANT_ID_ANNUAL`: test-mode annual variant ID for `$15/year`.
+- `LEMONSQUEEZY_VARIANT_ID_ANNUAL`: test-mode annual variant ID for `$9.99/year`.
 - `APP_BASE_URL`: app URL used for success/cancel planning.
 
 ## 2. Backend Function Design
 
-Future callable:
+Implemented callable:
 
 - `createCheckoutSession`
 - Firebase callable, matching the existing Functions style.
 - Requires `context.auth.uid`.
-- Reads current user document with Admin SDK.
-- Reads user email/displayName from `context.auth.token` when available, with user doc fallback if already present.
-- Optionally checks `users/{uid}.entitlement` before creating checkout.
-- If already effective premium, return a safe state such as:
-
-```js
-{
-  status: "already_premium",
-  checkoutUrl: null
-}
-```
+- Uses `context.auth.uid` as the only trusted UID.
+- Reads user email/displayName from `context.auth.token` when available.
+- Does not read or write Firestore in 4E.
+- Does not implement already-premium branching in 4E.
 
 For signed-in free users:
 
@@ -102,24 +122,20 @@ For signed-in free users:
    - `Accept: application/vnd.api+json`
    - `Content-Type: application/vnd.api+json`
    - `Authorization: Bearer <LEMONSQUEEZY_API_KEY>`
-5. Use the configured store and annual variant relationships.
+5. Use the backend-forced store `363425` and annual variant `1604336` relationships.
 6. Set `attributes.test_mode = true`.
-7. Set `product_options.enabled_variants = [LEMONSQUEEZY_VARIANT_ID_ANNUAL]` so other variants are hidden.
-8. Set `product_options.redirect_url` to the success URL derived from `APP_BASE_URL`.
+7. Set `product_options.enabled_variants = [1604336]` so other variants are hidden.
+8. Set `product_options.redirect_url` to `https://outswarming.github.io/bark-ranger-map/?checkout=success&provider=lemonsqueezy`.
 9. Set `checkout_data.email` and `checkout_data.name` if available.
 10. Set `checkout_data.custom.firebase_uid = context.auth.uid`.
 11. Optionally include custom data such as:
     - `source: "bark_ranger_map"`
     - `plan: "annual"`
-    - `phase: "4E_test_mode"`
 12. Return only:
 
 ```js
 {
-  status: "checkout_created",
-  checkoutUrl: "https://...",
-  provider: "lemon_squeezy",
-  mode: "test"
+  checkoutUrl: "https://..."
 }
 ```
 
@@ -148,14 +164,23 @@ Required for 4E:
   - Test-mode API key only in 4E.
   - Never exposed to client code or logs.
 - `LEMONSQUEEZY_STORE_ID`
-  - Config/env value.
-  - Test-mode store ID.
+  - Backend-forced value in 4E: `363425`.
 - `LEMONSQUEEZY_VARIANT_ID_ANNUAL`
-  - Config/env value.
-  - Annual `$15/year` variant ID.
+  - Backend-forced annual `$9.99/year` test variant in 4E: `1604336`.
 - `APP_BASE_URL`
-  - Config/env value.
-  - Used to build success/verification URL.
+  - Backend-forced app URL in 4E: `https://outswarming.github.io/bark-ranger-map/`.
+
+Secret setup command for later deploy:
+
+```bash
+firebase functions:secrets:set LEMONSQUEEZY_API_KEY
+```
+
+Later deployment command, do not run without explicit approval:
+
+```bash
+firebase deploy --only functions:createCheckoutSession
+```
 
 Later for 4F:
 
@@ -190,18 +215,18 @@ Firestore rules status:
 - 4E should not require Firestore rules changes.
 - Rules tests must still pass after the backend function is added.
 
-## 5. Future Tests
+## 5. Implemented Tests
 
-Add focused function tests in 4E.
+Focused function tests were added in 4E.
 
-Required cases:
+Covered cases:
 
 - Unauthenticated `createCheckoutSession` is rejected with `unauthenticated`.
 - Signed-in free user receives a checkout URL from mocked Lemon Squeezy.
-- Signed-in premium/manual user returns `already_premium` or a blocked/no-checkout state.
+- Already-premium branching is intentionally not implemented in 4E.
 - Client-provided `uid` is ignored.
 - Client-provided price, store ID, variant ID, `test_mode`, and provider fields are ignored.
-- Backend request uses configured annual variant, not client data.
+- Backend request uses forced annual variant `1604336`, not client data.
 - Backend request includes `checkout_data.custom.firebase_uid` from `context.auth.uid`.
 - Backend request sets `test_mode: true`.
 - Backend request includes prefilled email/display name when available.
@@ -210,7 +235,7 @@ Required cases:
 - No entitlement write occurs during checkout creation.
 - Existing ORS entitlement tests still pass.
 
-Suggested commands after implementation:
+Verification commands:
 
 ```bash
 node --check functions/index.js
@@ -223,9 +248,9 @@ git diff --check
 
 If the root E2E environment is available, also run the configured smoke suite, but no frontend checkout button behavior is expected in 4E.
 
-## 6. Implementation Files For 4E Later
+## 6. Implementation Files For 4E
 
-Expected files:
+Changed files:
 
 - `functions/index.js`
   - Add `createCheckoutSession` callable.
@@ -233,14 +258,10 @@ Expected files:
 - `functions/tests/checkout-session.test.js`
   - New handler/helper tests with mocked Firestore and mocked Lemon Squeezy HTTP.
 - `functions/package.json`
-  - Update test script if needed so both ORS and checkout tests run.
+  - Updated test script so both ORS and checkout tests run.
   - No new dependency expected if using existing `axios`.
 - `plans/PHASE_4E_LEMONSQUEEZY_CHECKOUT_PLAN.md`
-  - Update status after implementation/QC.
-- `plans/PHASE_4D_PAYMENT_PROVIDER_PAYWALL_PLAN.md`
-  - Add Phase 4E implementation status after completion.
-- `plans/PHASE_4A_PREMIUM_ENTITLEMENT_PLAN.md`
-  - Add cross-reference/status after completion.
+  - Updated status after implementation/QC.
 
 Possible but not expected:
 
@@ -268,6 +289,7 @@ Not expected:
 - Do not trust client-provided `uid`, price, store ID, variant ID, provider IDs, or entitlement state.
 - Do not log `LEMONSQUEEZY_API_KEY`.
 - Do not deploy in 4E.
+- Do not deploy until explicit approval.
 
 ## 8. Required Manual Provider Setup Checklist
 
@@ -277,7 +299,7 @@ Before implementation starts, the maintainer should create/provide:
 - Test mode enabled in the Lemon Squeezy dashboard.
 - Product: `BARK Ranger Premium` or final agreed product name.
 - Annual subscription variant:
-  - `$15/year`.
+  - Current Phase 4E test variant: `$9.99/year`.
   - Annual billing interval.
   - Test-mode published/available.
 - Test-mode API key.
@@ -298,11 +320,12 @@ Do not provide real API key values in chat or committed files. Use a secure secr
 
 ## 9. Blockers
 
-Current blockers before implementation:
+Current blockers before deploy:
 
-- Lemon Squeezy test-mode store/product/variant/API-key values are not yet available in this repo context.
-- `APP_BASE_URL` for test-mode success/cancel planning must be chosen.
-- The implementation must confirm whether hosted checkout has an API-level cancel URL. Current docs clearly support success `product_options.redirect_url`; cancel/abandon handling should remain frontend UX until verified.
+- Set `LEMONSQUEEZY_API_KEY` with Firebase Functions secrets.
+- Get explicit deploy approval.
+- Run the full pre-deploy verification set again.
+- Keep checkout/frontend/webhook/entitlement unlock out of scope until later phases.
 
 Not a 4E implementation blocker, but still a paid/public launch blocker:
 
@@ -314,8 +337,8 @@ Implementation recommendation:
 
 - Add backend-only `createCheckoutSession` callable in test mode.
 - Use existing `axios` to call Lemon Squeezy API.
-- Use server-side env/secrets for API key, store ID, annual variant ID, and app base URL.
-- Force annual `$15/year` test-mode variant server-side.
+- Use Firebase Functions secret env for the API key.
+- Force store ID `363425`, annual `$9.99/year` test-mode variant ID `1604336`, and app base URL server-side.
 - Return checkout URL only.
 - Add function tests with mocked Lemon Squeezy HTTP and mocked Firestore.
 
@@ -328,4 +351,8 @@ Expected first implementation PR:
 - No deploy.
 - No live money.
 
-Ready to implement 4E: NO until the manual Lemon Squeezy test-mode setup checklist values are available.
+Ready to implement 4E: YES, local backend-only implementation is complete.
+
+Ready to deploy 4E: NO, not until the secret is set, verification is rerun, and explicit deploy approval is given.
+
+Ready to collect money: NO, not until webhook verification, entitlement updates, frontend paywall UX, refund/cancel behavior, and final paid-launch smoke are complete.

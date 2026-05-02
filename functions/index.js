@@ -170,6 +170,131 @@ function getOrsApiKey(options = {}) {
     return typeof options.getOrsApiKey === "function" ? options.getOrsApiKey() : process.env.ORS_API_KEY;
 }
 
+const LEMONSQUEEZY_API_ORIGIN = "https://api.lemonsqueezy.com";
+const LEMONSQUEEZY_CHECKOUTS_URL = `${LEMONSQUEEZY_API_ORIGIN}/v1/checkouts`;
+const DEFAULT_LEMONSQUEEZY_STORE_ID = "363425";
+const DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID = "1604336";
+const DEFAULT_APP_BASE_URL = "https://outswarming.github.io/bark-ranger-map/";
+
+function cleanOptionalString(value) {
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getLemonSqueezyConfig(options = {}) {
+    const env = options.env || process.env;
+    const apiKey = cleanOptionalString(options.apiKey) || cleanOptionalString(env.LEMONSQUEEZY_API_KEY);
+
+    if (!apiKey) {
+        throw new functions.https.HttpsError("failed-precondition", "Checkout service is not configured.");
+    }
+
+    return {
+        apiKey,
+        storeId: DEFAULT_LEMONSQUEEZY_STORE_ID,
+        annualVariantId: DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID,
+        appBaseUrl: DEFAULT_APP_BASE_URL
+    };
+}
+
+function buildCheckoutReturnUrl(appBaseUrl, state) {
+    const url = new URL(appBaseUrl || DEFAULT_APP_BASE_URL);
+    url.searchParams.set("checkout", state);
+    url.searchParams.set("provider", "lemonsqueezy");
+    return url.toString();
+}
+
+function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config }) {
+    const successUrl = buildCheckoutReturnUrl(config.appBaseUrl, "success");
+    const cancelUrl = buildCheckoutReturnUrl(config.appBaseUrl, "canceled");
+    const email = cleanOptionalString(token.email);
+    const name = cleanOptionalString(token.name) || cleanOptionalString(token.displayName);
+    const checkoutData = {
+        custom: {
+            firebase_uid: uid,
+            source: "bark_ranger_map",
+            plan: "annual",
+            cancel_url: cancelUrl
+        }
+    };
+
+    if (email) checkoutData.email = email;
+    if (name) checkoutData.name = name;
+
+    return {
+        data: {
+            type: "checkouts",
+            attributes: {
+                test_mode: true,
+                product_options: {
+                    enabled_variants: [Number(config.annualVariantId)],
+                    redirect_url: successUrl,
+                    receipt_button_text: "Return to BARK Ranger Map",
+                    receipt_link_url: successUrl
+                },
+                checkout_data: checkoutData
+            },
+            relationships: {
+                store: {
+                    data: {
+                        type: "stores",
+                        id: String(config.storeId)
+                    }
+                },
+                variant: {
+                    data: {
+                        type: "variants",
+                        id: String(config.annualVariantId)
+                    }
+                }
+            }
+        }
+    };
+}
+
+function extractLemonSqueezyCheckoutUrl(response) {
+    const checkoutUrl = response &&
+        response.data &&
+        response.data.data &&
+        response.data.data.attributes &&
+        response.data.data.attributes.url;
+
+    if (!checkoutUrl || typeof checkoutUrl !== "string") {
+        throw new functions.https.HttpsError("internal", "Checkout service returned an invalid response.");
+    }
+
+    return checkoutUrl;
+}
+
+async function handleCreateCheckoutSession(requestOrData, context, options = {}) {
+    const uid = requireAuthCallable(context);
+    const config = getLemonSqueezyConfig(options);
+    const token = context && context.auth && context.auth.token ? context.auth.token : {};
+    const payload = buildLemonSqueezyCheckoutPayload({ uid, token, config });
+    const post = options.axiosPost || axios.post;
+
+    try {
+        const response = await post(LEMONSQUEEZY_CHECKOUTS_URL, payload, {
+            headers: {
+                "Accept": "application/vnd.api+json",
+                "Content-Type": "application/vnd.api+json",
+                "Authorization": `Bearer ${config.apiKey}`
+            }
+        });
+
+        return {
+            checkoutUrl: extractLemonSqueezyCheckoutUrl(response)
+        };
+    } catch (error) {
+        if (error instanceof functions.https.HttpsError) throw error;
+        console.error("[payments] Lemon Squeezy checkout creation failed.", {
+            uid,
+            status: error && error.response ? error.response.status : null,
+            message: error && error.message ? error.message : String(error)
+        });
+        throw new functions.https.HttpsError("internal", "Unable to create checkout session.");
+    }
+}
+
 async function handlePremiumRoute(requestOrData, context, options = {}) {
     await requirePremiumCallable(context, "getPremiumRoute", options);
 
@@ -257,13 +382,24 @@ exports.getPremiumGeocode = functions
         return handlePremiumGeocode(requestOrData, context);
     });
 
+exports.createCheckoutSession = functions
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY"] })
+    .https.onCall(async (requestOrData, context) => {
+        return handleCreateCheckoutSession(requestOrData, context);
+    });
+
 if (process.env.NODE_ENV === "test") {
     exports.__test = {
         normalizeEntitlement,
         isEffectivePremium,
         requirePremiumCallable,
         handlePremiumRoute,
-        handlePremiumGeocode
+        handlePremiumGeocode,
+        getLemonSqueezyConfig,
+        buildCheckoutReturnUrl,
+        buildLemonSqueezyCheckoutPayload,
+        extractLemonSqueezyCheckoutUrl,
+        handleCreateCheckoutSession
     };
 }
 
