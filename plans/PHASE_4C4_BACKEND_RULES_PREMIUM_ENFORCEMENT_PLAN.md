@@ -512,3 +512,34 @@ Remaining before deployment:
 - Re-run the full verification stack immediately before explicit deploy approval.
 - Functions and Firestore rules remain undeployed.
 - Payment provider, checkout, webhook, and payment button work remains stopped.
+
+## Phase 4C.10 Rules And ORS Functions Deploy Gate Planning Update
+
+Phase 4C.10 planning is captured in `plans/PHASE_4C10_RULES_FUNCTIONS_DEPLOY_GATE.md`.
+
+Phase 4C.10 remains planning only:
+
+- No Firestore rules deploy.
+- No Functions deploy.
+- No runtime app code changes.
+- No Functions code changes.
+- No Firestore rules changes.
+- No payment provider, checkout, webhook, customer portal, money collection, or payment button work.
+
+Deploy readiness verdict:
+
+- NOT READY to deploy inside Phase 4C.10.
+- Ready to enter a reviewed deploy gate only after the required tests, manual target/secret checks, clean working tree review, and explicit user/team approval.
+
+The deploy gate documents:
+
+- The committed backend safety stack through `98f8680`.
+- Required pre-deploy commands for rules, handler tests, callable emulator tests, configured Playwright smoke, and git hygiene.
+- Manual pre-deploy checks for Firebase project target, production/staging intent, ORS secret/config, storage-state/log hygiene, premium/free validation users, and payment stop lines.
+- Candidate deploy commands for a later approved phase:
+  - `firebase use <correct-project-alias>`
+  - `firebase deploy --only firestore:rules`
+  - `firebase deploy --only functions:getPremiumRoute,functions:getPremiumGeocode`
+- Post-deploy validation for rules compatibility, free/premium ORS callable behavior, and Functions logs.
+- Rollback options through a reviewed revert/redeploy path, available Firebase/GCP function revision controls, and emergency deny-closed posture if backend enforcement breaks.
+- GO / NO-GO criteria and remaining paid-launch work after deploy.
