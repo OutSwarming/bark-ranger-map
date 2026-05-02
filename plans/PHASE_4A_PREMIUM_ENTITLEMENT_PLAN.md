@@ -708,3 +708,25 @@ Remaining before paid launch:
 - Reviewed rules deploy gate after explicit approval.
 - Reviewed functions deploy gate after explicit approval.
 - Provider design, checkout creation, webhook verification, customer portal, refunds/cancelation, and payment-state reconciliation remain future work.
+
+Phase 4D payment provider and paywall UX planning is now complete:
+
+- Plan file: `plans/PHASE_4D_PAYMENT_PROVIDER_PAYWALL_PLAN.md`.
+- Firestore rules and ORS premium callables are now treated as deployed backend safety infrastructure for the payment-design phase.
+- Post-deploy smoke is recorded as passed in the Phase 4D context.
+- Payment provider work has still not started; no SDK, checkout buttons, webhooks, payment runtime code, or money collection were added in Phase 4D.
+- The ORS key exposure from prior terminal/chat output remains a paid/public launch blocker; rotate it before any public paid beta.
+- Recommended beta provider: Lemon Squeezy because Merchant-of-Record handling reduces tax/payment operations for a small niche app.
+- Recommended scalable long-term provider: Stripe Billing, with Stripe Tax or Stripe Managed Payments evaluated if/when more control or scale is needed.
+- Recommended beta price: `$15/year`, annual only, with 2-year/3-year plans deferred.
+- Required payment invariant remains unchanged: checkout success URLs and client payment state must not unlock premium; only verified backend webhook/provider state may write `users/{uid}.entitlement`.
+- Recommended next slice is Phase 4E: provider setup plus backend `createCheckoutSession` in test mode only, after ORS key rotation ownership is confirmed.
+
+Phase 4E Lemon Squeezy checkout planning is now complete:
+
+- Plan file: `plans/PHASE_4E_LEMONSQUEEZY_CHECKOUT_PLAN.md`.
+- 4E remains backend-only and test-mode-only.
+- Future `createCheckoutSession` callable should require `context.auth.uid`, use backend-owned Lemon Squeezy store/variant config, include Firebase `uid` in checkout custom data, and return only a hosted checkout URL.
+- 4E must not write entitlement, add checkout buttons, add webhook handling, deploy, use live mode, or collect money.
+- Required setup before implementation: Lemon Squeezy test-mode store, `$15/year` annual subscription variant, test API key, store ID, variant ID, success URL, cancel/abandon URL for later UX, and `APP_BASE_URL`.
+- Ready to implement 4E: NO until those provider setup values are available to the implementation task.
