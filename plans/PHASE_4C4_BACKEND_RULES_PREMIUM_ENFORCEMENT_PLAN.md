@@ -452,3 +452,63 @@ What remains:
 - Firestore rules are still not deployed.
 - Functions are still not deployed.
 - Payment provider work, checkout buttons, customer portal, webhook verification, and money collection remain stopped.
+
+## Phase 4C.9 Callable Emulator Test Planning Update
+
+Phase 4C.9 planning is captured in `plans/PHASE_4C9_CALLABLE_EMULATOR_TEST_PLAN.md`.
+
+Recommended test strategy:
+
+- Use Auth, Firestore, and Functions emulators together.
+- Invoke real Firebase client `httpsCallable(...)` requests for `getPremiumRoute` and `getPremiumGeocode`.
+- Seed `users/{uid}.entitlement` in the Firestore emulator through Admin SDK.
+- Stub ORS in the Functions emulator process with a test-only `nock` preload and dummy `ORS_API_KEY=emulator-test-key`.
+- Block non-local network during the test so real ORS quota cannot be spent.
+
+Phase 4C.9 should remain test infrastructure only:
+
+- No deployment.
+- No runtime app code changes.
+- No Firestore rules changes.
+- No payment provider, checkout, webhook, or payment button work.
+
+## Phase 4C.9 Callable Emulator Test Implementation Update
+
+Phase 4C.9 is now implemented locally and not deployed:
+
+- Added `functions/tests/ors-callable-emulator.test.js`.
+- Added `functions/tests/ors-emulator-http-stub.js`.
+- Added Auth and Functions emulator ports to `firebase.json`; Firestore remains on `8080`.
+- Added root `test:functions:emulator`.
+- Added `nock@13.5.6` for test-only ORS HTTP interception.
+- Added local `firebase-tools@14.26.0` for `firebase-functions` v7 emulator compatibility.
+- The emulator script creates a temporary dummy `functions/.secret.local` with `ORS_API_KEY=emulator-test-key`, then restores/removes it after the run.
+- The ORS stub activates only under `BARK_ORS_EMULATOR_STUB=1`, blocks non-local network, allows emulator localhost traffic, intercepts only ORS route/geocode endpoints, and writes ORS call logs under `os.tmpdir()`.
+
+Callable emulator coverage now proves:
+
+- Real Firebase client `httpsCallable(...)` requests reach the Functions emulator.
+- Auth emulator signed-in users are recognized by the callable context.
+- The function reads `users/{uid}.entitlement` from Firestore emulator through Admin SDK.
+- Unauthenticated, free, missing entitlement, malformed entitlement, canceled, expired, and past_due users are rejected.
+- Client-provided `isPremium`, `entitlement`, `status`, and `uid` fields are ignored.
+- Denied users do not reach the ORS stub log.
+- Manual premium users reach the stubbed ORS route/geocode paths.
+
+Verification:
+
+- `node --check functions/tests/ors-emulator-http-stub.js`: PASS.
+- `node --check functions/tests/ors-callable-emulator.test.js`: PASS.
+- `npm --prefix functions test`: PASS, 10 tests.
+- `npm run test:functions:emulator`: PASS, 9 tests.
+- `npm run test:rules`: PASS, 12 tests.
+- `npm run test:e2e:entitlement`: PASS as configured, skipped because E2E env/storage states were absent.
+- `npm run test:e2e:global-search`: PASS as configured, skipped because E2E env/storage states were absent.
+- `npm run test:e2e:smoke`: PASS as configured, skipped because E2E env/storage states were absent.
+
+Remaining before deployment:
+
+- Re-run Playwright E2E with configured free and premium storage states so those suites execute instead of skip.
+- Re-run the full verification stack immediately before explicit deploy approval.
+- Functions and Firestore rules remain undeployed.
+- Payment provider, checkout, webhook, and payment button work remains stopped.
