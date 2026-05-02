@@ -12,5 +12,8 @@
     "node": "20"
   },
   "main": "index.js",
-  "private": true
+  "private": true,
+  "scripts": {
+    "test": "NODE_ENV=test node --test tests/ors-entitlement.test.js"
+  }
 }

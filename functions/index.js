@@ -87,6 +87,60 @@ function requireAuthCallable(context) {
     return uid;
 }
 
+const PREMIUM_ENTITLEMENT_STATUSES = new Set(["active", "manual_active"]);
+
+function normalizeEntitlement(raw) {
+    const value = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const status = typeof value.status === "string" && value.status.trim()
+        ? value.status.trim()
+        : "free";
+    const source = typeof value.source === "string" && value.source.trim()
+        ? value.source.trim()
+        : "none";
+    const premium = value.premium === true && PREMIUM_ENTITLEMENT_STATUSES.has(status);
+
+    return {
+        premium,
+        status,
+        source,
+        manualOverride: value.manualOverride === true,
+        currentPeriodEnd: value.currentPeriodEnd === undefined ? null : value.currentPeriodEnd
+    };
+}
+
+function isEffectivePremium(raw) {
+    return normalizeEntitlement(raw).premium === true;
+}
+
+async function requirePremiumCallable(context, action, options = {}) {
+    const uid = requireAuthCallable(context);
+    const db = options.firestore || admin.firestore();
+
+    let userDoc;
+    try {
+        userDoc = await db.collection("users").doc(uid).get();
+    } catch (error) {
+        console.error(`[premium] Entitlement lookup failed for ${action || "premium callable"}.`, {
+            uid,
+            message: error && error.message ? error.message : String(error)
+        });
+        throw new functions.https.HttpsError("internal", "Premium entitlement could not be verified.");
+    }
+
+    const userData = userDoc && userDoc.exists && typeof userDoc.data === "function" ? userDoc.data() : {};
+    const entitlement = normalizeEntitlement(userData && userData.entitlement);
+    if (!entitlement.premium) {
+        console.warn(`[premium] Premium callable denied for ${action || "premium callable"}.`, {
+            uid,
+            status: entitlement.status,
+            source: entitlement.source
+        });
+        throw new functions.https.HttpsError("permission-denied", "Premium entitlement is required.");
+    }
+
+    return { uid, entitlement };
+}
+
 function throwHttpsError(error, fallbackMessage) {
     if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError("internal", fallbackMessage);
@@ -108,82 +162,110 @@ function getCanonicalParkId(value) {
 // 1. LEGACY MAP FUNCTIONS (ROUTING & LEADERBOARD)
 // ============================================================================
 
+function getCallablePayload(requestOrData) {
+    return requestOrData && requestOrData.data ? requestOrData.data : requestOrData || {};
+}
+
+function getOrsApiKey(options = {}) {
+    return typeof options.getOrsApiKey === "function" ? options.getOrsApiKey() : process.env.ORS_API_KEY;
+}
+
+async function handlePremiumRoute(requestOrData, context, options = {}) {
+    await requirePremiumCallable(context, "getPremiumRoute", options);
+
+    const payload = getCallablePayload(requestOrData);
+    const coordinates = payload.coordinates;
+    const radiuses = payload.radiuses;
+
+    if (!Array.isArray(coordinates) || coordinates.length < 2) {
+        throw new functions.https.HttpsError("invalid-argument", "Payload mismatch!");
+    }
+
+    const apiKey = getOrsApiKey(options);
+    if (!apiKey) {
+        throw new functions.https.HttpsError("failed-precondition", "Routing service is not configured.");
+    }
+
+    const url = "https://api.openrouteservice.org/v2/directions/driving-car/geojson";
+    const body = { coordinates };
+    if (Array.isArray(radiuses) && radiuses.length === coordinates.length) {
+        body.radiuses = radiuses;
+    }
+
+    try {
+        const post = options.axiosPost || axios.post;
+        const response = await post(url, body, {
+            headers: {
+                "Authorization": apiKey,
+                "Content-Type": "application/json",
+                "Accept": "application/json, application/geo+json; charset=utf-8"
+            }
+        });
+        return response.data;
+    } catch (error) {
+        console.error("Networking/ORS Error:", error.message);
+        throw new functions.https.HttpsError("internal", "Failed to calculate route.");
+    }
+}
+
+async function handlePremiumGeocode(requestOrData, context, options = {}) {
+    await requirePremiumCallable(context, "getPremiumGeocode", options);
+
+    const payload = getCallablePayload(requestOrData);
+    const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+
+    if (!text) {
+        throw new functions.https.HttpsError("invalid-argument", "Search query is required.");
+    }
+
+    const apiKey = getOrsApiKey(options);
+    if (!apiKey) {
+        throw new functions.https.HttpsError("failed-precondition", "Geocoding service is not configured.");
+    }
+
+    const requestedSize = parseInt(payload.size, 10);
+    const size = Number.isFinite(requestedSize) ? Math.min(Math.max(requestedSize, 1), 10) : 5;
+
+    const params = new URLSearchParams({
+        api_key: apiKey,
+        text,
+        size: String(size)
+    });
+    if (payload.country) {
+        params.set('boundary.country', String(payload.country));
+    }
+
+    try {
+        const get = options.axiosGet || axios.get;
+        const response = await get(`https://api.openrouteservice.org/geocode/search?${params.toString()}`);
+        return response.data;
+    } catch (error) {
+        console.error("Networking/ORS Geocode Error:", error.message);
+        throw new functions.https.HttpsError("internal", "Failed to perform geocode.");
+    }
+}
+
 exports.getPremiumRoute = functions
     .runWith({ secrets: ["ORS_API_KEY"] })
     .https.onCall(async (requestOrData, context) => {
-        requireAuthCallable(context);
-
-        const payload = requestOrData.data ? requestOrData.data : requestOrData;
-        const coordinates = payload.coordinates;
-        const radiuses = payload.radiuses;
-
-        if (!Array.isArray(coordinates) || coordinates.length < 2) {
-            throw new functions.https.HttpsError("invalid-argument", "Payload mismatch!");
-        }
-
-        const apiKey = process.env.ORS_API_KEY;
-        if (!apiKey) {
-            throw new functions.https.HttpsError("failed-precondition", "Routing service is not configured.");
-        }
-
-        const url = "https://api.openrouteservice.org/v2/directions/driving-car/geojson";
-        const body = { coordinates };
-        if (Array.isArray(radiuses) && radiuses.length === coordinates.length) {
-            body.radiuses = radiuses;
-        }
-
-        try {
-            const response = await axios.post(url, body, {
-                headers: {
-                    "Authorization": apiKey,
-                    "Content-Type": "application/json",
-                    "Accept": "application/json, application/geo+json; charset=utf-8"
-                }
-            });
-            return response.data;
-        } catch (error) {
-            console.error("Networking/ORS Error:", error.message);
-            throw new functions.https.HttpsError("internal", "Failed to calculate route.");
-        }
+        return handlePremiumRoute(requestOrData, context);
     });
 
 exports.getPremiumGeocode = functions
     .runWith({ secrets: ["ORS_API_KEY"] })
     .https.onCall(async (requestOrData, context) => {
-        requireAuthCallable(context);
-
-        const payload = requestOrData.data ? requestOrData.data : requestOrData;
-        const text = typeof payload.text === 'string' ? payload.text.trim() : '';
-
-        if (!text) {
-            throw new functions.https.HttpsError("invalid-argument", "Search query is required.");
-        }
-
-        const apiKey = process.env.ORS_API_KEY;
-        if (!apiKey) {
-            throw new functions.https.HttpsError("failed-precondition", "Geocoding service is not configured.");
-        }
-
-        const requestedSize = parseInt(payload.size, 10);
-        const size = Number.isFinite(requestedSize) ? Math.min(Math.max(requestedSize, 1), 10) : 5;
-
-        const params = new URLSearchParams({
-            api_key: apiKey,
-            text,
-            size: String(size)
-        });
-        if (payload.country) {
-            params.set('boundary.country', String(payload.country));
-        }
-
-        try {
-            const response = await axios.get(`https://api.openrouteservice.org/geocode/search?${params.toString()}`);
-            return response.data;
-        } catch (error) {
-            console.error("Networking/ORS Geocode Error:", error.message);
-            throw new functions.https.HttpsError("internal", "Failed to perform geocode.");
-        }
+        return handlePremiumGeocode(requestOrData, context);
     });
+
+if (process.env.NODE_ENV === "test") {
+    exports.__test = {
+        normalizeEntitlement,
+        isEffectivePremium,
+        requirePremiumCallable,
+        handlePremiumRoute,
+        handlePremiumGeocode
+    };
+}
 
 exports.generateHourlyLeaderboard = functions.pubsub.schedule("0 * * * *")
     .timeZone("America/New_York")

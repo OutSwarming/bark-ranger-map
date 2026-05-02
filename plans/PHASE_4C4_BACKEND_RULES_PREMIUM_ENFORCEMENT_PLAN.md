@@ -428,3 +428,27 @@ Remaining backend/security work:
 - Mechanical QC for 4C.7B.
 - Reviewed rules deployment gate later, after explicit approval.
 - Phase 4C.8 ORS callable entitlement enforcement remains separate and not started here.
+
+## Phase 4C.8 ORS Callable Entitlement Enforcement Update
+
+Phase 4C.8 is now implemented locally and not deployed:
+
+- Added server-side entitlement helpers in `functions/index.js`:
+  - `normalizeEntitlement(raw)`
+  - `isEffectivePremium(raw)`
+  - `requirePremiumCallable(context, action, options)`
+- `getPremiumRoute` and `getPremiumGeocode` now verify `users/{uid}.entitlement` through Admin SDK before calling ORS.
+- Effective premium requires `entitlement.premium === true` and `status` of `active` or `manual_active`.
+- Missing, malformed, free, canceled, expired, and past_due entitlements are rejected with `permission-denied`.
+- Client-provided premium claims such as `isPremium: true` are ignored.
+- Free users are rejected before the ORS transport path is called, so paid ORS quota is not intentionally consumed for free direct callable calls.
+- Added function-level Node tests in `functions/tests/ors-entitlement.test.js`.
+- Added `functions/package.json` script `npm test`.
+- `npm --prefix functions test`: PASS, 10 tests passed.
+
+What remains:
+
+- Full Firebase callable emulator/integration coverage is still pending; current tests exercise the handler/helper layer with mocked Firestore and ORS transport.
+- Firestore rules are still not deployed.
+- Functions are still not deployed.
+- Payment provider work, checkout buttons, customer portal, webhook verification, and money collection remain stopped.

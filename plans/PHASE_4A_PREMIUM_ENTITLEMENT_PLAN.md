@@ -690,3 +690,21 @@ Phase 4C.7B local Firestore rules baseline is now implemented:
 - `npm run test:e2e:smoke`: PASS, 9 tests passed.
 - Rules were not deployed.
 - ORS callable entitlement enforcement remains deferred to Phase 4C.8.
+
+Phase 4C.8 ORS callable entitlement enforcement is now implemented locally:
+
+- `functions/index.js` now checks `users/{uid}.entitlement` server-side before ORS route/geocode calls.
+- `getPremiumRoute` and `getPremiumGeocode` require effective premium: `premium === true` with status `active` or `manual_active`.
+- Signed-in free users, malformed entitlements, canceled, expired, and past_due statuses are rejected before ORS transport is called.
+- Client-supplied premium flags are ignored.
+- Added focused function tests in `functions/tests/ors-entitlement.test.js`.
+- Added `functions/package.json` script `npm test`.
+- `npm --prefix functions test`: PASS, 10 tests passed.
+- Firestore rules and functions were not deployed.
+- No payment provider, payment buttons, checkout, webhooks, Firebase rules changes, client entitlement writes, or runtime UI changes were added in this slice.
+
+Remaining before paid launch:
+
+- Reviewed rules deploy gate after explicit approval.
+- Reviewed functions deploy gate after explicit approval.
+- Provider design, checkout creation, webhook verification, customer portal, refunds/cancelation, and payment-state reconciliation remain future work.
