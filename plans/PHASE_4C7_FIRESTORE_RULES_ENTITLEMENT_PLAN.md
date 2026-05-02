@@ -611,3 +611,41 @@ Compatibility decisions:
 Recommended next step:
 
 - Mechanical QC for 4C.7B, then either 4C.8 ORS callable entitlement enforcement planning/implementation or a reviewed rules deployment gate. Do not deploy rules as part of 4C.7B.
+
+## Phase 4C.7C Test Coverage Update
+
+Phase 4C.7C is implemented as rules-test coverage only.
+
+Files changed:
+
+- `tests/rules/firestore-entitlement.rules.test.js`
+- `plans/PHASE_4C7_FIRESTORE_RULES_ENTITLEMENT_PLAN.md`
+
+Rules changes:
+
+- None. The Phase 4C.7B rules baseline already denied these paths.
+
+Additional tests added:
+
+- Unauthenticated users cannot create `users/{uid}`.
+- Unauthenticated users cannot read `users/{uid}`.
+- Unauthenticated users cannot update `users/{uid}`.
+- Unauthenticated users cannot read `users/{uid}/savedRoutes/{routeId}`.
+- Unauthenticated users cannot write `users/{uid}/savedRoutes/{routeId}`.
+- Authenticated users cannot read arbitrary top-level `randomCollection/{docId}`.
+- Authenticated users cannot write arbitrary top-level `randomCollection/{docId}`.
+- Unauthenticated users cannot write arbitrary top-level `randomCollection/{docId}`.
+
+Verification:
+
+- `node --check tests/rules/firestore-entitlement.rules.test.js`: PASS.
+- `npm run test:rules`: PASS, 12 tests passed.
+- `git diff --check`: PASS.
+
+Deployment status:
+
+- Rules were not deployed.
+
+Recommended next step:
+
+- If verification passes, Phase 4C.7C closes the small rules-test gaps found in mechanical QC. Phase 4C.8 ORS callable entitlement enforcement remains the next security slice; any rules deployment should still be a separate reviewed gate.

@@ -398,3 +398,14 @@ Ready to implement 4C.2?
 4C.2 is complete and verified. Ready to implement 4C.3: YES, for the planned UI entitlement gating switch only. Do not add payment provider work, payment buttons, Firebase rules, Firestore writes, backend callable gating, or deployment in 4C.3.
 
 Phase 4C.3 is now complete. Next recommended step is not payment implementation; it should be either a focused review/QC of 4C.3 or Phase 4C.4 backend/rules planning for ORS, offline mode, and global search.
+
+## Phase 4C.7 Rules Planning Status
+
+Phase 4C.7A is now complete as planning only:
+
+- Plan file: `plans/PHASE_4C7_FIRESTORE_RULES_ENTITLEMENT_PLAN.md`.
+- No runtime app code, tests, Firestore rules, Firebase rules config, ORS callables, payment provider work, payment buttons, or deployment were changed in the planning slice.
+- Current repo state has no root `firestore.rules` and no `firebase.json` Firestore rules/emulator config.
+- The recommended 4C.7B implementation is a source-controlled rules baseline with emulator test tooling, not a deploy.
+- The first rules baseline should preserve existing user-owned writes while blocking client writes to entitlement/provider/admin fields.
+- Phase 4C.8 remains the planned ORS backend callable entitlement enforcement slice.

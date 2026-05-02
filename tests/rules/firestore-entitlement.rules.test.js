@@ -26,6 +26,10 @@ function authedDb(uid) {
     return testEnv.authenticatedContext(uid).firestore();
 }
 
+function unauthDb() {
+    return testEnv.unauthenticatedContext().firestore();
+}
+
 async function seedDoc(pathSegments, data) {
     await testEnv.withSecurityRulesDisabled(async (context) => {
         await setDoc(doc(context.firestore(), ...pathSegments), data);
@@ -63,6 +67,35 @@ describe('Firestore entitlement and admin field rules', () => {
 
         await assertSucceeds(getDoc(doc(aliceDb, 'users', 'alice')));
         await assertFails(getDoc(doc(aliceDb, 'users', 'bob')));
+    });
+
+    it('denies unauthenticated user document and savedRoutes access', async () => {
+        const publicDb = unauthDb();
+
+        await assertFails(setDoc(doc(publicDb, 'users', 'alice'), {
+            settings: { mapStyle: 'default' }
+        }));
+
+        await seedDoc(['users', 'alice'], {
+            settings: { mapStyle: 'default' },
+            visitedPlaces: []
+        });
+        await seedDoc(['users', 'alice', 'savedRoutes', 'route1'], {
+            tripName: 'Seeded Route',
+            createdAt: 1710000000000,
+            tripDays: []
+        });
+
+        await assertFails(getDoc(doc(publicDb, 'users', 'alice')));
+        await assertFails(updateDoc(doc(publicDb, 'users', 'alice'), {
+            settings: { mapStyle: 'terrain' }
+        }));
+        await assertFails(getDoc(doc(publicDb, 'users', 'alice', 'savedRoutes', 'route1')));
+        await assertFails(setDoc(doc(publicDb, 'users', 'alice', 'savedRoutes', 'route1'), {
+            tripName: 'Unauthenticated Write',
+            createdAt: 1710000000001,
+            tripDays: []
+        }));
     });
 
     it('allows current app-owned settings and visitedPlaces writes on the owner user document', async () => {
@@ -235,6 +268,29 @@ describe('Firestore entitlement and admin field rules', () => {
         await assertFails(setDoc(doc(collection(aliceDb, 'users', 'alice', 'entitlement')), {
             premium: true,
             status: 'manual_active'
+        }));
+    });
+
+    it('denies arbitrary top-level collections by default', async () => {
+        await seedDoc(['randomCollection', 'doc1'], {
+            seeded: true
+        });
+
+        const aliceDb = authedDb('alice');
+        const publicDb = unauthDb();
+
+        await assertFails(getDoc(doc(aliceDb, 'randomCollection', 'doc1')));
+        await assertFails(setDoc(doc(aliceDb, 'randomCollection', 'doc1'), {
+            seeded: false
+        }));
+        await assertFails(setDoc(doc(aliceDb, 'randomCollection', 'doc2'), {
+            seeded: false
+        }));
+        await assertFails(setDoc(doc(publicDb, 'randomCollection', 'doc1'), {
+            seeded: false
+        }));
+        await assertFails(setDoc(doc(publicDb, 'randomCollection', 'doc3'), {
+            seeded: false
         }));
     });
 });
