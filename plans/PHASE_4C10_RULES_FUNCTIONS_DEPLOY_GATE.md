@@ -215,3 +215,21 @@ After this gate is satisfied and a later deploy is completed, remaining paid-lau
 - Payment test-mode smoke tests.
 - Refund, cancel, past_due, expired, and revoke behavior.
 - Paid launch release smoke, logs review, and support playbook.
+
+## Post-Gate Status For Phase 4D
+
+Phase 4D context records that this deploy gate has since been completed outside this planning file:
+
+- Firestore rules are deployed.
+- `getPremiumRoute` and `getPremiumGeocode` are deployed.
+- Rules tests passed.
+- Function handler tests passed.
+- Callable emulator tests passed.
+- E2E smoke passed after deploy.
+- Payment provider work has not started.
+- Checkout buttons have not been added.
+- The ORS key was exposed in terminal/chat and must be rotated before public or paid launch.
+
+Phase 4D payment provider and paywall UX planning is captured in `plans/PHASE_4D_PAYMENT_PROVIDER_PAYWALL_PLAN.md`.
+
+Payment implementation remains stopped until a separate test-mode provider/backend phase is approved.
