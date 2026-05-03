@@ -16,6 +16,7 @@ Resolved during this downgrade follow-up:
 - BUG-016: Route generation is now visually and runtime gated for free users, while premium users can still reach the ORS directions path.
 - BUG-017: Premium product surface audit for R05-R12 is complete and QC passed.
 - BUG-020: Free users can no longer force premium map style/visited filter state through DOM events or fake storage.
+- BUG-021: Free route generation now opens a clear Premium upgrade explanation without calling ORS.
 
 ## Deployed Firestore Rules
 
@@ -101,6 +102,7 @@ BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json"
 - BUG-016: Route generation premium gate. QC PASSED for free disabled UI, forced-click runtime guard, no free ORS call, premium enabled UI, and premium ORS directions path.
 - BUG-017: Premium product rules audit. QC PASSED for global search, premium clustering, premium map styles/visited filters, virtual/completed trail controls, fake storage bypass, and free/premium account behavior.
 - BUG-020: Free forced premium map/filter runtime state. QC PASSED.
+- BUG-021: Route generation upgrade prompt. QC PASSED for free mobile tap/click, route-specific paywall copy, no free ORS call, and existing premium route generation path.
 
 ## Remaining Risks
 

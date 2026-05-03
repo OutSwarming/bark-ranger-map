@@ -1176,6 +1176,14 @@ body.app-tab-active #slide-panel {
     border-color: #cbd5e1;
     color: #64748b;
     box-shadow: none;
+    cursor: pointer;
+}
+
+.planner-action-primary.planner-action-premium-locked:hover,
+.planner-action-primary.planner-action-premium-locked:active {
+    background: #eaf2fb;
+    border-color: #94a3b8;
+    color: #475569;
 }
 
 .planner-action-clear {

@@ -102,6 +102,24 @@
         return 'Premium is not active on this account.';
     }
 
+    function getFreeUpgradeCopy() {
+        if (lastSource === 'route-generation') {
+            return {
+                title: 'Route generation is a Premium feature',
+                eyebrow: 'Premium routing',
+                body: 'Upgrade to generate driving routes between trip stops. Free accounts can still plan stops without calling premium routing.',
+                primaryText: 'Upgrade Now'
+            };
+        }
+
+        return {
+            title: 'Upgrade to BARK Ranger Premium',
+            eyebrow: 'Annual plan',
+            body: 'Unlock the premium map tools for one annual plan.',
+            primaryText: 'Continue to secure checkout'
+        };
+    }
+
     function getVerifyingFallbackMs() {
         const configured = Number(window.BARK && window.BARK.PAYWALL_VERIFYING_FALLBACK_MS);
         return Number.isFinite(configured) && configured >= 0
@@ -223,12 +241,13 @@
             };
         }
 
+        const freeCopy = getFreeUpgradeCopy();
         return {
             mode: 'free',
-            title: 'Upgrade to BARK Ranger Premium',
-            eyebrow: 'Annual plan',
-            body: 'Unlock the premium map tools for one annual plan.',
-            primaryText: 'Continue to secure checkout',
+            title: freeCopy.title,
+            eyebrow: freeCopy.eyebrow,
+            body: freeCopy.body,
+            primaryText: freeCopy.primaryText,
             secondaryVisible: true,
             clearVisible: returnState !== null
         };

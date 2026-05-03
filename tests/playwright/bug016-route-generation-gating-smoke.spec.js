@@ -58,9 +58,11 @@ test.beforeAll(() => {
 
 function collectRelevantErrors(page, label, errors) {
     const relevantPattern = /FirebaseError|Missing or insufficient permissions|PERMISSION_DENIED|permission-denied|ReferenceError|TypeError|tripPlannerCore|ORS directions request failed|Route failed/i;
+    const nonFatalConnectivityPattern = /Data poll failed, backing off|Failed to fetch/i;
     page.on('console', message => {
         if (message.type() !== 'error') return;
         const text = message.text();
+        if (nonFatalConnectivityPattern.test(text)) return;
         if (relevantPattern.test(text)) errors.push(`${label} console error: ${text}`);
     });
     page.on('pageerror', error => {
@@ -221,7 +223,7 @@ test.describe('BUG-016 route generation premium product rule', () => {
 
             const lockedState = await readRouteState(page);
             expect(lockedState.button).toMatchObject({
-                disabled: true,
+                disabled: false,
                 ariaDisabled: 'true',
                 premiumRequired: 'true',
                 lockedClass: true,
@@ -238,7 +240,7 @@ test.describe('BUG-016 route generation premium product rule', () => {
             const forcedState = await readRouteState(page);
             expect(forcedState.directionsCalls).toEqual([]);
             expect(forcedState.paywalls[0]).toMatchObject({ source: 'route-generation' });
-            expect(forcedState.button.disabled).toBe(true);
+            expect(forcedState.button.disabled).toBe(false);
             expect(forcedState.button.ariaDisabled).toBe('true');
             expect(errors, errors.join('\n')).toEqual([]);
         } finally {

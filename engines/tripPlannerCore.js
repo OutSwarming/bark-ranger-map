@@ -134,7 +134,7 @@ function updateRouteGenerationButtonState() {
     button.setAttribute('aria-disabled', isPremium ? 'false' : 'true');
 
     if (!isPremium) {
-        button.disabled = true;
+        button.disabled = false;
         button.title = 'Premium is required to generate driving routes.';
         setPlannerActionButtonLabel(button, 'Premium Route');
         return;
@@ -644,12 +644,12 @@ function initTripPlanner() {
 
     if (startRouteBtn) {
         startRouteBtn.onclick = () => {
-            if (getTotalStops() === 0) return;
             if (!isPremiumRoutingUnlocked()) {
                 openRoutePremiumPaywall();
                 updateRouteGenerationButtonState();
                 return;
             }
+            if (getTotalStops() === 0) return;
             generateAndRenderTripRoute();
         };
     }
