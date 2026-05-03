@@ -1,14 +1,14 @@
 # Premium Beta Gate Report
 
-Date: 2026-05-03 04:30 EDT
+Date: 2026-05-03 05:21 EDT
 Scope: New premium/internal app only.
-Current app commit before BUG-022 completion: `8b57c49`
+Current app commit before final mobile/console sweep: `811f62c`
 
 ## Verdict
 
-GO for controlled premium beta after the manual checks below.
+GO for controlled premium beta, not broad public/live launch.
 
-The app is closer and auth/payment/rules are much safer. The paid/free product-tier audit for R05-R12 is now complete, and the one additional product-rule gap found during audit was fixed as BUG-020.
+The app is closer and auth/payment/rules are much safer. The paid/free product-tier audit is complete, mobile/console beta smoke is clean, and the remaining items are manual or optional checks rather than known automated blockers.
 
 Resolved during this downgrade follow-up:
 
@@ -68,7 +68,7 @@ Current gate did not run another checkout or touch live Lemon Squeezy. Payment/b
 | Check | Result |
 |---|---|
 | `git status --short` | PASS with known unrelated dirty files outside report scope |
-| `git log --oneline -12` | PASS, recent premium fixes visible through `4d50c1e` |
+| `git log --oneline -12` | PASS, recent premium fixes visible through `811f62c` |
 | `npm run test:rules` | PASS 17/17 |
 | `npm --prefix functions test` | PASS 65/65 |
 | `npm run test:functions:emulator` | PASS 9/9 |
@@ -76,6 +76,7 @@ Current gate did not run another checkout or touch live Lemon Squeezy. Payment/b
 | focused BUG-021 route upgrade prompt smoke | PASS 1/1 |
 | focused BUG-022 settings cloud-sync policy smoke | PASS 3/3 |
 | signed-in `npm run test:e2e:smoke` | PASS 29/29 after adding BUG-015, BUG-016, BUG-017, BUG-021, and BUG-022 product-rule/UX smoke |
+| focused final mobile/console beta sweep | PASS 3/3 |
 | `git diff --check` | PASS |
 
 Signed-in smoke used:
@@ -107,14 +108,17 @@ BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json"
 - BUG-020: Free forced premium map/filter runtime state. QC PASSED.
 - BUG-021: Route generation upgrade prompt. QC PASSED for free mobile tap/click, route-specific paywall copy, no free ORS call, and existing premium route generation path.
 - BUG-022: Settings autosave/cloud sync policy. QC PASSED for signed-out local settings persistence, signed-in free local-only settings/no cloud write/upgrade prompt, premium cloud sync payload, and premium-only setting sanitization.
+- BUG-005: Mobile paywall/account layout risk. QC PASSED by focused 390x844 mobile sweep covering paywall, route/cloud premium prompts, signed-in account card, marker detail panel, profile order, search, settings, and planner.
+- BUG-006: Runtime console cleanup sweep. QC PASSED by full automated suite and focused signed-out/free/premium mobile console sweep.
+- BUG-019: Android search loop. DEFERRED because no exact Android repro is available; final mobile search smoke did not reproduce it.
 
 ## Remaining Risks
 
 - The free visited limit is currently client/runtime enforced in `checkinService`; a malicious client could still attempt direct `visitedPlaces` writes until a future callable/backend quota gate owns visit additions.
 - BUG-013 still needs human visual confirmation that Google shows the account chooser after Switch Account.
 - One real Lemon Squeezy test-mode checkout is still useful as a final end-to-end sanity check after all auth/UI fixes.
-- Mobile profile/paywall visual skim is still recommended on a real narrow viewport.
-- Android search BUG-019 should be checked separately if still reproducible.
+- Real-phone mobile skim is still useful, but the automated 390x844 mobile sweep found no blocking layout or console issue.
+- Android search BUG-019 should be reopened with an Android screen recording or exact steps if it is still reproducible.
 - Trip planner stop persistence across reload remains explicitly unsupported in the current runtime; styling/visit persistence is covered.
 - Worktree had unrelated dirty files during this gate: `functions/index.js`, `functions/tests/checkout-session.test.js`, `plans/BETA_TESTER_7PM_MEETING_CHECKLIST.md`, `plans/PHASE_4E_LEMONSQUEEZY_CHECKOUT_PLAN.md`. They were not part of this report commit.
 
