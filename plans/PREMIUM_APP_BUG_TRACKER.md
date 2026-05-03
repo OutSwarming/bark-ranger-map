@@ -2,7 +2,7 @@
 
 Date: 2026-05-03
 Branch: main
-Current commit: 29bac19a6d485ef3a2c9b9853d53f47553d6db65 (before signed-in QC update)
+Current commit: fef6b13fbf4e21cdb79e8aed88d766240d532b67 (before BUG-001 runtime QC update)
 Scope: New premium/internal app only.
 
 ## Status Legend
@@ -27,7 +27,7 @@ Seeded as BUG-001 through BUG-010 in the table below. BUG-011 was added from sta
 
 | ID | Title | Area | Severity | Probability | Concern | Evidence | Repro Steps | Suspected Cause | Files Likely Involved | Fix Commit | QC Result | Status |
 |---|---|---|---|---:|---:|---|---|---|---|---|---|---|
-| BUG-001 | Gamification achievement Firestore permission/runtime issue | Firestore/rules/data sync | P1 | 4 | 4 | Seeded suspicion. Path: `users/{uid}/achievements/{achievementId}`. `npm run test:rules` passed 16/16, including owner-only achievement writes and protected user field denials. Runtime console after deploy/emulator app flow still pending. | Run rules tests and app achievement flow; confirm no permission console error for owner write. | Rules may not match actual achievement write path or client payload shape. | `firestore.rules`, `services`, `modules`, `tests` |  | Rules PASS; runtime QC pending | FOUND |
+| BUG-001 | Gamification achievement Firestore permission/runtime issue | Firestore/rules/data sync | P1 | 5 | 4 | Reproduced in signed-in free and premium runtime QC: owner write/read to `users/{uid}/achievements/bug001RuntimeSmoke` fails with `Missing or insufficient permissions.` Payload shape is exactly `achievementId`, `tier`, `dateEarned`. Local rules tests pass owner create/update/read and deny non-owner/unauth/dangerous fields, so the repo rules are correct but deployed Firestore rules appear stale. | Open Profile signed in, trigger achievement evaluation, then write/read owner achievement doc with allowed payload. Confirm no permission console error after rules deploy. | Production Firestore rules do not appear to include the repo's owner-only achievement subcollection allowance. | `firestore.rules`, `tests/rules/firestore-entitlement.rules.test.js`, `tests/playwright/bug001-achievement-permission-smoke.spec.js`, `gamificationLogic.js`, `profileEngine.js` | Repo rules fix exists in `576830f`; runtime smoke added in this update | Local rules PASS; runtime FAIL pending Firestore rules deploy | DEFERRED |
 | BUG-002 | Paywall verifying state can mislead or get stuck after checkout success URL | Payment/paywall | P1 | 5 | 4 | Reproduced: signed-out fake success URL kept `premiumService.isPremium()` false and controls locked, but left paywall/profile in disabled `verifying` state forever. Fixed signed-out return handling and added a delayed signed-in/free fallback that never unlocks from URL alone. Signed-in storage-state QC now passes for fake success/canceled/free/premium states. | Visit `?checkout=success&provider=lemonsqueezy` signed out or signed-in/free; observe paywall state before/after fallback. | `checkout=success` branch ran before the signed-out branch and had no timeout/fallback while waiting for Firestore entitlement. | `modules/paywallController.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js`, `scripts/save-playwright-storage-state.js`, `.gitignore`, `package.json` | This fix commit | PASS | QC PASSED |
 | BUG-003 | Account switch may leave stale premium UI state | Premium entitlement/runtime | P0 | 4 | 5 | Reproduced with local runtime probe: after forcing a previous account's `manual_active` entitlement into `premiumService` while Firebase `currentUser` was signed out, `premiumService.isPremium()` returned `true`. Fixed ownership check now passes signed-in free/premium storage-state QC, premium sign-out lock reset, and distinct-account full smoke. | Sign in premium account, switch to free account or sign out, then inspect `premiumService.isPremium()`, premium controls, map style/filter/clustering, trail/global search, paywall/profile premium text, and fake success URL behavior. | `premiumService.isPremium()` trusted the last normalized entitlement without checking that the entitlement UID matched the current Firebase user. | `services/premiumService.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js` | This fix commit | PASS | QC PASSED |
 | BUG-004 | Signed-in free user might still access trails/global search/ORS-adjacent controls if auth-only gating remains | Premium entitlement/runtime | P0 | 4 | 5 | Reproduced and fixed a premium clustering leak: non-premium runtime could set `premiumClusteringEnabled=true` through `#premium-cluster-toggle`. Signed-in free storage-state QC now proves premium clustering, virtual/completed trails, global search, paywall/account state, and fake success URL remain locked; premium storage still unlocks. | Sign in with free account or boot signed out, try premium clustering, virtual trails, completed trails, global search, routing/geocode, paywall/account state, and fake success URL behavior. | Settings controller treated premium clustering as an ordinary setting and did not gate setting writes or local/cloud payloads by entitlement; no remaining auth-only target-surface gate was found in static audit. | `modules/settingsController.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js`, `modules/expeditionEngine.js`, `modules/searchEngine.js`, `modules/paywallController.js`, `functions/index.js` | 1e6219c; verification follow-up commit | PASS | QC PASSED |
@@ -59,6 +59,8 @@ Concern scale:
 - `functions/index.js` `handleCreateCheckoutSession()` requires callable auth and builds Lemon Squeezy test-mode checkout server-side; tests cover rejecting unauthenticated requests and ignoring client-provided uid/price/URLs.
 - Grep found no app-side `premiumLoggedIn`, `checkout=success`, `provider=lemonsqueezy`, or storage-backed `setEntitlement()` premium grant path. `localStorage` is still used for map/filter/settings, which is tracked separately as BUG-011.
 - `firestore.rules` protects user entitlement/provider/admin/payment fields on user docs and allows owner-only achievement writes with only `achievementId`, `tier`, and `dateEarned`; rules tests cover these paths.
+- BUG-001 runtime achievement write path is `firebase.firestore().collection('users').doc(userId).collection('achievements').doc(item.id)`, called by `GamificationEngine.evaluateAndStoreAchievements()` from `profileEngine.evaluateAchievements()` and share/profile flows. The payload is `{ achievementId: item.id, tier: item.tier, dateEarned: firebase.firestore.FieldValue.serverTimestamp() }` with no `uid`, `premium`, `entitlement`, `admin`, `provider`, `score`, or payment fields.
+- BUG-001 local rule contract: owner read/create/update is allowed only when keys are limited to `achievementId`, `tier`, and `dateEarned`, the doc ID matches `achievementId`, `tier` is `honor` or `verified`, and `dateEarned` is a timestamp. Non-owner access, unauthenticated access, dangerous extra fields, mismatched IDs, bad tiers, and deletes remain denied.
 - Static concern: `authService.handleCloudSettingsHydration()` can reapply premium-owned settings after free-user entitlement locking, and signed-out boot can load premium-owned settings from localStorage before auth state settles. Tracked as BUG-011.
 - BUG-003 root cause: UI and engines correctly ask `premiumService.isPremium()`, but `premiumService.isPremium()` previously did not verify the entitlement owner UID against `firebase.auth().currentUser`. The fix keeps that ownership check inside the read-only premium model so stale premium state fails closed during account switches, sign-out, and fake-success return windows.
 - BUG-004 root cause: `premium-cluster-toggle` was rendered outside the main premium filter wrapper and `settingsController` treated `premiumClusteringEnabled` as a normal setting. The fix keeps premium clustering false for non-premium users at the settings owner layer, disables the toggle, blocks local runtime writes, and forces the cloud settings payload to false when entitlement is inactive.
@@ -80,6 +82,9 @@ Concern scale:
 - BUG-012 focused profile order smoke with `BARK_E2E_BASE_URL=http://localhost:4173/index.html`: PASS, 2 passed and 1 signed-in storage-state test skipped.
 - Signed-in storage-state full smoke with free/free duplicate states: 14 passed, 1 failed because `BARK_E2E_STORAGE_STATE` and `BARK_E2E_STORAGE_STATE_B` were the same UID; treated as setup gap, not app regression.
 - Signed-in storage-state full smoke with free and premium distinct states: PASS, 16/16.
+- BUG-001 focused achievement permission smoke with signed-in free and premium states: FAIL, 0/2. Both accounts evaluated achievements successfully and rendered Bronze Paw, but owner write/read to `users/{uid}/achievements/bug001RuntimeSmoke` failed with `Missing or insufficient permissions.`
+- BUG-001 supporting rules/function checks: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65.
+- BUG-001 full signed-in e2e smoke with free and premium distinct states: PASS, 16/16.
 - Focused premium-gating smoke with free and premium states: PASS, 9/9.
 - Phase 4C premium entitlement smoke with free and premium states: initially failed because the premium account was `active/lemon_squeezy` rather than `manual_active/admin_override`; after test update, PASS, 2/2.
 - Phase 4C global search entitlement smoke with free and premium states: PASS, 3/3.
@@ -106,6 +111,50 @@ Concern scale:
 - Signed-in free and signed-in premium runtime QC now pass with storage states. Premium sign-out lock reset is covered. A true second free-account storage state is still needed if we specifically require free-account-A to free-account-B isolation instead of distinct free-to-premium isolation.
 
 ## Fix Log / QC
+
+### BUG-001
+
+Bug selected: Gamification achievement Firestore permission/runtime issue.
+
+Root cause hypothesis: The client may be writing to an achievement path or payload shape that deployed Firestore rules do not allow, or the repo rules fix has not yet been deployed.
+
+Files expected: `firestore.rules`, `tests/rules/firestore-entitlement.rules.test.js`, `tests/playwright/bug001-achievement-permission-smoke.spec.js`, `gamificationLogic.js`, `profileEngine.js`, `plans/PREMIUM_APP_BUG_TRACKER.md`.
+
+Verification plan: Confirm the exact runtime path/payload, compare it to the rules contract, run local rules tests, add a focused signed-in Playwright runtime smoke with console-error capture, and classify production runtime denial as deploy-needed if local rules pass.
+
+Root cause confirmed: The runtime path and payload match the repo rules contract, and local rules tests pass. The production runtime still denies owner achievement writes, which means the deployed Firestore rules appear stale relative to the repo.
+
+Exact path: `users/{uid}/achievements/{achievementId}`.
+
+Exact payload shape: `{ achievementId: string matching the document ID, tier: 'honor' | 'verified', dateEarned: server timestamp }`.
+
+Runtime error reproduced: Yes. Signed-in free UID `LkevgscKPvPqRg9c5YKKXVqtwv02` and signed-in premium UID `6vrN6hQ8VQSzxvKRLuVdxWM2mpD2` both failed owner write/read to `users/{uid}/achievements/bug001RuntimeSmoke` with `Missing or insufficient permissions.`
+
+Issue type: Repo rules/tests are correct; deployed Firestore rules need to be updated. Do not patch the client to hide the error.
+
+Files changed: `tests/playwright/bug001-achievement-permission-smoke.spec.js`, `plans/PREMIUM_APP_BUG_TRACKER.md`.
+
+Exact behavior before: Achievement evaluation could run and render achievements, but owner writes to the achievement subcollection failed at runtime with Firestore permission errors.
+
+Exact behavior after: No product code changed. The focused runtime smoke now captures the failure explicitly and will pass after the repo Firestore rules are deployed.
+
+Tests run: BUG-001 focused achievement smoke FAIL 0/2 against current production Firestore rules; `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; signed-in `npm run test:e2e:smoke` PASS 16/16; `git diff --check` PASS after generated-log cleanup.
+
+Deploy needed: Yes, but not run. Deploy decision command: `firebase deploy --only firestore:rules`.
+
+Risk: Until rules are deployed, signed-in users may still see Firestore permission errors when the profile/share flow syncs achievement docs. The local rules remain narrow and continue to deny entitlement/payment/admin field writes.
+
+Rollback plan: Remove the focused BUG-001 Playwright smoke if it blocks a non-production test environment; no runtime behavior changed.
+
+QC Result: QC FAILED in production runtime, local rules PASS. Status is `DEFERRED` pending Firestore rules deploy.
+
+Evidence: Static audit found no extra dangerous fields in achievement writes. Local rules tests prove owner-only achievement writes with the allowed payload are accepted and non-owner/unauth/dangerous writes are denied. Playwright runtime smoke proves the deployed app still denies the same owner write.
+
+Manual steps: None beyond the signed-in storage-state runtime smoke. No Firebase deploy was run.
+
+Remaining risk: After Firestore rules deploy, rerun `tests/playwright/bug001-achievement-permission-smoke.spec.js`; it should pass for free and premium accounts without console permission errors.
+
+Status update in tracker: BUG-001 is `DEFERRED` because the fix exists in repo rules/tests but production runtime QC remains blocked until Firestore rules deploy.
 
 ### BUG-012
 
