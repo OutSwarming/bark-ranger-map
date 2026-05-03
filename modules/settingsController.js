@@ -192,12 +192,31 @@ window.BARK.initSettings = function initSettings() {
             return null;
         }
 
-        return { firebaseService, currentUser };
+        return {
+            firebaseService,
+            currentUser,
+            isPremium: isPremiumEntitlementActive()
+        };
+    };
+
+    const openCloudSettingsPremiumPrompt = () => {
+        const paywall = window.BARK && window.BARK.paywall;
+        if (paywall && typeof paywall.openPaywall === 'function') {
+            paywall.openPaywall({ source: 'cloud-settings-sync' });
+            return;
+        }
+
+        alert('Cloud settings sync is a Premium feature. Local settings still save on this device.');
     };
 
     const saveSettingsToCloud = async () => {
         const context = getCloudSettingsSaveContext();
         if (!context) throw new Error('You must be logged in.');
+        if (!context.isPremium) {
+            const error = new Error('Cloud settings sync is a Premium feature.');
+            error.code = 'premium-required';
+            throw error;
+        }
 
         clearTimeout(cloudAutosaveTimer);
         cloudAutosaveTimer = null;
@@ -225,7 +244,13 @@ window.BARK.initSettings = function initSettings() {
     };
 
     const scheduleCloudSettingsAutosave = () => {
-        if (!getCloudSettingsSaveContext()) return;
+        const context = getCloudSettingsSaveContext();
+        if (!context) return;
+
+        if (!context.isPremium) {
+            window._pendingLocalSettingsChanges = false;
+            return;
+        }
 
         // Mark that there are local changes pending save - this blocks hydration from overwriting them
         window._pendingLocalSettingsChanges = true;
@@ -245,6 +270,35 @@ window.BARK.initSettings = function initSettings() {
     };
 
     window.BARK.scheduleCloudSettingsAutosave = scheduleCloudSettingsAutosave;
+
+    const syncCloudSettingsButton = () => {
+        const saveSettingsBtn = document.getElementById('save-settings-cloud-btn');
+        const cloudCopy = document.getElementById('save-settings-cloud-copy');
+        if (!saveSettingsBtn) return;
+
+        const context = getCloudSettingsSaveContext();
+        const signedIn = Boolean(context && context.currentUser);
+        const isPremium = Boolean(context && context.isPremium);
+
+        if (isPremium) {
+            saveSettingsBtn.textContent = '☁️ Save Settings to Cloud';
+            saveSettingsBtn.dataset.mode = 'premium';
+            saveSettingsBtn.title = 'Sync these settings to your Premium account.';
+            if (cloudCopy) cloudCopy.textContent = 'Syncs your current preferences across all devices.';
+            return;
+        }
+
+        saveSettingsBtn.textContent = signedIn ? '☁️ Premium Cloud Sync' : '☁️ Sign In for Cloud Sync';
+        saveSettingsBtn.dataset.mode = signedIn ? 'free' : 'signed-out';
+        saveSettingsBtn.title = signedIn
+            ? 'Cloud settings sync is a Premium feature.'
+            : 'Sign in before upgrading to cloud settings sync.';
+        if (cloudCopy) {
+            cloudCopy.textContent = signedIn
+                ? 'Local settings save automatically on this device. Cloud settings sync is a Premium feature.'
+                : 'Local settings save automatically on this device. Sign in to attach Premium cloud sync to your account.';
+        }
+    };
 
     const syncRegisteredControls = () => {
         enforcePremiumOnlySettings();
@@ -400,6 +454,7 @@ window.BARK.initSettings = function initSettings() {
 
     window.BARK.syncSettingsControls = function syncSettingsControls() {
         syncRegisteredControls();
+        syncCloudSettingsButton();
     };
 
     const syncClusterToggles = () => {
@@ -429,6 +484,7 @@ window.BARK.initSettings = function initSettings() {
         premiumService.subscribe(() => {
             enforcePremiumOnlySettings();
             syncRegisteredControls();
+            syncCloudSettingsButton();
         });
     };
 
@@ -557,6 +613,12 @@ window.BARK.initSettings = function initSettings() {
                     saveSettingsBtn.innerHTML = '✅ SAVED TO CLOUD';
                     setTimeout(() => { saveSettingsBtn.innerHTML = originalText; saveSettingsBtn.disabled = false; }, 2000);
                 } catch (error) {
+                    if (error && error.code === 'premium-required') {
+                        openCloudSettingsPremiumPrompt();
+                        saveSettingsBtn.innerHTML = originalText;
+                        saveSettingsBtn.disabled = false;
+                        return;
+                    }
                     console.error("Error saving settings:", error);
                     saveSettingsBtn.innerHTML = '❌ ERROR SAVING';
                     saveSettingsBtn.disabled = false;

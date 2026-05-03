@@ -2,7 +2,7 @@
 
 Date: 2026-05-03 04:30 EDT
 Scope: New premium/internal app only.
-Current app commit before this audit completion: `f457040`
+Current app commit before BUG-022 completion: `8b57c49`
 
 ## Verdict
 
@@ -17,6 +17,7 @@ Resolved during this downgrade follow-up:
 - BUG-017: Premium product surface audit for R05-R12 is complete and QC passed.
 - BUG-020: Free users can no longer force premium map style/visited filter state through DOM events or fake storage.
 - BUG-021: Free route generation now opens a clear Premium upgrade explanation without calling ORS.
+- BUG-022: Local settings autosave remains available to everyone, while cloud settings sync/save and cloud hydration are Premium-only.
 
 ## Deployed Firestore Rules
 
@@ -72,7 +73,9 @@ Current gate did not run another checkout or touch live Lemon Squeezy. Payment/b
 | `npm --prefix functions test` | PASS 65/65 |
 | `npm run test:functions:emulator` | PASS 9/9 |
 | focused BUG-017 product-rule audit smoke | PASS 2/2 |
-| signed-in `npm run test:e2e:smoke` | PASS 25/25 after adding BUG-015, BUG-016, and BUG-017 product-rule smoke |
+| focused BUG-021 route upgrade prompt smoke | PASS 1/1 |
+| focused BUG-022 settings cloud-sync policy smoke | PASS 3/3 |
+| signed-in `npm run test:e2e:smoke` | PASS 29/29 after adding BUG-015, BUG-016, BUG-017, BUG-021, and BUG-022 product-rule/UX smoke |
 | `git diff --check` | PASS |
 
 Signed-in smoke used:
@@ -103,6 +106,7 @@ BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json"
 - BUG-017: Premium product rules audit. QC PASSED for global search, premium clustering, premium map styles/visited filters, virtual/completed trail controls, fake storage bypass, and free/premium account behavior.
 - BUG-020: Free forced premium map/filter runtime state. QC PASSED.
 - BUG-021: Route generation upgrade prompt. QC PASSED for free mobile tap/click, route-specific paywall copy, no free ORS call, and existing premium route generation path.
+- BUG-022: Settings autosave/cloud sync policy. QC PASSED for signed-out local settings persistence, signed-in free local-only settings/no cloud write/upgrade prompt, premium cloud sync payload, and premium-only setting sanitization.
 
 ## Remaining Risks
 

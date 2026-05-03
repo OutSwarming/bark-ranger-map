@@ -2,7 +2,7 @@
 
 Date: 2026-05-03
 Scope: New premium/internal app only.
-Status: R05-R12 audit completed; BUG-017 QC PASSED after focused product-rule smoke.
+Status: R05-R12 audit completed; BUG-017 QC PASSED after focused product-rule smoke. BUG-022 settings/cloud-sync policy QC PASSED.
 
 ## Audit Table
 
@@ -23,6 +23,7 @@ Status: R05-R12 audit completed; BUG-017 QC PASSED after focused product-rule sm
 | R13 | Checkout success URL never unlocks premium. | Success URL shows safe verification/sign-in state and never grants premium. | Premium active appears only after verified entitlement. | Yes | Yes | Firestore entitlement is source of truth. | Existing premium-gating smoke. | QC PASSED |
 | R14 | Firestore/client cannot self-write entitlement. | Client writes to entitlement/payment/admin fields denied. | Same; entitlement changes must come from backend/admin. | Not a UI rule | Not a runtime client grant | Firestore rules enforce. | Rules tests 17/17. | QC PASSED |
 | R15 | ORS callable rejects free users server-side. | Direct callable attempts fail before ORS transport. | Active/manual_active reaches ORS transport. | Not sufficient alone | Yes | Callable enforces entitlement server-side. | Function unit tests and callable emulator tests. | QC PASSED |
+| R16 | Cloud settings sync is Premium while local settings autosave is available to everyone. | Local settings persist on the device; Save to Cloud/Cloud Sync shows Premium copy and does not write Firestore; premium-only settings are sanitized. | Local settings persist and cloud settings sync can save premium settings to Firestore. | Yes: cloud sync copy/button says Premium for free users without implying local settings require Premium. | Yes: save/autosave/hydration check `premiumService.isPremium()`. | Firestore settings writes are only attempted by the premium client path; full hardening could move cloud sync behind a callable later. | `bug022-settings-cloud-sync-policy-smoke.spec.js` covers signed-out local persistence, signed-in free local-only/no cloud write/upgrade prompt, and premium cloud sync payload. | BUG-022 QC PASSED |
 
 ## Notes
 
@@ -30,5 +31,6 @@ Status: R05-R12 audit completed; BUG-017 QC PASSED after focused product-rule sm
 - BUG-015 is now client/runtime QC passed, with a documented backend hard-quota gap if visited writes move behind a callable later.
 - BUG-016 is now UI/runtime/backend QC passed.
 - BUG-021 improves the route-gating UX without broadening access: the route action remains blocked for free users, but now opens an explanatory Premium upgrade path on tap/click.
+- BUG-022 keeps basic local settings autosave available to everyone while making cloud settings sync a Premium feature. Free users no longer write or hydrate Firestore cloud settings, and premium-only settings remain sanitized.
 - BUG-017 R05-R12 audit found BUG-020: premium map style/visited filter handlers trusted disabled controls. The fix adds runtime coercion and free-safe cloud payload serialization; focused audit smoke passes for free and premium accounts.
 - Backend/rules enforcement may not be feasible for every UI preference, but any quota/cost/data product rule must have more than a visual-only gate.

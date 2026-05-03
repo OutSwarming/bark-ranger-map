@@ -112,6 +112,15 @@
             };
         }
 
+        if (lastSource === 'cloud-settings-sync') {
+            return {
+                title: 'Cloud settings sync is a Premium feature',
+                eyebrow: 'Premium sync',
+                body: 'Local settings save automatically on this device. Upgrade to sync your preferences across devices.',
+                primaryText: 'Upgrade Now'
+            };
+        }
+
         return {
             title: 'Upgrade to BARK Ranger Premium',
             eyebrow: 'Annual plan',

@@ -182,6 +182,13 @@ function handleCloudSettingsHydration(data, metadata = {}) {
 
         const store = window.BARK.settings;
         const registry = window.BARK.SETTINGS_REGISTRY || {};
+
+        if (!isPremium) {
+            syncCloudSettingsControls(registry);
+            console.log('[authService] Cloud settings sync skipped for non-premium user; local settings preserved.');
+            return;
+        }
+
         window.BARK.isHydratingCloudSettings = true;
 
         // lowGfxEnabled must run first — its setter applies LOW_GRAPHICS_PRESET,
