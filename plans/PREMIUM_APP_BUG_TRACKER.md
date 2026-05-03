@@ -72,7 +72,7 @@ Concern scale:
 - BUG-012 root cause: the signed-in profile DOM prioritized account/payment-adjacent content directly after the welcome card. No entitlement, account, admin, or feedback handlers needed to change because all existing IDs/classes stayed intact.
 - BUG-013 root cause: Firebase sign-out clears app/Firebase auth state, but not the browser's Google session. Switch Account now sets an in-memory one-shot intent, and the next Google provider is created with `provider.setCustomParameters({ prompt: 'select_account' })`. Normal Google sign-in and email/password sign-in remain unchanged.
 - BUG-014 root cause: settings sanitization can fire settings-store listeners before Firebase initialization. Cloud settings autosave now returns no save context until `firebase.apps.length > 0`, `firebase.auth` exists, and `firebaseService.getCurrentUser()` can be safely read.
-- Signed-in QC storage states were created under ignored paths: `playwright/.auth/free-user.json`, `playwright/.auth/free-user-b.json`, and `playwright/.auth/premium-user.json`. `premium-user.json` was verified as Premium active before saving. `free-user.json` and `free-user-b.json` currently point to the same free UID, so two-free-account isolation remains a setup caveat; distinct free-vs-premium full smoke passed.
+- Signed-in QC storage states were created under ignored paths: `playwright/.auth/free-user.json`, `playwright/.auth/free-user-b.json`, and `playwright/.auth/premium-user.json`. `free-user-b.json` was replaced on 2026-05-03 and is now a distinct non-premium account. Current UIDs: free `LkevgscKPvPqRg9c5YKKXVqtwv02`, free-B `iZ4liMaO4denEB6swhua3KnbGli2`, premium `6vrN6hQ8VQSzxvKRLuVdxWM2mpD2`.
 - Phase 4C entitlement smoke was updated to accept both supported premium entitlement sources: `active` from Lemon Squeezy and `manual_active` from admin override.
 
 ## Baseline Test Results
@@ -84,19 +84,21 @@ Concern scale:
 - Focused premium-gating smoke with local server and `BARK_E2E_BASE_URL=http://localhost:4173/index.html`: PASS, 7 passed and 1 signed-in free test skipped because `BARK_E2E_STORAGE_STATE` was not provided. Runnable assertions include signed-out locks, premium setting sanitization, stale entitlement rejection, forced clustering lock, fake success signed-out sign-in prompt, fake success signed-in-like delayed fallback, and canceled URL no-charge copy.
 - `BARK_E2E_BASE_URL=http://localhost:4173/index.html npm run test:e2e:smoke`: PASS, 7 passed and 8 skipped because free/free-b/premium storage-state files were not provided.
 - BUG-012 focused profile order smoke with `BARK_E2E_BASE_URL=http://localhost:4173/index.html`: PASS, 2 passed and 1 signed-in storage-state test skipped.
-- Signed-in storage-state full smoke with free/free duplicate states: 14 passed, 1 failed because `BARK_E2E_STORAGE_STATE` and `BARK_E2E_STORAGE_STATE_B` were the same UID; treated as setup gap, not app regression.
-- Signed-in storage-state full smoke with free and premium distinct states: PASS, 16/16.
+- Signed-in storage-state full smoke with original free/free duplicate states: 14 passed, 1 failed because `BARK_E2E_STORAGE_STATE` and `BARK_E2E_STORAGE_STATE_B` were the same UID; treated as setup gap, not app regression.
+- Signed-in storage-state full smoke with replaced distinct free/free-B/premium states: PASS, 16/16.
+- Focused account-switch premium matrix with replaced distinct free/free-B/premium states: PASS, 4/4.
 - BUG-001 focused achievement permission smoke with signed-in free and premium states: FAIL, 0/2. Both accounts evaluated achievements successfully and rendered Bronze Paw, but owner write/read to `users/{uid}/achievements/bug001RuntimeSmoke` failed with `Missing or insufficient permissions.`
 - BUG-001 supporting rules/function checks: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65.
 - BUG-001 full signed-in e2e smoke with free and premium distinct states: PASS, 16/16.
 - Focused premium-gating smoke with free and premium states: PASS, 9/9.
 - BUG-013 account auth smoke with provider stub and no storage state: PASS, 3 passed and 1 signed-in storage-state skip.
 - BUG-013 account auth smoke with free storage state: PASS, 4/4.
-- BUG-013 required signed-in full smoke with `free-user.json`, `free-user-b.json`, and `premium-user.json`: FAIL, 15/16 because `free-user.json` and `free-user-b.json` are the same UID (`LkevgscKPvPqRg9c5YKKXVqtwv02`); this is the known storage-state setup gap, not a BUG-013 regression.
+- BUG-013 required signed-in full smoke with the old duplicate `free-user-b.json`: FAIL, 15/16 because `free-user.json` and `free-user-b.json` were the same UID (`LkevgscKPvPqRg9c5YKKXVqtwv02`); this was a storage-state setup gap, not a BUG-013 regression.
+- BUG-013 required signed-in full smoke after replacing `free-user-b.json` with UID `iZ4liMaO4denEB6swhua3KnbGli2`: PASS, 16/16.
 - BUG-013 signed-in full smoke rerun with distinct free/premium accounts: PASS, 16/16.
 - BUG-013 focused premium-gating smoke with storage states: PASS, 9/9.
 - BUG-014 account-switch premium matrix smoke: initially FAIL 2/4; A12 reproduced Firebase no-app settings listener error. After fix, PASS 4/4 for A01, A02, A06, A07, A08, and A12 coverage.
-- BUG-014 post-fix suite: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; exact required signed-in e2e smoke with `free-user-b.json` FAIL 15/16 because free/free-b share UID; distinct-account rerun with free/premium PASS 16/16; focused premium-gating smoke PASS 9/9; `git diff --check` PASS after generated-log cleanup.
+- BUG-014 post-fix suite: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; exact required signed-in e2e smoke with the old duplicate `free-user-b.json` FAIL 15/16 because free/free-b shared UID; distinct-account rerun with free/premium PASS 16/16; focused premium-gating smoke PASS 9/9; `git diff --check` PASS after generated-log cleanup. After replacing `free-user-b.json`, exact required signed-in e2e smoke PASS 16/16 and focused matrix PASS 4/4.
 - Phase 4C premium entitlement smoke with free and premium states: initially failed because the premium account was `active/lemon_squeezy` rather than `manual_active/admin_override`; after test update, PASS, 2/2.
 - Phase 4C global search entitlement smoke with free and premium states: PASS, 3/3.
 - Account auth/profile smoke with signed-in free storage state: PASS, 3/3.
@@ -119,7 +121,7 @@ Concern scale:
 - BUG-004 after fix: the same non-premium toggle change is coerced back to false, the toggle is disabled with `aria-disabled="true"`, and storage remains `barkPremiumClustering=false`.
 - BUG-004 verification after test update: signed-out/non-premium forced clicks on both trail buttons reset them to inactive/disabled, global search shows locked copy and does not call the stubbed ORS geocode function, and the signed-in free storage-state test is ready to check trail buttons, global search, premium clustering, paywall/account state, and fake success URL once `BARK_E2E_STORAGE_STATE` exists.
 - BUG-012 after fix: static DOM order is Welcome/Stats, Premium Map Tools, Achievement Vault, Virtual Expedition, Completed Expeditions when visible, Classified Dossier, Global Leaderboard, My Data & Routes, Current Account, admin-only Data Refinery container, Suggest Missing Location, Suggest Improvement, Log Out.
-- Signed-in free and signed-in premium runtime QC now pass with storage states. Premium sign-out lock reset is covered. A true second free-account storage state is still needed if we specifically require free-account-A to free-account-B isolation instead of distinct free-to-premium isolation.
+- Signed-in free, signed-in free-B, and signed-in premium runtime QC now pass with storage states. Premium sign-out lock reset and true free-account-A to free-account-B isolation are covered.
 
 ## Fix Log / QC
 
@@ -141,7 +143,7 @@ Exact behavior before: A12 boot with `barkMapStyle=terrain`, `barkVisitedFilter=
 
 Exact behavior after: The same boot sanitizes to free-safe defaults and produces no auth/premium/settings fatal console error. Cloud autosave simply waits until Firebase is initialized and a current user exists.
 
-Tests run: focused account-switch premium matrix smoke PASS 4/4 after fix; `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; exact required signed-in e2e smoke with `free-user.json`, `free-user-b.json`, and `premium-user.json` FAIL 15/16 because `free-user-b.json` has the same UID as `free-user.json`; signed-in e2e smoke rerun with distinct free/premium accounts PASS 16/16; focused premium-gating smoke PASS 9/9; `git diff --check` PASS after generated-log cleanup.
+Tests run: focused account-switch premium matrix smoke PASS 4/4 after fix; `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; exact required signed-in e2e smoke with the old duplicate `free-user-b.json` FAIL 15/16 because `free-user-b.json` had the same UID as `free-user.json`; signed-in e2e smoke rerun with distinct free/premium accounts PASS 16/16; focused premium-gating smoke PASS 9/9; `git diff --check` PASS after generated-log cleanup. After replacing `free-user-b.json`, exact required signed-in e2e smoke PASS 16/16 and focused account-switch premium matrix PASS 4/4.
 
 Risk: Cloud settings autosave can start slightly later during initial boot, but only until Firebase/Auth exists. User-triggered save still requires a signed-in user.
 
@@ -175,7 +177,7 @@ Exact behavior before: After Switch Account, the next Google popup could reuse t
 
 Exact behavior after: Switch Account signs out, sets `window.BARK.auth.forceGoogleAccountChooserOnNextSignIn`, and returns the user to sign-in mode. The next Google sign-in creates the provider through `createGoogleProvider({ forceAccountChooser: true })`, calls `provider.setCustomParameters({ prompt: 'select_account' })`, clears the one-shot flag immediately, and calls `signInWithPopup(provider)`. Normal Google sign-in uses the default provider, and email/password sign-in is unchanged.
 
-Tests run: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; account auth smoke without storage PASS 3 passed/1 signed-in skip; account auth smoke with free storage PASS 4/4; required full smoke with free/free-b/premium storage FAIL 15/16 due duplicate free/free-b UID setup; distinct-account full smoke with free/premium PASS 16/16; focused premium-gating smoke PASS 9/9; `git diff --check` PASS after generated-log cleanup.
+Tests run: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; account auth smoke without storage PASS 3 passed/1 signed-in skip; account auth smoke with free storage PASS 4/4; required full smoke with old duplicate free/free-b/premium storage FAIL 15/16 due duplicate free/free-b UID setup; distinct-account full smoke with free/premium PASS 16/16; focused premium-gating smoke PASS 9/9; `git diff --check` PASS after generated-log cleanup. After replacing `free-user-b.json`, required full smoke PASS 16/16.
 
 Risk: Manual Google OAuth chooser behavior still needs a human browser check because Playwright cannot safely automate the real Google account picker. The code does not clear cookies, localStorage, sessionStorage, or Google sessions.
 
@@ -197,7 +199,7 @@ Manual QC checklist:
 
 Manual QC result: Pending.
 
-Remaining risk: `playwright/.auth/free-user-b.json` still needs to be regenerated with a truly different free UID for the required free/free-b account-switch smoke to pass without the premium account as the second distinct account.
+Remaining risk: Real Google chooser visual confirmation is still pending; free/free storage-state isolation now passes with distinct UIDs.
 
 Status update in tracker: BUG-013 is `FIXED` with `PARTIAL PASS` until manual Google chooser verification confirms the real account picker appears.
 
@@ -333,7 +335,7 @@ Exact behavior after: `settingsController` classifies `premiumClusteringEnabled`
 
 Tests run: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; `npm run test:functions:emulator` PASS 9/9; focused premium-gating smoke PASS 4/4 runnable and 1 signed-in free skip; `npm run test:e2e:smoke` exit 0 with 12/12 skipped for missing env.
 
-Risk: The two-free-account isolation test still needs a second distinct free account, but signed-in free entitlement-gating surfaces now pass with storage state.
+Risk: Signed-in free entitlement-gating surfaces and two-free-account isolation now pass with storage states.
 
 Rollback plan: Revert the BUG-004 fix commit; this restores prior settings write behavior.
 
@@ -377,7 +379,7 @@ Evidence: Local runtime probe reproduced `isPremium: true` before the fix and `i
 
 Manual steps: Boot signed-out app, force `premiumService.setEntitlement({ premium: true, status: 'manual_active' }, { uid: 'previous-premium-user' })`, confirm `premiumService.isPremium() === false`, controls remain locked, trail buttons remain disabled, and no storage or fake-success unlock path is involved.
 
-Remaining risk: A true second-free-account isolation run remains pending because `free-user.json` and `free-user-b.json` currently share the same UID. Free-to-premium and premium-to-sign-out entitlement transitions pass with distinct free/premium accounts.
+Remaining risk: None known for BUG-003 account isolation after replacing `free-user-b.json` with a distinct free UID. Real Google chooser manual QC remains tracked under BUG-013.
 
 Status update in tracker: BUG-003 is `QC PASSED` for premium/free/sign-out entitlement leakage.
 
