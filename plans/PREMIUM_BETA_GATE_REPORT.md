@@ -10,11 +10,14 @@ NO-GO for paid/controlled premium beta until premium product rules are enforced.
 
 The app is closer and auth/payment/rules are much safer, but product-tier enforcement is incomplete. This report is downgraded from the previous controlled-beta GO because free/premium feature boundaries still need a product-rule audit and targeted fixes.
 
-Known blockers:
+Known blockers after the BUG-015 follow-up fix:
 
-- BUG-015: Free visited limit of 20 parks is not enforced.
 - BUG-016: Route generation premium gating/enforcement is unclear or incomplete.
 - BUG-017: Premium/free product rule audit needed for all paid surfaces.
+
+Resolved during this downgrade follow-up:
+
+- BUG-015: Free visited limit of 20 parks is now enforced in the client/runtime visit-add owner for signed-in free users.
 
 ## Deployed Firestore Rules
 
@@ -69,7 +72,7 @@ Current gate did not run another checkout or touch live Lemon Squeezy. Payment/b
 | `npm run test:rules` | PASS 17/17 |
 | `npm --prefix functions test` | PASS 65/65 |
 | `npm run test:functions:emulator` | PASS 9/9 |
-| signed-in `npm run test:e2e:smoke` | PASS 16/16 |
+| signed-in `npm run test:e2e:smoke` | PASS 21/21 after adding BUG-015 product-rule smoke |
 | `git diff --check` | PASS |
 
 Signed-in smoke used:
@@ -95,12 +98,13 @@ BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json"
 - BUG-012: Signed-in profile card order on mobile improved. QC PASSED.
 - BUG-013: Google switch-account chooser provider prompt implemented. Fixed, manual chooser visual QC still pending.
 - BUG-014: Settings autosave could call Firebase Auth before app initialization. QC PASSED.
+- BUG-015: Free visited limit of 20 parks. QC PASSED for manual mark, GPS check-in, fake localStorage bypass, removal at limit, premium 21st visit, and premium-to-free limit reapplication.
 
 ## Remaining Risks
 
-- Free users may be able to mark more than 20 parks visited.
 - Route generation may not be clearly disabled or consistently blocked for free users.
 - Some premium/free product rules may still be visual-only gates rather than runtime/backend enforced gates.
+- The free visited limit is currently client/runtime enforced in `checkinService`; a malicious client could still attempt direct `visitedPlaces` writes until a future callable/backend quota gate owns visit additions.
 - BUG-013 still needs human visual confirmation that Google shows the account chooser after Switch Account.
 - One real Lemon Squeezy test-mode checkout is still useful as a final end-to-end sanity check after all auth/UI fixes.
 - Mobile profile/paywall visual skim is still recommended on a real narrow viewport.
@@ -129,7 +133,7 @@ BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json"
 
 ## Gate Notes
 
-- This gate is downgraded until BUG-015, BUG-016, and BUG-017 are resolved or explicitly accepted.
+- This gate remains downgraded until BUG-016 and BUG-017 are resolved or explicitly accepted.
 - Do not deploy functions as part of this gate.
 - Do not enable live Lemon Squeezy or collect live money.
 - Do not commit Playwright storage states.

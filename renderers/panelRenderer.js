@@ -310,6 +310,9 @@ function renderMarkerClickPanel(context) {
                             alert("Location permission denied. GPS is required for verified check-ins.");
                         } else if (checkinResult.error === 'LOCATION_FAILED') {
                             alert("Failed to get location. Try again later.");
+                        } else if (checkinResult.error === 'FREE_VISIT_LIMIT') {
+                            const limit = checkinResult.limit || 20;
+                            alert(`Free plan limit reached. Free users can mark up to ${limit} parks visited. Unmark a park or upgrade to keep adding visited parks.`);
                         } else {
                             alert("Check-in could not be verified. Try again later.");
                         }
@@ -333,6 +336,9 @@ function renderMarkerClickPanel(context) {
                     if (!visitResult.success) {
                         if (visitResult.error === 'UNCHECK_LOCKED') {
                             alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
+                        } else if (visitResult.error === 'FREE_VISIT_LIMIT') {
+                            const limit = visitResult.limit || 20;
+                            alert(`Free plan limit reached. Free users can mark up to ${limit} parks visited. Unmark a park or upgrade to keep adding visited parks.`);
                         } else if (visitResult.error !== 'ALREADY_VERIFIED') {
                             alert("Check-in service is unavailable. Try again later.");
                         }

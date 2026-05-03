@@ -8,8 +8,8 @@ Status: Initial audit opened after premium beta gate downgrade.
 
 | ID | Rule | Expected Free Behavior | Expected Premium Behavior | UI Gated? | Runtime Gated? | Backend/Rules Gated? | Test Coverage | Status |
 |---|---|---|---|---|---|---|---|---|
-| R01 | Free users can mark up to 20 parks visited. | Can add visits until exactly 20 official parks are visited; adding the 21st is blocked with clear copy. | Can exceed 20 visited parks. | Unknown | Unknown | Not yet available unless moved to backend/callable. | Needed for free 19->20, free 20->21 blocked, remove/edit allowed. | BUG-015 FOUND |
-| R02 | Premium users can mark more than 20 parks visited. | Not applicable. | Can add the 21st and beyond. | Unknown | Unknown | Not yet available unless moved to backend/callable. | Needed. | BUG-015 FOUND |
+| R01 | Free users can mark up to 20 parks visited. | Can add visits until exactly 20 official parks are visited; adding the 21st is blocked with clear copy. | Can exceed 20 visited parks. | Yes: panel shows a clear limit message when a free add is blocked. | Yes: `checkinService` blocks manual and GPS additions at 20 for signed-in non-premium users. | No count-aware backend gate yet; future callable/backend write path recommended for hard quota enforcement. | `bug015-free-visited-limit-smoke.spec.js` covers free 19->20 allowed, free 20->21 blocked, fake localStorage premium bypass blocked, removal at limit allowed, and GPS blocked at 20. | BUG-015 QC PASSED |
+| R02 | Premium users can mark more than 20 parks visited. | Not applicable. | Can add the 21st and beyond. | Not blocked. | Yes: `premiumService.isPremium()` bypasses the free limit only for the current entitled user. | No count-aware backend gate yet; entitlement remains read-only client state backed by Firestore/backend. | `bug015-free-visited-limit-smoke.spec.js` covers premium 20->21 allowed and a following free context re-applying the limit. | BUG-015 QC PASSED |
 | R03 | Free users cannot use premium route generation / ORS route tools. | Route generation should appear disabled/upgrade-gated and click/action should not call ORS. | Can route through premium flow. | Unknown | Unknown | Backend callable is expected to reject free users. | Existing ORS callable tests; UI/runtime audit needed. | BUG-016 FOUND |
 | R04 | Premium users can use premium route generation. | Not applicable. | Route generation works through premium callable/backend path. | Unknown | Unknown | Existing ORS callable allows active/manual_active. | Existing function tests; UI/runtime audit needed. | BUG-016 FOUND |
 | R05 | Free users cannot use global town/city search if it spends ORS geocode quota. | Global search should be locked/upgrade-gated and no ORS geocode request should be made. | Can use global search. | Likely | Likely | Backend callable rejects free users. | Existing premium-gating smoke and functions tests; audit remaining paths. | AUDIT PENDING |
@@ -27,5 +27,6 @@ Status: Initial audit opened after premium beta gate downgrade.
 ## Notes
 
 - This audit is opened because the previous beta gate covered auth/payment/security better than product-tier rules.
-- BUG-015 and BUG-016 are blockers for paid/controlled premium beta.
+- BUG-015 is now client/runtime QC passed, with a documented backend hard-quota gap if visited writes move behind a callable later.
+- BUG-016 remains a blocker for paid/controlled premium beta.
 - Backend/rules enforcement may not be feasible for every UI preference, but any quota/cost/data product rule must have more than a visual-only gate.

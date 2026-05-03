@@ -4,6 +4,8 @@
 window.BARK = window.BARK || {};
 window.BARK.services = window.BARK.services || {};
 
+const FREE_VISIT_LIMIT = 20;
+
 function getLocationCoords(userLocation) {
     const source = userLocation && userLocation.coords ? userLocation.coords : userLocation;
     if (!source) return null;
@@ -21,6 +23,10 @@ function getFirebaseService() {
 
 function getVaultRepo() {
     return window.BARK.repos && window.BARK.repos.VaultRepo;
+}
+
+function getPremiumService() {
+    return window.BARK.services && window.BARK.services.premium;
 }
 
 function refreshVisitedCache(reason) {
@@ -107,6 +113,37 @@ function canRestoreVaultSnapshot(token, expectedUid) {
 function getCurrentFirebaseUid() {
     const user = getCurrentFirebaseUser();
     return user ? user.uid : null;
+}
+
+function isCurrentUserPremium() {
+    const premiumService = getPremiumService();
+    return Boolean(
+        premiumService &&
+        typeof premiumService.isPremium === 'function' &&
+        premiumService.isPremium()
+    );
+}
+
+function getCurrentVisitCount() {
+    return getCheckinVisitedPlacesArray()
+        .filter(place => place && place.id !== undefined && place.id !== null && place.id !== '')
+        .length;
+}
+
+function getFreeVisitLimitBlock(visitedEntries) {
+    if (!getCurrentFirebaseUser()) return null;
+    if (isCurrentUserPremium()) return null;
+    if (Array.isArray(visitedEntries) && visitedEntries.length > 0) return null;
+
+    const currentCount = getCurrentVisitCount();
+    if (currentCount < FREE_VISIT_LIMIT) return null;
+
+    return {
+        success: false,
+        error: 'FREE_VISIT_LIMIT',
+        limit: FREE_VISIT_LIMIT,
+        currentCount
+    };
 }
 
 function createVisitRecord(parkData, verified) {
@@ -227,9 +264,11 @@ async function verifyGpsCheckin(parkData) {
         tokenUid = getCurrentFirebaseUid();
         token = vaultRepo.snapshot();
 
-        const existingEntry = typeof window.BARK.getVisitedPlaceEntry === 'function'
-            ? window.BARK.getVisitedPlaceEntry(parkData)
-            : null;
+        const visitedEntries = getCheckinVisitedPlaceEntries(parkData);
+        const limitBlock = getFreeVisitLimitBlock(visitedEntries);
+        if (limitBlock) return limitBlock;
+
+        const existingEntry = visitedEntries.length > 0 ? visitedEntries[0] : null;
         const touchedIds = [parkData.id];
         if (existingEntry && existingEntry.id !== parkData.id) {
             touchedIds.push(existingEntry.id);
@@ -307,6 +346,9 @@ async function markAsVisited(parkData) {
             await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
             return { success: true, action: 'removed' };
         }
+
+        const limitBlock = getFreeVisitLimitBlock(visitedEntries);
+        if (limitBlock) return limitBlock;
 
         const canSyncProgress = typeof firebaseService.syncUserProgress === 'function';
         const canUpdateVisitedPlaces = typeof firebaseService.updateCurrentUserVisitedPlaces === 'function';
