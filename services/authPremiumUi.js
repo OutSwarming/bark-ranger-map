@@ -8,6 +8,34 @@ window.BARK = window.BARK || {};
         mapStyle: 'default',
         visitedFilter: 'all'
     };
+    const PREMIUM_MAP_STYLES = new Set(['terrain', 'satellite', 'streets']);
+    const PREMIUM_VISITED_FILTERS = new Set(['visited', 'unvisited']);
+
+    function isPremiumActive() {
+        const premiumService = window.BARK && window.BARK.services && window.BARK.services.premium;
+        return Boolean(
+            premiumService &&
+            typeof premiumService.isPremium === 'function' &&
+            premiumService.isPremium()
+        );
+    }
+
+    function getAllowedMapStyle(style) {
+        if (!PREMIUM_MAP_STYLES.has(style)) return style || PREMIUM_RUNTIME_DEFAULTS.mapStyle;
+        return isPremiumActive() ? style : PREMIUM_RUNTIME_DEFAULTS.mapStyle;
+    }
+
+    function getAllowedVisitedFilter(filter) {
+        if (!PREMIUM_VISITED_FILTERS.has(filter)) return filter || PREMIUM_RUNTIME_DEFAULTS.visitedFilter;
+        return isPremiumActive() ? filter : PREMIUM_RUNTIME_DEFAULTS.visitedFilter;
+    }
+
+    function openPremiumPrompt(source) {
+        const paywall = window.BARK && window.BARK.paywall;
+        if (paywall && typeof paywall.openPaywall === 'function') {
+            paywall.openPaywall({ source });
+        }
+    }
 
     function persistLocalValue(key, value) {
         try {
@@ -93,6 +121,10 @@ window.BARK = window.BARK || {};
     }
 
     window.BARK.authPremiumUi = {
-        applyPremiumGating
+        applyPremiumGating,
+        getAllowedMapStyle,
+        getAllowedVisitedFilter,
+        isPremiumActive,
+        openPremiumPrompt
     };
 })();

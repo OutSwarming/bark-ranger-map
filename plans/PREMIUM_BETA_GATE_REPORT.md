@@ -1,23 +1,21 @@
 # Premium Beta Gate Report
 
-Date: 2026-05-03 03:47 EDT
+Date: 2026-05-03 04:30 EDT
 Scope: New premium/internal app only.
-Current app commit before this report: `4d50c1e`
+Current app commit before this audit completion: `f457040`
 
 ## Verdict
 
-NO-GO for paid/controlled premium beta until premium product rules are enforced.
+GO for controlled premium beta after the manual checks below.
 
-The app is closer and auth/payment/rules are much safer, but product-tier enforcement is incomplete. This report is downgraded from the previous controlled-beta GO because free/premium feature boundaries still need a product-rule audit and targeted fixes.
-
-Known blocker after the BUG-015/BUG-016 follow-up fixes:
-
-- BUG-017: Premium/free product rule audit needed for all paid surfaces.
+The app is closer and auth/payment/rules are much safer. The paid/free product-tier audit for R05-R12 is now complete, and the one additional product-rule gap found during audit was fixed as BUG-020.
 
 Resolved during this downgrade follow-up:
 
 - BUG-015: Free visited limit of 20 parks is now enforced in the client/runtime visit-add owner for signed-in free users.
 - BUG-016: Route generation is now visually and runtime gated for free users, while premium users can still reach the ORS directions path.
+- BUG-017: Premium product surface audit for R05-R12 is complete and QC passed.
+- BUG-020: Free users can no longer force premium map style/visited filter state through DOM events or fake storage.
 
 ## Deployed Firestore Rules
 
@@ -72,7 +70,8 @@ Current gate did not run another checkout or touch live Lemon Squeezy. Payment/b
 | `npm run test:rules` | PASS 17/17 |
 | `npm --prefix functions test` | PASS 65/65 |
 | `npm run test:functions:emulator` | PASS 9/9 |
-| signed-in `npm run test:e2e:smoke` | PASS 23/23 after adding BUG-015 and BUG-016 product-rule smoke |
+| focused BUG-017 product-rule audit smoke | PASS 2/2 |
+| signed-in `npm run test:e2e:smoke` | PASS 25/25 after adding BUG-015, BUG-016, and BUG-017 product-rule smoke |
 | `git diff --check` | PASS |
 
 Signed-in smoke used:
@@ -100,14 +99,16 @@ BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json"
 - BUG-014: Settings autosave could call Firebase Auth before app initialization. QC PASSED.
 - BUG-015: Free visited limit of 20 parks. QC PASSED for manual mark, GPS check-in, fake localStorage bypass, removal at limit, premium 21st visit, and premium-to-free limit reapplication.
 - BUG-016: Route generation premium gate. QC PASSED for free disabled UI, forced-click runtime guard, no free ORS call, premium enabled UI, and premium ORS directions path.
+- BUG-017: Premium product rules audit. QC PASSED for global search, premium clustering, premium map styles/visited filters, virtual/completed trail controls, fake storage bypass, and free/premium account behavior.
+- BUG-020: Free forced premium map/filter runtime state. QC PASSED.
 
 ## Remaining Risks
 
-- Some premium/free product rules may still be visual-only gates rather than runtime/backend enforced gates.
 - The free visited limit is currently client/runtime enforced in `checkinService`; a malicious client could still attempt direct `visitedPlaces` writes until a future callable/backend quota gate owns visit additions.
 - BUG-013 still needs human visual confirmation that Google shows the account chooser after Switch Account.
 - One real Lemon Squeezy test-mode checkout is still useful as a final end-to-end sanity check after all auth/UI fixes.
 - Mobile profile/paywall visual skim is still recommended on a real narrow viewport.
+- Android search BUG-019 should be checked separately if still reproducible.
 - Trip planner stop persistence across reload remains explicitly unsupported in the current runtime; styling/visit persistence is covered.
 - Worktree had unrelated dirty files during this gate: `functions/index.js`, `functions/tests/checkout-session.test.js`, `plans/BETA_TESTER_7PM_MEETING_CHECKLIST.md`, `plans/PHASE_4E_LEMONSQUEEZY_CHECKOUT_PLAN.md`. They were not part of this report commit.
 
@@ -133,7 +134,7 @@ BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json"
 
 ## Gate Notes
 
-- This gate remains downgraded until BUG-017 is resolved or explicitly accepted.
+- This gate is not approval to deploy functions, enable live payments, or collect live money.
 - Do not deploy functions as part of this gate.
 - Do not enable live Lemon Squeezy or collect live money.
 - Do not commit Playwright storage states.

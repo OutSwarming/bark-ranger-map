@@ -148,13 +148,14 @@ window.BARK.initSettings = function initSettings() {
 
     const buildCloudSettingsPayload = () => {
         enforcePremiumOnlySettings();
+        const isPremium = isPremiumEntitlementActive();
 
         const settingsPayload = {
             rememberMapPosition: window.rememberMapPosition || false,
             startNationalView: window.startNationalView || false,
             ultraLowEnabled: window.ultraLowEnabled || false,
-            mapStyle: localStorage.getItem('barkMapStyle') || 'default',
-            visitedFilter: localStorage.getItem('barkVisitedFilter') || 'all',
+            mapStyle: isPremium ? (localStorage.getItem('barkMapStyle') || 'default') : 'default',
+            visitedFilter: isPremium ? (localStorage.getItem('barkVisitedFilter') || 'all') : 'all',
             settingsUpdatedAt: Date.now()
         };
 

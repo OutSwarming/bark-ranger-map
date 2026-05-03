@@ -284,7 +284,26 @@ L.control.zoom({
 
 // ====== MAP STYLE / TILE LAYERS ======
 const mapStyleSelect = document.getElementById('map-style-select');
-const savedMapStyle = localStorage.getItem('barkMapStyle') || 'default';
+function getAllowedMapStyle(style) {
+    const authPremiumUi = window.BARK && window.BARK.authPremiumUi;
+    if (authPremiumUi && typeof authPremiumUi.getAllowedMapStyle === 'function') {
+        return authPremiumUi.getAllowedMapStyle(style);
+    }
+    return style || 'default';
+}
+
+function openPremiumMapStylePrompt() {
+    const authPremiumUi = window.BARK && window.BARK.authPremiumUi;
+    if (authPremiumUi && typeof authPremiumUi.openPremiumPrompt === 'function') {
+        authPremiumUi.openPremiumPrompt('premium-map-style');
+    }
+}
+
+const requestedSavedMapStyle = localStorage.getItem('barkMapStyle') || 'default';
+const savedMapStyle = getAllowedMapStyle(requestedSavedMapStyle);
+if (savedMapStyle !== requestedSavedMapStyle) {
+    localStorage.setItem('barkMapStyle', savedMapStyle);
+}
 
 let currentTileLayer;
 const loadLayer = (style) => {
@@ -306,7 +325,12 @@ loadLayer(savedMapStyle);
 if (mapStyleSelect) {
     mapStyleSelect.value = savedMapStyle;
     mapStyleSelect.addEventListener('change', (e) => {
-        const style = e.target.value;
+        const requestedStyle = e.target.value;
+        const style = getAllowedMapStyle(requestedStyle);
+        if (style !== requestedStyle) {
+            e.target.value = style;
+            openPremiumMapStylePrompt();
+        }
         localStorage.setItem('barkMapStyle', style);
         loadLayer(style);
     });

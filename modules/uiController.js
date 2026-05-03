@@ -304,7 +304,20 @@ const visitedFilterEl = document.getElementById('visited-filter');
 if (visitedFilterEl) {
     visitedFilterEl.value = window.BARK.visitedFilterState;
     visitedFilterEl.addEventListener('change', (e) => {
-        window.BARK.visitedFilterState = e.target.value;
+        const requestedFilter = e.target.value;
+        const authPremiumUi = window.BARK && window.BARK.authPremiumUi;
+        const allowedFilter = authPremiumUi && typeof authPremiumUi.getAllowedVisitedFilter === 'function'
+            ? authPremiumUi.getAllowedVisitedFilter(requestedFilter)
+            : requestedFilter;
+
+        if (allowedFilter !== requestedFilter) {
+            e.target.value = allowedFilter;
+            if (authPremiumUi && typeof authPremiumUi.openPremiumPrompt === 'function') {
+                authPremiumUi.openPremiumPrompt('premium-visited-filter');
+            }
+        }
+
+        window.BARK.visitedFilterState = allowedFilter;
         localStorage.setItem('barkVisitedFilter', window.BARK.visitedFilterState);
         window.syncState();
     });
