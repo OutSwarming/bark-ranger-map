@@ -4,6 +4,47 @@
 window.BARK = window.BARK || {};
 
 (function () {
+    const PREMIUM_RUNTIME_DEFAULTS = {
+        mapStyle: 'default',
+        visitedFilter: 'all'
+    };
+
+    function persistLocalValue(key, value) {
+        try {
+            localStorage.setItem(key, value);
+        } catch (error) {
+            console.error(`[authService] failed to persist premium runtime default "${key}":`, error);
+        }
+    }
+
+    function setPremiumClusteringDefault() {
+        const settings = window.BARK && window.BARK.settings;
+        if (settings && typeof settings.set === 'function') {
+            settings.set('premiumClusteringEnabled', false);
+            return;
+        }
+
+        window.premiumClusteringEnabled = false;
+        persistLocalValue('barkPremiumClustering', 'false');
+    }
+
+    function applyNonPremiumRuntimeDefaults() {
+        window.BARK.visitedFilterState = PREMIUM_RUNTIME_DEFAULTS.visitedFilter;
+        persistLocalValue('barkVisitedFilter', PREMIUM_RUNTIME_DEFAULTS.visitedFilter);
+        persistLocalValue('barkMapStyle', PREMIUM_RUNTIME_DEFAULTS.mapStyle);
+        setPremiumClusteringDefault();
+
+        if (typeof window.BARK.loadLayer === 'function') {
+            window.BARK.loadLayer(PREMIUM_RUNTIME_DEFAULTS.mapStyle);
+        }
+        if (typeof window.BARK.syncSettingsControls === 'function') {
+            window.BARK.syncSettingsControls();
+        }
+        if (typeof window.syncState === 'function') {
+            window.syncState();
+        }
+    }
+
     function setTrailButtonState(buttons, isUnlocked) {
         buttons.forEach(btn => {
             if (isUnlocked) {
@@ -43,6 +84,9 @@ window.BARK = window.BARK || {};
             }
 
             setTrailButtonState(trailButtons, trailsUnlocked);
+            if (!isPremium && options.sanitizePremiumState === true) {
+                applyNonPremiumRuntimeDefaults();
+            }
         } catch (error) {
             console.error("[authService] premium gating failed:", error);
         }

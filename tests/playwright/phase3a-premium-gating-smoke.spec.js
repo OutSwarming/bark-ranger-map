@@ -7,7 +7,11 @@ const STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
 const DEFAULT_BASE_URL = 'http://localhost:4173/index.html';
 const DEFAULT_STORAGE_STATE = 'node_modules/.cache/bark-e2e/storage-state.json';
 
-const missingEnv = [
+const missingBaseEnv = [
+    !BASE_URL ? 'BARK_E2E_BASE_URL' : null,
+].filter(Boolean);
+
+const missingSignedInEnv = [
     !BASE_URL ? 'BARK_E2E_BASE_URL' : null,
     !STORAGE_STATE ? 'BARK_E2E_STORAGE_STATE' : null
 ].filter(Boolean);
@@ -15,10 +19,10 @@ const missingEnv = [
 const storageStatePath = STORAGE_STATE ? path.resolve(STORAGE_STATE) : null;
 const storageStateExists = storageStatePath ? fs.existsSync(storageStatePath) : false;
 
-function buildEnvHelp() {
+function buildEnvHelp(missing = missingSignedInEnv) {
     return [
         'Phase 3A premium gating smoke tests are skipped because required configuration is missing.',
-        `Missing: ${missingEnv.join(', ')}`,
+        `Missing: ${missing.join(', ')}`,
         '',
         'Local setup:',
         '  python3 -m http.server 4173 --bind localhost',
@@ -34,11 +38,13 @@ function buildEnvHelp() {
     ].join('\n');
 }
 
-if (missingEnv.length > 0) {
-    console.warn(buildEnvHelp());
+if (missingBaseEnv.length > 0) {
+    console.warn(buildEnvHelp(missingBaseEnv));
+} else if (missingSignedInEnv.length > 0) {
+    console.warn(buildEnvHelp(missingSignedInEnv));
 }
 
-test.skip(missingEnv.length > 0, buildEnvHelp());
+test.skip(missingBaseEnv.length > 0, buildEnvHelp(missingBaseEnv));
 
 test.beforeAll(() => {
     if (!BASE_URL) return;
@@ -169,7 +175,55 @@ test.describe('Phase 3A premium gating smoke', () => {
         await expectTrailButtonsLocked(page);
     });
 
+    test('signed-out app sanitizes stored premium map surfaces', async ({ browser }) => {
+        const context = await browser.newContext();
+        await context.addInitScript(() => {
+            window.localStorage.setItem('barkMapStyle', 'terrain');
+            window.localStorage.setItem('barkVisitedFilter', 'visited');
+            window.localStorage.setItem('barkPremiumClustering', 'true');
+            window.localStorage.setItem('premiumLoggedIn', 'true');
+        });
+
+        const page = await context.newPage();
+        try {
+            await waitForSignedOutApp(page);
+            await expectLowRiskPremiumControlsLocked(page);
+            await expectTrailButtonsLocked(page);
+            await page.waitForFunction(() => {
+                const styleEl = document.getElementById('map-style-select');
+                const filterEl = document.getElementById('visited-filter');
+                return Boolean(
+                    styleEl &&
+                    filterEl &&
+                    styleEl.value === 'default' &&
+                    filterEl.value === 'all' &&
+                    window.BARK &&
+                    window.BARK.visitedFilterState === 'all' &&
+                    window.premiumClusteringEnabled === false &&
+                    window.localStorage.getItem('barkMapStyle') === 'default' &&
+                    window.localStorage.getItem('barkVisitedFilter') === 'all' &&
+                    window.localStorage.getItem('barkPremiumClustering') === 'false'
+                );
+            }, { timeout: 30000 });
+
+            const state = await page.evaluate(() => ({
+                isPremium: window.BARK.services.premium.isPremium(),
+                premiumLoggedIn: window.localStorage.getItem('premiumLoggedIn'),
+                attribution: document.querySelector('.leaflet-control-attribution')?.textContent || '',
+                tileUrls: Array.from(document.querySelectorAll('img.leaflet-tile')).map(img => img.src)
+            }));
+
+            expect(state.isPremium, 'premiumLoggedIn localStorage must not unlock premium').toBe(false);
+            expect(state.premiumLoggedIn).toBe('true');
+            expect(state.attribution).not.toContain('OpenTopoMap');
+            expect(state.tileUrls.some(url => url.includes('opentopomap'))).toBe(false);
+        } finally {
+            await context.close();
+        }
+    });
+
     test('signed-in free app keeps entitlement-gated controls locked', async ({ browser }) => {
+        test.skip(missingSignedInEnv.length > 0, buildEnvHelp(missingSignedInEnv));
         const context = await browser.newContext({ storageState: storageStatePath });
         const page = await context.newPage();
         try {

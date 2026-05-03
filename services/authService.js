@@ -99,6 +99,15 @@ function syncCloudSettingsControls(registry) {
     syncStandaloneCloudSettingControls();
 }
 
+function isPremiumEntitlementActive() {
+    const premiumService = getPremiumService();
+    return Boolean(
+        premiumService &&
+        typeof premiumService.isPremium === 'function' &&
+        premiumService.isPremium()
+    );
+}
+
 function getCloudSettingsRevision(settings) {
     if (!settings) return 0;
 
@@ -126,6 +135,7 @@ function handleCloudSettingsHydration(data, metadata = {}) {
         }
 
         const s = data.settings;
+        const isPremium = isPremiumEntitlementActive();
         const cloudRevision = getCloudSettingsRevision(s);
         const lastAppliedRevision = Number(window._lastAppliedCloudSettingsRevision || 0);
         const savingRevision = Number(window._savingCloudSettingsRevision || 0);
@@ -154,7 +164,7 @@ function handleCloudSettingsHydration(data, metadata = {}) {
         }
 
         // standardClustering default: off, matching the public Google My Maps-like view.
-        const cloudPremiumClustering = s.premiumClustering || false;
+        const cloudPremiumClustering = isPremium ? (s.premiumClustering || false) : false;
         const cloudStandardClustering = s.standardClustering === undefined
             ? false
             : s.standardClustering === true;
@@ -188,17 +198,19 @@ function handleCloudSettingsHydration(data, metadata = {}) {
 
         syncCloudSettingsControls(registry);
 
-        if (s.mapStyle) {
-            localStorage.setItem('barkMapStyle', s.mapStyle);
+        if (s.mapStyle || !isPremium) {
+            const mapStyle = isPremium ? s.mapStyle : 'default';
+            localStorage.setItem('barkMapStyle', mapStyle);
             const styleEl = document.getElementById('map-style-select');
-            if (styleEl) styleEl.value = s.mapStyle;
-            if (typeof window.BARK.loadLayer === 'function') window.BARK.loadLayer(s.mapStyle);
+            if (styleEl) styleEl.value = mapStyle;
+            if (typeof window.BARK.loadLayer === 'function') window.BARK.loadLayer(mapStyle);
         }
-        if (s.visitedFilter) {
-            localStorage.setItem('barkVisitedFilter', s.visitedFilter);
+        if (s.visitedFilter || !isPremium) {
+            const visitedFilter = isPremium ? s.visitedFilter : 'all';
+            localStorage.setItem('barkVisitedFilter', visitedFilter);
             const filterEl = document.getElementById('visited-filter');
-            if (filterEl) filterEl.value = s.visitedFilter;
-            window.BARK.visitedFilterState = s.visitedFilter;
+            if (filterEl) filterEl.value = visitedFilter;
+            window.BARK.visitedFilterState = visitedFilter;
         }
 
         window.BARK.applyGlobalStyles();
@@ -386,7 +398,10 @@ function stopUserSnapshotSubscription() {
 function handlePremiumGating(isPremium, options = {}) {
     const premiumUi = window.BARK.authPremiumUi;
     if (premiumUi && typeof premiumUi.applyPremiumGating === 'function') {
-        premiumUi.applyPremiumGating(isPremium === true, { reason: options.reason || null });
+        premiumUi.applyPremiumGating(isPremium === true, {
+            reason: options.reason || null,
+            sanitizePremiumState: options.sanitizePremiumState === true
+        });
     }
 }
 
@@ -424,7 +439,20 @@ function refreshPremiumUiFromEntitlement(reason) {
     const isPremium = premiumService && typeof premiumService.isPremium === 'function'
         ? premiumService.isPremium()
         : false;
-    handlePremiumGating(isPremium, { reason });
+    handlePremiumGating(isPremium, {
+        reason,
+        sanitizePremiumState: shouldSanitizePremiumRuntime(reason, isPremium)
+    });
+}
+
+function shouldSanitizePremiumRuntime(reason, isPremium) {
+    if (isPremium) return false;
+    return [
+        'auth-signed-out',
+        'auth-user-changed',
+        'auth-user-snapshot',
+        'auth-user-snapshot-missing'
+    ].includes(reason);
 }
 
 function setGuestDefaultSetting(key, value) {
