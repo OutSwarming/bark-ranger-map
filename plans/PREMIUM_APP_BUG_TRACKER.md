@@ -2,7 +2,7 @@
 
 Date: 2026-05-03
 Branch: main
-Current commit: fef6b13fbf4e21cdb79e8aed88d766240d532b67 (before BUG-001 runtime QC update)
+Current commit: 17131f8b0e99b54951f3a013f5be92f839e3c917 (before BUG-013 auth UX fix)
 Scope: New premium/internal app only.
 
 ## Status Legend
@@ -39,6 +39,7 @@ Seeded as BUG-001 through BUG-010 in the table below. BUG-011 was added from sta
 | BUG-010 | Old localStorage premium bypass must not exist | Premium entitlement/runtime | P0 | 2 | 5 | Grep found no app-side `premiumLoggedIn`, `checkout=success`, `provider=lemonsqueezy`, or storage-backed `setEntitlement()` premium grant path. Focused smoke kept `premiumLoggedIn=true` while `premiumService.isPremium()` stayed false. | Grep for storage, URL checkout, premium predicates, entitlement setters. | Legacy test/dev bypass code may still be reachable. | `services`, `modules`, `renderers`, `state`, `core`, `index.html` |  | PASS | QC PASSED |
 | BUG-011 | Non-premium users can inherit premium map settings from localStorage/cloud settings | Premium entitlement/runtime | P1 | 5 | 4 | Reproduced: with `barkMapStyle=terrain`, `barkVisitedFilter=visited`, and `barkPremiumClustering=true`, signed-out/non-premium boot kept OpenTopoMap tiles, visited-only filter, and premium clustering active while controls were locked. Fixed by sanitizing non-premium runtime defaults and blocking premium cloud settings for non-premium users; signed-in free storage-state QC now passes. | Seed localStorage premium map/filter/clustering values, boot signed-out/free, and inspect active layer/filter/clustering while premium controls are locked. | Premium-off gating updated controls but did not sanitize premium-owned runtime settings; cloud hydration could reapply premium settings for free users. | `services/authPremiumUi.js`, `services/authService.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js` | This fix commit | PASS | QC PASSED |
 | BUG-012 | Profile signed-in card order is confusing on mobile | Layout/UI logic | P2 | 5 | 3 | User-reported mobile order put Current Account before profile value content. Fixed DOM order so Premium, Achievement Vault, Virtual Expedition, Dossier, Leaderboard, and My Data & Routes appear before account/admin/footer controls. Signed-in storage-state profile smoke now passes. | Open Profile tab after sign-in on mobile and inspect card order. | Static profile DOM placed `#account-status-card` directly below the welcome/stats card and before the achievement/expedition/profile journey. | `index.html`, `tests/playwright/account-auth-smoke.spec.js` | This fix commit | PASS | QC PASSED |
+| BUG-013 | Google switch account does not show account chooser | Auth UX | P1 | 5 | 4 | Implemented a one-shot switch-account Google chooser intent. Normal Google sign-in builds the default provider; Switch Account sets the intent; the next Google popup provider receives `prompt: "select_account"` and the intent is immediately consumed. Automated provider-stub smoke passes; manual Google chooser confirmation still pending. | Sign in with Google Account A, click Switch Account, click Sign in with Google, confirm Google account chooser appears, choose Account B, and confirm account/premium state belongs to B. | Firebase `auth.signOut()` signs out of the app but does not clear the browser Google session, so a follow-up popup can silently reuse the prior Google account unless the provider asks for account selection. | `services/authService.js`, `services/authAccountUi.js`, `tests/playwright/account-auth-smoke.spec.js` | This fix commit | PARTIAL PASS; manual Google chooser QC pending | FIXED |
 
 Probability scale:
 1 = unlikely
@@ -68,6 +69,7 @@ Concern scale:
 - BUG-002 root cause: `modules/paywallController.js` handled `checkout=success` before checking whether a Firebase user was signed in, so signed-out users saw a disabled verifying state instead of a sign-in path. Signed-in/free users also had no delayed-verification fallback if the webhook entitlement never arrived.
 - BUG-002 storage-state update: Playwright auth session output now defaults to ignored `playwright/.auth/*.json` paths, and `scripts/save-playwright-storage-state.js` can manually capture free, second-free, and premium account states without storing passwords in code.
 - BUG-012 root cause: the signed-in profile DOM prioritized account/payment-adjacent content directly after the welcome card. No entitlement, account, admin, or feedback handlers needed to change because all existing IDs/classes stayed intact.
+- BUG-013 root cause: Firebase sign-out clears app/Firebase auth state, but not the browser's Google session. Switch Account now sets an in-memory one-shot intent, and the next Google provider is created with `provider.setCustomParameters({ prompt: 'select_account' })`. Normal Google sign-in and email/password sign-in remain unchanged.
 - Signed-in QC storage states were created under ignored paths: `playwright/.auth/free-user.json`, `playwright/.auth/free-user-b.json`, and `playwright/.auth/premium-user.json`. `premium-user.json` was verified as Premium active before saving. `free-user.json` and `free-user-b.json` currently point to the same free UID, so two-free-account isolation remains a setup caveat; distinct free-vs-premium full smoke passed.
 - Phase 4C entitlement smoke was updated to accept both supported premium entitlement sources: `active` from Lemon Squeezy and `manual_active` from admin override.
 
@@ -86,6 +88,11 @@ Concern scale:
 - BUG-001 supporting rules/function checks: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65.
 - BUG-001 full signed-in e2e smoke with free and premium distinct states: PASS, 16/16.
 - Focused premium-gating smoke with free and premium states: PASS, 9/9.
+- BUG-013 account auth smoke with provider stub and no storage state: PASS, 3 passed and 1 signed-in storage-state skip.
+- BUG-013 account auth smoke with free storage state: PASS, 4/4.
+- BUG-013 required signed-in full smoke with `free-user.json`, `free-user-b.json`, and `premium-user.json`: FAIL, 15/16 because `free-user.json` and `free-user-b.json` are the same UID (`LkevgscKPvPqRg9c5YKKXVqtwv02`); this is the known storage-state setup gap, not a BUG-013 regression.
+- BUG-013 signed-in full smoke rerun with distinct free/premium accounts: PASS, 16/16.
+- BUG-013 focused premium-gating smoke with storage states: PASS, 9/9.
 - Phase 4C premium entitlement smoke with free and premium states: initially failed because the premium account was `active/lemon_squeezy` rather than `manual_active/admin_override`; after test update, PASS, 2/2.
 - Phase 4C global search entitlement smoke with free and premium states: PASS, 3/3.
 - Account auth/profile smoke with signed-in free storage state: PASS, 3/3.
@@ -111,6 +118,50 @@ Concern scale:
 - Signed-in free and signed-in premium runtime QC now pass with storage states. Premium sign-out lock reset is covered. A true second free-account storage state is still needed if we specifically require free-account-A to free-account-B isolation instead of distinct free-to-premium isolation.
 
 ## Fix Log / QC
+
+### BUG-013
+
+Bug selected: Google switch account does not show account chooser.
+
+Root cause hypothesis: `firebase.auth().signOut()` signs out of Firebase, but the browser Google session remains available to the popup flow. The app needs to request Google's account chooser on the post-switch Google sign-in attempt.
+
+Files expected: `services/authService.js`, `services/authAccountUi.js`, `tests/playwright/account-auth-smoke.spec.js`, `plans/PREMIUM_APP_BUG_TRACKER.md`.
+
+Verification plan: Add a Google provider factory, set a one-shot switch-account chooser intent from the Switch Account flow, consume that intent on the next Google popup, add a Playwright provider-stub assertion, and rerun auth/premium/account-switch smoke.
+
+Root cause confirmed: The Google sign-in path always used a plain `new firebase.auth.GoogleAuthProvider()` and had no way for Switch Account to pass `prompt: "select_account"`.
+
+Files changed: `services/authService.js`, `services/authAccountUi.js`, `tests/playwright/account-auth-smoke.spec.js`, `plans/PREMIUM_APP_BUG_TRACKER.md`.
+
+Exact behavior before: After Switch Account, the next Google popup could reuse the browser's existing Google session and return the same Google account.
+
+Exact behavior after: Switch Account signs out, sets `window.BARK.auth.forceGoogleAccountChooserOnNextSignIn`, and returns the user to sign-in mode. The next Google sign-in creates the provider through `createGoogleProvider({ forceAccountChooser: true })`, calls `provider.setCustomParameters({ prompt: 'select_account' })`, clears the one-shot flag immediately, and calls `signInWithPopup(provider)`. Normal Google sign-in uses the default provider, and email/password sign-in is unchanged.
+
+Tests run: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; account auth smoke without storage PASS 3 passed/1 signed-in skip; account auth smoke with free storage PASS 4/4; required full smoke with free/free-b/premium storage FAIL 15/16 due duplicate free/free-b UID setup; distinct-account full smoke with free/premium PASS 16/16; focused premium-gating smoke PASS 9/9; `git diff --check` PASS after generated-log cleanup.
+
+Risk: Manual Google OAuth chooser behavior still needs a human browser check because Playwright cannot safely automate the real Google account picker. The code does not clear cookies, localStorage, sessionStorage, or Google sessions.
+
+Rollback plan: Revert the BUG-013 fix commit; this restores plain Google provider creation and removes the one-shot account chooser intent.
+
+QC Result: PARTIAL PASS
+
+Evidence: The provider-stub Playwright test proves normal Google sign-in receives no custom prompt, Switch Account causes the next Google provider to receive `{ prompt: 'select_account' }`, and the following Google sign-in receives no custom prompt after the one-shot flag is consumed. Existing account/premium smoke still passes with distinct accounts.
+
+Manual QC checklist:
+1. Sign in with Google Account A.
+2. Click Switch Account.
+3. Click Sign in with Google.
+4. Confirm Google account chooser appears.
+5. Choose Google Account B.
+6. Confirm the app shows Account B.
+7. Confirm premium state resets correctly and Account A premium state does not leak.
+8. Sign out and repeat once.
+
+Manual QC result: Pending.
+
+Remaining risk: `playwright/.auth/free-user-b.json` still needs to be regenerated with a truly different free UID for the required free/free-b account-switch smoke to pass without the premium account as the second distinct account.
+
+Status update in tracker: BUG-013 is `FIXED` with `PARTIAL PASS` until manual Google chooser verification confirms the real account picker appears.
 
 ### BUG-001
 

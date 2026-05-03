@@ -128,6 +128,90 @@ test.describe('account auth UI smoke', () => {
         await expect(page.locator('#account-reset-email')).toBeVisible();
     });
 
+    test('switch account forces Google account chooser on the next popup only', async ({ page }) => {
+        await openApp(page);
+        await page.waitForFunction(() => {
+            return Boolean(
+                window.BARK &&
+                window.BARK.services &&
+                window.BARK.services.auth &&
+                typeof window.BARK.services.auth.requestGoogleAccountChooser === 'function' &&
+                typeof window.BARK.services.auth.createGoogleProvider === 'function'
+            );
+        }, { timeout: 30000 });
+
+        const result = await page.evaluate(async () => {
+            const auth = firebase.auth();
+            const originalGoogleProvider = firebase.auth.GoogleAuthProvider;
+            const originalSignInWithPopup = auth.signInWithPopup;
+            const originalSignOut = auth.signOut;
+            const popupPrompts = [];
+
+            function FakeGoogleProvider() {
+                this.customParameters = null;
+            }
+
+            FakeGoogleProvider.prototype.setCustomParameters = function setCustomParameters(params) {
+                this.customParameters = params ? { ...params } : params;
+            };
+
+            firebase.auth.GoogleAuthProvider = FakeGoogleProvider;
+            auth.signInWithPopup = async (provider) => {
+                popupPrompts.push(provider && provider.customParameters ? { ...provider.customParameters } : null);
+                return { user: auth.currentUser || null };
+            };
+            auth.signOut = async () => {};
+
+            async function clickGoogleAndReadPrompt() {
+                const expectedLength = popupPrompts.length + 1;
+                document.getElementById('google-login-btn').click();
+
+                const startedAt = Date.now();
+                while (popupPrompts.length < expectedLength && Date.now() - startedAt < 1000) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+
+                if (popupPrompts.length < expectedLength) {
+                    throw new Error('Expected Google sign-in popup to be requested.');
+                }
+                return popupPrompts[popupPrompts.length - 1];
+            }
+
+            try {
+                const normalPrompt = await clickGoogleAndReadPrompt();
+                await window.BARK.authAccountUi.signOut({ switchAccount: true });
+                const chooserFlagAfterSwitch = window.BARK.auth && window.BARK.auth.forceGoogleAccountChooserOnNextSignIn;
+                const forcedPrompt = await clickGoogleAndReadPrompt();
+                const chooserFlagAfterForcedPopup = window.BARK.auth && window.BARK.auth.forceGoogleAccountChooserOnNextSignIn;
+                const consumedPrompt = await clickGoogleAndReadPrompt();
+
+                return {
+                    normalPrompt,
+                    chooserFlagAfterSwitch,
+                    forcedPrompt,
+                    chooserFlagAfterForcedPopup,
+                    consumedPrompt,
+                    popupPrompts
+                };
+            } finally {
+                firebase.auth.GoogleAuthProvider = originalGoogleProvider;
+                auth.signInWithPopup = originalSignInWithPopup;
+                auth.signOut = originalSignOut;
+            }
+        });
+
+        expect(result.normalPrompt).toBeNull();
+        expect(result.chooserFlagAfterSwitch).toBe(true);
+        expect(result.forcedPrompt).toEqual({ prompt: 'select_account' });
+        expect(result.chooserFlagAfterForcedPopup).toBe(false);
+        expect(result.consumedPrompt).toBeNull();
+        expect(result.popupPrompts).toEqual([
+            null,
+            { prompt: 'select_account' },
+            null
+        ]);
+    });
+
     test('profile card DOM puts account controls below profile value cards', async ({ page }) => {
         const errors = [];
         page.on('console', message => {

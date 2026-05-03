@@ -9,6 +9,33 @@ let userSnapshotUnsubscribe = null;
 let authenticatedSessionSeen = false;
 let lastAuthenticatedUid = null;
 
+function getAuthIntentState() {
+    window.BARK = window.BARK || {};
+    window.BARK.auth = window.BARK.auth || {};
+    return window.BARK.auth;
+}
+
+function requestGoogleAccountChooser() {
+    getAuthIntentState().forceGoogleAccountChooserOnNextSignIn = true;
+}
+
+function consumeGoogleAccountChooserRequest() {
+    const authIntent = getAuthIntentState();
+    const forceAccountChooser = authIntent.forceGoogleAccountChooserOnNextSignIn === true;
+    authIntent.forceGoogleAccountChooserOnNextSignIn = false;
+    return forceAccountChooser;
+}
+
+function createGoogleProvider(options = {}) {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    if (options.forceAccountChooser && typeof provider.setCustomParameters === 'function') {
+        provider.setCustomParameters({
+            prompt: 'select_account'
+        });
+    }
+    return provider;
+}
+
 function showAuthFailureNotice(message) {
     if (typeof window.BARK.showAuthFailure === 'function') {
         window.BARK.showAuthFailure(message || 'Sign-in failed. Cloud sync and saved progress are offline for this session.');
@@ -841,7 +868,9 @@ function initFirebase() {
     if (googleBtn) {
         googleBtn.addEventListener('click', async () => {
             try {
-                const provider = new firebase.auth.GoogleAuthProvider();
+                const provider = createGoogleProvider({
+                    forceAccountChooser: consumeGoogleAccountChooserRequest()
+                });
                 window.BARK.incrementRequestCount();
                 await firebase.auth().signInWithPopup(provider);
             } catch (error) {
@@ -880,5 +909,9 @@ function initFirebase() {
     }
 }
 
-window.BARK.services.auth = { initFirebase };
+window.BARK.services.auth = {
+    initFirebase,
+    createGoogleProvider,
+    requestGoogleAccountChooser
+};
 window.BARK.initFirebase = initFirebase;

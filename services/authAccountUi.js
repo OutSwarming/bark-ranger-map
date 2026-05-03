@@ -29,6 +29,17 @@
         return window.BARK.services && window.BARK.services.premium;
     }
 
+    function requestGoogleAccountChooser() {
+        const authService = window.BARK.services && window.BARK.services.auth;
+        if (authService && typeof authService.requestGoogleAccountChooser === 'function') {
+            authService.requestGoogleAccountChooser();
+            return;
+        }
+
+        window.BARK.auth = window.BARK.auth || {};
+        window.BARK.auth.forceGoogleAccountChooserOnNextSignIn = true;
+    }
+
     function setText(id, text) {
         const node = getElement(id);
         if (node) node.textContent = text;
@@ -240,6 +251,7 @@
     async function signOut(options = {}) {
         try {
             await getFirebaseAuth().signOut();
+            if (options.switchAccount) requestGoogleAccountChooser();
             clearPasswordFields();
             setStatus(options.switchAccount ? 'Signed out. Choose another account.' : 'Signed out.', 'success');
             showMode('signin');
