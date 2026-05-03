@@ -362,7 +362,7 @@ async function togglePremiumVirtualTrailIfReady(page) {
 }
 
 test.describe('Phase 4C premium entitlement smoke', () => {
-    test('premiumService distinguishes signed-in free and manual premium users', async ({ browser }) => {
+    test('premiumService distinguishes signed-in free and active premium users', async ({ browser }) => {
         const consoleErrors = [];
 
         const freeContext = await browser.newContext({ storageState: freeStorageStatePath });
@@ -415,15 +415,17 @@ test.describe('Phase 4C premium entitlement smoke', () => {
         expect(premiumState.user && premiumState.user.uid, 'Premium storage state should produce a signed-in Firebase user').toBeTruthy();
         expect(
             premiumState.isPremium,
-            `Premium/manual override user should be premium according to premiumService.\n${JSON.stringify(premiumState.debugProbe, null, 2)}`
+            `Premium user should be premium according to premiumService.\n${JSON.stringify(premiumState.debugProbe, null, 2)}`
         ).toBe(true);
-        expect(premiumState.entitlement).toMatchObject({
-            premium: true,
-            status: 'manual_active',
-            source: 'admin_override',
-            manualOverride: true,
-            currentPeriodEnd: null
-        });
+        expect(premiumState.entitlement.premium).toBe(true);
+        expect(['active', 'manual_active']).toContain(premiumState.entitlement.status);
+        expect(['lemon_squeezy', 'admin_override']).toContain(premiumState.entitlement.source);
+        if (premiumState.entitlement.status === 'manual_active') {
+            expect(premiumState.entitlement).toMatchObject({
+                source: 'admin_override',
+                manualOverride: true
+            });
+        }
         expect(premiumState.currentUiBehavior).toMatchObject({
             premiumWrapLocked: false,
             premiumWrapUnlocked: true,

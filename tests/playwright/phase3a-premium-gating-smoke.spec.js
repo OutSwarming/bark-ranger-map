@@ -4,8 +4,10 @@ const { test, expect } = require('@playwright/test');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
+const PREMIUM_STORAGE_STATE = process.env.BARK_E2E_PREMIUM_STORAGE_STATE;
 const DEFAULT_BASE_URL = 'http://localhost:4173/index.html';
 const DEFAULT_STORAGE_STATE = 'playwright/.auth/free-user.json';
+const DEFAULT_PREMIUM_STORAGE_STATE = 'playwright/.auth/premium-user.json';
 const GLOBAL_SEARCH_QUERY = 'zzzxqfreegate';
 
 const missingBaseEnv = [
@@ -19,6 +21,8 @@ const missingSignedInEnv = [
 
 const storageStatePath = STORAGE_STATE ? path.resolve(STORAGE_STATE) : null;
 const storageStateExists = storageStatePath ? fs.existsSync(storageStatePath) : false;
+const premiumStorageStatePath = PREMIUM_STORAGE_STATE ? path.resolve(PREMIUM_STORAGE_STATE) : null;
+const premiumStorageStateExists = premiumStorageStatePath ? fs.existsSync(premiumStorageStatePath) : false;
 
 function buildEnvHelp(missing = missingSignedInEnv) {
     return [
@@ -62,6 +66,16 @@ test.beforeAll(() => {
             `  export BARK_E2E_BASE_URL=${DEFAULT_BASE_URL}`,
             `  export BARK_E2E_STORAGE_STATE="$PWD/${DEFAULT_STORAGE_STATE}"`,
             '  npm run e2e:auth:save'
+        ].join('\n'));
+    }
+
+    if (PREMIUM_STORAGE_STATE && !premiumStorageStateExists) {
+        throw new Error([
+            `BARK_E2E_PREMIUM_STORAGE_STATE points to a missing file: ${premiumStorageStatePath}`,
+            'Generate it with:',
+            `  export BARK_E2E_BASE_URL=${DEFAULT_BASE_URL}`,
+            `  export BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/${DEFAULT_PREMIUM_STORAGE_STATE}"`,
+            '  npm run save:e2e:premium'
         ].join('\n'));
     }
 });
@@ -167,6 +181,13 @@ async function expectPremiumClusteringLocked(page) {
     expect(state.stored).toBe('false');
 }
 
+async function expectPremiumClusteringUnlocked(page) {
+    const toggle = page.locator('#premium-cluster-toggle');
+    await expect(toggle).toHaveCount(1);
+    await expect(toggle).toBeEnabled();
+    await expect(toggle).toHaveAttribute('aria-disabled', 'false');
+}
+
 async function expectLowRiskPremiumControlsUnlocked(page) {
     const premiumWrap = page.locator('#premium-filters-wrap');
     const visitedFilter = page.locator('#visited-filter');
@@ -181,6 +202,13 @@ async function expectLowRiskPremiumControlsUnlocked(page) {
 
     await expect(mapStyleSelect).toHaveCount(1);
     await expect(mapStyleSelect).toBeEnabled();
+}
+
+async function getCurrentUid(page) {
+    return page.evaluate(() => {
+        const user = window.firebase && window.firebase.auth && window.firebase.auth().currentUser;
+        return user ? user.uid : null;
+    });
 }
 
 async function expectTrailButtonsUnlocked(page) {
@@ -594,6 +622,50 @@ test.describe('Phase 3A premium gating smoke', () => {
             await fakeSuccessPage.close();
         } finally {
             await context.close();
+        }
+    });
+
+    test('premium and free storage states do not leak entitlement runtime', async ({ browser }) => {
+        test.skip(missingSignedInEnv.length > 0, buildEnvHelp(missingSignedInEnv));
+        test.skip(!PREMIUM_STORAGE_STATE, `Set BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/${DEFAULT_PREMIUM_STORAGE_STATE}"`);
+
+        let premiumUid;
+        const premiumContext = await browser.newContext({ storageState: premiumStorageStatePath });
+        const premiumPage = await premiumContext.newPage();
+        try {
+            await waitForSignedInApp(premiumPage);
+            premiumUid = await getCurrentUid(premiumPage);
+            expect(premiumUid, 'Premium storage state should sign in a Firebase user').toBeTruthy();
+            await expect(premiumPage.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(true);
+            await expectLowRiskPremiumControlsUnlocked(premiumPage);
+            await expectTrailButtonsUnlocked(premiumPage);
+            await expectPremiumClusteringUnlocked(premiumPage);
+            await expect(premiumPage.locator('#profile-premium-status')).toHaveText('Premium active');
+
+            await premiumPage.evaluate(() => window.firebase.auth().signOut());
+            await premiumPage.waitForFunction(() => !window.firebase.auth().currentUser, { timeout: 30000 });
+            await premiumPage.waitForFunction(() => window.BARK.services.premium.isPremium() === false, { timeout: 30000 });
+            await expectLowRiskPremiumControlsLocked(premiumPage);
+            await expectTrailButtonsLocked(premiumPage);
+            await expectPremiumClusteringLocked(premiumPage);
+        } finally {
+            await premiumContext.close();
+        }
+
+        const freeContext = await browser.newContext({ storageState: storageStatePath });
+        const freePage = await freeContext.newPage();
+        try {
+            await waitForSignedInApp(freePage);
+            const freeUid = await getCurrentUid(freePage);
+            expect(freeUid, 'Free storage state should sign in a Firebase user').toBeTruthy();
+            expect(freeUid, 'Free and premium storage states must be different accounts').not.toBe(premiumUid);
+            await expect(freePage.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(false);
+            await expectLowRiskPremiumControlsLocked(freePage);
+            await expectTrailButtonsLocked(freePage);
+            await expectPremiumClusteringLocked(freePage);
+            await expectFreePaywallState(freePage, 'free');
+        } finally {
+            await freeContext.close();
         }
     });
 });

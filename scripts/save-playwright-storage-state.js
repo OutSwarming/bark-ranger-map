@@ -97,6 +97,50 @@ async function waitForCurrentUser(page) {
   return handle.jsonValue();
 }
 
+async function waitForPremiumActive(page) {
+  const handle = await page.waitForFunction(() => {
+    const premiumService = window.BARK && window.BARK.services && window.BARK.services.premium;
+    const isPremium = premiumService && typeof premiumService.isPremium === 'function'
+      ? premiumService.isPremium()
+      : false;
+    const profileText = document.getElementById('profile-premium-status')?.textContent || '';
+    const accountText = document.getElementById('account-display-premium')?.textContent || '';
+
+    if (!isPremium) return null;
+    if (!/premium active/i.test(profileText) && !/premium/i.test(accountText)) return null;
+
+    return {
+      isPremium,
+      profileText,
+      accountText
+    };
+  }, undefined, { timeout: 45000 });
+
+  return handle.jsonValue();
+}
+
+async function getPremiumDiagnostic(page) {
+  return page.evaluate(() => {
+    const premiumService = window.BARK && window.BARK.services && window.BARK.services.premium;
+    const user = window.firebase && window.firebase.auth && window.firebase.auth().currentUser;
+    const entitlement = premiumService && typeof premiumService.getEntitlement === 'function'
+      ? premiumService.getEntitlement()
+      : null;
+    const isPremium = premiumService && typeof premiumService.isPremium === 'function'
+      ? premiumService.isPremium()
+      : null;
+
+    return {
+      uid: user ? user.uid : null,
+      email: user ? user.email || null : null,
+      isPremium,
+      entitlement,
+      profileText: document.getElementById('profile-premium-status')?.textContent || null,
+      accountText: document.getElementById('account-display-premium')?.textContent || null
+    };
+  });
+}
+
 async function saveStorageState(context, outputPath) {
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
 
@@ -124,6 +168,9 @@ async function captureProfile(browser, prompt, baseUrl, profile) {
   console.log('====================================================');
   console.log('1. Sign in manually in the opened Chromium window.');
   console.log('2. Wait until the app clearly shows the correct account.');
+  if (profile.key === 'premium') {
+    console.log('   Premium profile check: wait until the UI says Premium active before continuing.');
+  }
   console.log('3. Return here and press ENTER.');
   console.log('');
 
@@ -133,6 +180,18 @@ async function captureProfile(browser, prompt, baseUrl, profile) {
 
     const user = await waitForCurrentUser(page);
     console.log(`Detected Firebase currentUser: ${user.email || '(no email)'}; uid=${user.uid}`);
+
+    if (profile.key === 'premium') {
+      try {
+        const premium = await waitForPremiumActive(page);
+        console.log(`Verified premium UI before saving: ${premium.profileText || premium.accountText}`);
+      } catch (error) {
+        const diagnostic = await getPremiumDiagnostic(page);
+        console.error('Premium account did not show Premium active before timeout. Storage state was not saved.');
+        console.error(JSON.stringify(diagnostic, null, 2));
+        throw error;
+      }
+    }
 
     const mode = await saveStorageState(context, outputPath);
     console.log(`Saved ${profile.label} storage state ${mode}: ${outputPath}`);
