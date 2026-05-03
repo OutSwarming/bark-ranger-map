@@ -260,6 +260,50 @@ test.describe('Phase 3A premium gating smoke', () => {
         await expectTrailButtonsLocked(page);
     });
 
+    test('signed-out app blocks premium clustering setting changes', async ({ page }) => {
+        await waitForSignedOutApp(page);
+        await page.waitForFunction(() => Boolean(
+            window.BARK &&
+            window.BARK.settings &&
+            document.getElementById('premium-cluster-toggle')
+        ), { timeout: 30000 });
+
+        const state = await page.evaluate(() => {
+            const toggle = document.getElementById('premium-cluster-toggle');
+            const before = {
+                isPremium: window.BARK.services.premium.isPremium(),
+                premiumClusteringEnabled: window.premiumClusteringEnabled,
+                checked: toggle.checked,
+                disabled: toggle.disabled,
+                ariaDisabled: toggle.getAttribute('aria-disabled'),
+                stored: window.localStorage.getItem('barkPremiumClustering')
+            };
+
+            toggle.checked = true;
+            toggle.dispatchEvent(new Event('change', { bubbles: true }));
+
+            return {
+                before,
+                after: {
+                    isPremium: window.BARK.services.premium.isPremium(),
+                    premiumClusteringEnabled: window.premiumClusteringEnabled,
+                    checked: toggle.checked,
+                    disabled: toggle.disabled,
+                    ariaDisabled: toggle.getAttribute('aria-disabled'),
+                    stored: window.localStorage.getItem('barkPremiumClustering')
+                }
+            };
+        });
+
+        expect(state.before.isPremium).toBe(false);
+        expect(state.after.isPremium).toBe(false);
+        expect(state.after.premiumClusteringEnabled).toBe(false);
+        expect(state.after.checked).toBe(false);
+        expect(state.after.disabled).toBe(true);
+        expect(state.after.ariaDisabled).toBe('true');
+        expect(state.after.stored).toBe('false');
+    });
+
     test('signed-in free app keeps entitlement-gated controls locked', async ({ browser }) => {
         test.skip(missingSignedInEnv.length > 0, buildEnvHelp(missingSignedInEnv));
         const context = await browser.newContext({ storageState: storageStatePath });

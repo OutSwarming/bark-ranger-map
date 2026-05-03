@@ -2,7 +2,7 @@
 
 Date: 2026-05-03
 Branch: main
-Current commit: 576830f0d1573af422fdee94d45671c93970171e
+Current commit: 0f1016002c6186b1060b36b4e95c11648e94e9b0
 Scope: New premium/internal app only.
 
 ## Status Legend
@@ -30,7 +30,7 @@ Seeded as BUG-001 through BUG-010 in the table below. BUG-011 was added from sta
 | BUG-001 | Gamification achievement Firestore permission/runtime issue | Firestore/rules/data sync | P1 | 4 | 4 | Seeded suspicion. Path: `users/{uid}/achievements/{achievementId}`. `npm run test:rules` passed 16/16, including owner-only achievement writes and protected user field denials. Runtime console after deploy/emulator app flow still pending. | Run rules tests and app achievement flow; confirm no permission console error for owner write. | Rules may not match actual achievement write path or client payload shape. | `firestore.rules`, `services`, `modules`, `tests` |  | Rules PASS; runtime QC pending | FOUND |
 | BUG-002 | Paywall verifying state can mislead or get stuck after checkout success URL | Payment/paywall | P1 | 3 | 4 | Seeded suspicion. Signed-out fake success URL kept `premiumService.isPremium()` false, controls locked, and paywall in verifying state with no console errors. Signed-in delayed-webhook state still pending. | Visit `?checkout=success&provider=lemonsqueezy` as non-premium and observe paywall state. | URL return state may drive UI messaging without entitlement refresh completion/failure handling. | `services`, `renderers`, `modules`, `index.html` |  | Partial PASS; signed-in delay pending | FOUND |
 | BUG-003 | Account switch may leave stale premium UI state | Premium entitlement/runtime | P0 | 4 | 5 | Reproduced with local runtime probe: after forcing a previous account's `manual_active` entitlement into `premiumService` while Firebase `currentUser` was signed out, `premiumService.isPremium()` returned `true`. That stale ownerless/mismatched entitlement could unlock premium surfaces during auth transitions before `authService` reset caught up. | Sign in premium account, switch to free account or sign out, then inspect `premiumService.isPremium()`, premium controls, map style/filter/clustering, trail/global search, paywall/profile premium text, and fake success URL behavior. | `premiumService.isPremium()` trusted the last normalized entitlement without checking that the entitlement UID matched the current Firebase user. | `services/premiumService.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js` | This fix commit | Partial PASS; signed-in storage-state QC pending | FIXED |
-| BUG-004 | Signed-in free user might still access trails/global search/ORS-adjacent controls if auth-only gating remains | Premium entitlement/runtime | P0 | 3 | 5 | Seeded suspicion. Static audit found trail/global-search execution uses `premiumService.isPremium()` and backend ORS tests pass. Signed-in free UI smoke still needs storage state. | Sign in with free account and try virtual trails, completed trails, global search, routing/geocode. | Legacy auth-only checks or UI unlock predicates may remain. | `services`, `modules`, `engines`, `renderers`, `functions` |  | Backend PASS; signed-in UI pending | FOUND |
+| BUG-004 | Signed-in free user might still access trails/global search/ORS-adjacent controls if auth-only gating remains | Premium entitlement/runtime | P0 | 4 | 5 | Reproduced a premium surface leak: signed-out/non-premium runtime could programmatically set `premiumClusteringEnabled=true` through `#premium-cluster-toggle`, leaving `barkPremiumClustering=true` even though `premiumService.isPremium()` was false. Static audit found trail/global-search execution uses `premiumService.isPremium()` and backend ORS tests pass. | Sign in with free account or boot signed out, try premium clustering, virtual trails, completed trails, global search, routing/geocode, and fake success URL behavior. | Settings controller treated premium clustering as an ordinary setting and did not gate setting writes or local/cloud payloads by entitlement. | `modules/settingsController.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js` | This fix commit | Partial PASS; signed-in free storage-state QC pending | FIXED |
 | BUG-005 | Mobile paywall/account layout may be cramped or confusing | Layout/UI logic | P2 | 3 | 3 | Seeded suspicion. Signed-out mobile paywall at 390x844 stayed within viewport and was dismissible/readable. Account card, marker panel, and signed-in mobile states still pending. | Use narrow viewport; open paywall, account card, marker panel, search/filter controls. | Modal/account CSS may not handle small viewport and map overlay constraints. | `renderers`, `modules`, `index.html`, stylesheets |  | Partial PASS; signed-in/mobile panels pending | FOUND |
 | BUG-006 | Runtime console errors from script load order or missing modules | Runtime console errors | P1 | 3 | 4 | Seeded suspicion. Signed-out boot, paywall open, fake success URL, canceled URL, and mobile paywall had no red console errors. Signed-in profile/trip/achievements/logout flows pending. | Boot app and exercise auth, map, marker, profile, trip planner, achievements, logout. | Script order/global dependencies may race or modules may be undefined. | `index.html`, `core`, `modules`, `services`, `renderers` |  | Partial PASS; signed-in flows pending | FOUND |
 | BUG-007 | Fake checkout success URL must not unlock premium | Premium entitlement/runtime | P0 | 2 | 5 | Manual audit: `?checkout=success&provider=lemonsqueezy` did not unlock premium; `premiumService.isPremium()` stayed false, controls stayed locked, and no storage/URL premium grant path was found by grep. | Visit fake success URL while signed out/free; inspect premiumService/UI controls. | Legacy URL/local storage premium grant logic may remain. | `services`, `modules`, `renderers`, `state`, `index.html` |  | PASS | QC PASSED |
@@ -60,14 +60,15 @@ Concern scale:
 - `firestore.rules` protects user entitlement/provider/admin/payment fields on user docs and allows owner-only achievement writes with only `achievementId`, `tier`, and `dateEarned`; rules tests cover these paths.
 - Static concern: `authService.handleCloudSettingsHydration()` can reapply premium-owned settings after free-user entitlement locking, and signed-out boot can load premium-owned settings from localStorage before auth state settles. Tracked as BUG-011.
 - BUG-003 root cause: UI and engines correctly ask `premiumService.isPremium()`, but `premiumService.isPremium()` previously did not verify the entitlement owner UID against `firebase.auth().currentUser`. The fix keeps that ownership check inside the read-only premium model so stale premium state fails closed during account switches, sign-out, and fake-success return windows.
+- BUG-004 root cause: `premium-cluster-toggle` was rendered outside the main premium filter wrapper and `settingsController` treated `premiumClusteringEnabled` as a normal setting. The fix keeps premium clustering false for non-premium users at the settings owner layer, disables the toggle, blocks local runtime writes, and forces the cloud settings payload to false when entitlement is inactive.
 
 ## Baseline Test Results
 
 - `npm run test:rules`: PASS, 16/16.
 - `npm --prefix functions test`: PASS, 65/65.
 - `npm run test:functions:emulator`: PASS, 9/9.
-- `npm run test:e2e:smoke`: exit 0, 11/11 skipped because `BARK_E2E_BASE_URL` and storage-state env vars were not exported for the packaged command.
-- Focused premium-gating smoke with local server and `BARK_E2E_BASE_URL=http://localhost:4173/index.html`: PASS, 3 passed and 1 signed-in test skipped because `BARK_E2E_STORAGE_STATE` was not provided.
+- `npm run test:e2e:smoke`: exit 0, 12/12 skipped because `BARK_E2E_BASE_URL` and storage-state env vars were not exported for the packaged command.
+- Focused premium-gating smoke with local server and `BARK_E2E_BASE_URL=http://localhost:4173/index.html`: PASS, 4 passed and 1 signed-in test skipped because `BARK_E2E_STORAGE_STATE` was not provided.
 - `git diff --check`: PASS after removing generated Firebase emulator logs from the worktree.
 
 ## Runtime Smoke Notes
@@ -82,9 +83,45 @@ Concern scale:
 - BUG-011 after fix: same seed sanitized to default map style, all visits filter, `barkPremiumClustering=false`, and `premiumService.isPremium() === false`.
 - BUG-003 before fix: forcing a previous account `manual_active` entitlement into `premiumService` while signed out produced `premiumService.isPremium() === true`.
 - BUG-003 after fix: the same stale previous-account entitlement remains visible through `getEntitlement()` for diagnostics, but `premiumService.isPremium() === false` because no current Firebase user owns it.
+- BUG-004 before fix: with `premiumService.isPremium() === false`, dispatching a change on `#premium-cluster-toggle` could set `window.premiumClusteringEnabled === true` and `localStorage.barkPremiumClustering === "true"`.
+- BUG-004 after fix: the same non-premium toggle change is coerced back to false, the toggle is disabled with `aria-disabled="true"`, and storage remains `barkPremiumClustering=false`.
 - Signed-in free, signed-in premium, and account-switch manual runtime flows remain pending because test storage states for the new premium/internal app were not available in this shell.
 
 ## Fix Log / QC
+
+### BUG-004
+
+Bug selected: Signed-in free user might still access trails/global search/ORS-adjacent controls if auth-only gating remains.
+
+Root cause hypothesis: A premium surface may still be controlled by generic signed-in/settings state rather than entitlement state.
+
+Files expected: `services/authPremiumUi.js`, `services/authService.js`, `services/premiumService.js`, `modules/settingsController.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js`.
+
+Verification plan: Use static grep to confirm trail/global search/ORS gates, reproduce any remaining free-user premium surface locally, fix the owner module narrowly, add Playwright regression coverage, then rerun rules/functions/callable emulator/e2e smoke/focused smoke/diff check.
+
+Root cause confirmed: `modules/settingsController.js` allowed `premiumClusteringEnabled` writes without checking entitlement, and `#premium-cluster-toggle` lived outside the main premium-controls wrapper that `authPremiumUi` locks.
+
+Files changed: `modules/settingsController.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js`, `plans/PREMIUM_APP_BUG_TRACKER.md`.
+
+Exact behavior before: A non-premium/signed-out runtime could set the premium clustering toggle to true, which set `window.premiumClusteringEnabled === true` and `localStorage.barkPremiumClustering === "true"` while `premiumService.isPremium() === false`.
+
+Exact behavior after: `settingsController` classifies `premiumClusteringEnabled` as premium-only, coerces it to false unless entitlement is active, disables the premium clustering toggle, writes false to local/cloud settings while locked, and resyncs when premium entitlement changes.
+
+Tests run: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; `npm run test:functions:emulator` PASS 9/9; `npm run test:e2e:smoke` exit 0 with 12/12 skipped for missing env; focused premium-gating smoke PASS 4/4 runnable and 1 signed-in skip.
+
+Risk: The signed-in free storage-state smoke still could not run in this shell. The fixed surface is exercised signed-out/non-premium, and the owner-layer guard uses `premiumService.isPremium()` so it should apply the same way to signed-in free users.
+
+Rollback plan: Revert the BUG-004 fix commit; this restores prior settings write behavior.
+
+QC Result: PARTIAL PASS
+
+Evidence: Local runtime reproduction showed the premium clustering setting could be forced true before the fix. Playwright regression `signed-out app blocks premium clustering setting changes` now proves the setting remains false, the toggle remains disabled, and storage remains false for non-premium runtime. Static audit still shows trail/global search execution is gated through `premiumService.isPremium()`, and backend ORS tests pass.
+
+Manual steps: Boot signed-out app, wait for settings to initialize, inspect `premiumService.isPremium() === false`, dispatch a `change` event on `#premium-cluster-toggle` after setting it checked, and confirm `window.premiumClusteringEnabled === false`, `toggle.disabled === true`, `aria-disabled === "true"`, and `localStorage.barkPremiumClustering === "false"`.
+
+Remaining risk: Full signed-in free account checks for virtual trails, completed trails, global search, routing/geocode, and fake success URL still need the dedicated Playwright storage state. No Firebase deploy was run.
+
+Status update in tracker: BUG-004 is `FIXED`; full signed-in free runtime QC remains pending.
 
 ### BUG-003
 

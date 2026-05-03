@@ -17,6 +17,7 @@ window.BARK.initSettings = function initSettings() {
     const settingsRegistry = window.BARK.SETTINGS_REGISTRY || {};
     const performanceSettingKeys = window.BARK.PERFORMANCE_SETTING_KEYS || [];
     const CLOUD_AUTOSAVE_DELAY_MS = 500;
+    const PREMIUM_ONLY_SETTINGS = new Set(['premiumClusteringEnabled']);
     let cloudAutosaveTimer = null;
     const standaloneStorageKeys = {
         ultraLowEnabled: 'barkUltraLowEnabled',
@@ -106,18 +107,48 @@ window.BARK.initSettings = function initSettings() {
         return standaloneStorageKeys[key];
     };
 
+    const isPremiumEntitlementActive = () => {
+        const premiumService = window.BARK.services && window.BARK.services.premium;
+        return Boolean(
+            premiumService &&
+            typeof premiumService.isPremium === 'function' &&
+            premiumService.isPremium()
+        );
+    };
+
+    const isPremiumOnlySettingLocked = (key) => (
+        PREMIUM_ONLY_SETTINGS.has(key) && !isPremiumEntitlementActive()
+    );
+
+    const getAllowedSettingValue = (key, value) => (
+        isPremiumOnlySettingLocked(key) ? false : value
+    );
+
     const setSettingValue = (key, value) => {
+        const allowedValue = getAllowedSettingValue(key, value);
+
         if (settingsStore && typeof settingsStore.set === 'function') {
-            settingsStore.set(key, value);
-            return;
+            settingsStore.set(key, allowedValue);
+            return allowedValue;
         }
 
-        window[key] = value;
+        window[key] = allowedValue;
         const storageKey = getStorageKeyForSetting(key);
         if (storageKey) localStorage.setItem(storageKey, window[key] ? 'true' : 'false');
+        return allowedValue;
+    };
+
+    const enforcePremiumOnlySettings = () => {
+        PREMIUM_ONLY_SETTINGS.forEach((key) => {
+            if (isPremiumOnlySettingLocked(key) && window[key]) {
+                setSettingValue(key, false);
+            }
+        });
     };
 
     const buildCloudSettingsPayload = () => {
+        enforcePremiumOnlySettings();
+
         const settingsPayload = {
             rememberMapPosition: window.rememberMapPosition || false,
             startNationalView: window.startNationalView || false,
@@ -128,7 +159,9 @@ window.BARK.initSettings = function initSettings() {
         };
 
         Object.entries(settingsRegistry).forEach(([key, setting]) => {
-            if (setting.cloudKey) settingsPayload[setting.cloudKey] = Boolean(window[key]);
+            if (setting.cloudKey) {
+                settingsPayload[setting.cloudKey] = isPremiumOnlySettingLocked(key) ? false : Boolean(window[key]);
+            }
         });
 
         return settingsPayload;
@@ -201,6 +234,8 @@ window.BARK.initSettings = function initSettings() {
     window.BARK.scheduleCloudSettingsAutosave = scheduleCloudSettingsAutosave;
 
     const syncRegisteredControls = () => {
+        enforcePremiumOnlySettings();
+
         const lowGraphicsActive = Boolean(window.lowGfxEnabled);
         const lowGraphicsPreset = window.BARK.LOW_GRAPHICS_PRESET || {};
         Object.keys(settingsRegistry).forEach((key) => {
@@ -211,8 +246,10 @@ window.BARK.initSettings = function initSettings() {
             const row = input ? input.closest('[data-setting-key]') : null;
             if (!input) return;
 
-            input.checked = Boolean(window[key]);
-            input.disabled = lowGraphicsActive && !setting.master && Object.prototype.hasOwnProperty.call(lowGraphicsPreset, key);
+            const locked = isPremiumOnlySettingLocked(key);
+            input.checked = locked ? false : Boolean(window[key]);
+            input.disabled = locked || (lowGraphicsActive && !setting.master && Object.prototype.hasOwnProperty.call(lowGraphicsPreset, key));
+            input.setAttribute('aria-disabled', input.disabled ? 'true' : 'false');
             if (row) row.style.opacity = input.disabled ? '0.62' : '1';
         });
         syncClusterToggles();
@@ -326,11 +363,12 @@ window.BARK.initSettings = function initSettings() {
             input.dataset.bound = 'true';
             input.checked = Boolean(window[key]);
             input.addEventListener('change', (e) => {
-                if (settingsStore && typeof settingsStore.set === 'function') {
-                    settingsStore.set(key, e.target.checked);
-                } else {
-                    setSettingValue(key, e.target.checked);
+                const requestedValue = e.target.checked;
+                const appliedValue = setSettingValue(key, requestedValue);
+                if (appliedValue !== requestedValue) {
                     syncRegisteredControls();
+                }
+                if (!settingsStore || typeof settingsStore.set !== 'function') {
                     scheduleRegistrySettingEffects(setting);
                 }
             });
@@ -356,22 +394,35 @@ window.BARK.initSettings = function initSettings() {
         const preset = window.BARK.LOW_GRAPHICS_PRESET || {};
         const standardRow = standardToggle ? standardToggle.closest('[data-cluster-setting]') : null;
         const premiumRow = premiumToggle ? premiumToggle.closest('[data-cluster-setting]') : null;
+        const premiumLocked = isPremiumOnlySettingLocked('premiumClusteringEnabled');
 
         if (standardToggle) {
             standardToggle.checked = lowGraphicsActive ? preset.standardClusteringEnabled === true : window.standardClusteringEnabled;
             standardToggle.disabled = lowGraphicsActive;
+            standardToggle.setAttribute('aria-disabled', standardToggle.disabled ? 'true' : 'false');
         }
         if (premiumToggle) {
-            premiumToggle.checked = lowGraphicsActive ? preset.premiumClusteringEnabled === true : window.premiumClusteringEnabled;
-            premiumToggle.disabled = lowGraphicsActive;
+            premiumToggle.checked = premiumLocked ? false : (lowGraphicsActive ? preset.premiumClusteringEnabled === true : window.premiumClusteringEnabled);
+            premiumToggle.disabled = premiumLocked || lowGraphicsActive;
+            premiumToggle.setAttribute('aria-disabled', premiumToggle.disabled ? 'true' : 'false');
         }
         if (standardRow) standardRow.style.opacity = lowGraphicsActive ? '0.62' : '1';
-        if (premiumRow) premiumRow.style.opacity = lowGraphicsActive ? '0.62' : '1';
+        if (premiumRow) premiumRow.style.opacity = (premiumLocked || lowGraphicsActive) ? '0.62' : '1';
+    };
+
+    const subscribePremiumSettingsState = () => {
+        const premiumService = window.BARK.services && window.BARK.services.premium;
+        if (!premiumService || typeof premiumService.subscribe !== 'function') return;
+        premiumService.subscribe(() => {
+            enforcePremiumOnlySettings();
+            syncRegisteredControls();
+        });
     };
 
     if (settingsGearBtn && settingsOverlay) {
         renderPerformanceSettings();
         setupRegistryToggles();
+        subscribePremiumSettingsState();
 
         // Sync visuals to state
         if (rememberMapToggle) rememberMapToggle.checked = window.rememberMapPosition;
