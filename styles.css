@@ -1127,6 +1127,13 @@ body.app-tab-active #slide-panel {
     transform: translateY(-1px);
 }
 
+.planner-action-btn:disabled,
+.planner-action-btn:disabled:hover,
+.planner-action-btn:disabled:active {
+    cursor: not-allowed;
+    transform: none;
+}
+
 .planner-action-icon {
     flex: 0 0 auto;
     font-size: 16px;
@@ -1162,6 +1169,13 @@ body.app-tab-active #slide-panel {
     border-color: #43a947;
     color: white;
     box-shadow: 0 6px 16px rgba(67, 169, 71, 0.22);
+}
+
+.planner-action-primary.planner-action-premium-locked {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+    color: #64748b;
+    box-shadow: none;
 }
 
 .planner-action-clear {

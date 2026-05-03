@@ -95,6 +95,56 @@ function getTotalStops() {
     return window.BARK.tripDays.reduce((sum, d) => sum + d.stops.length, 0);
 }
 
+function getPremiumService() {
+    return window.BARK && window.BARK.services && window.BARK.services.premium;
+}
+
+function isPremiumRoutingUnlocked() {
+    const premiumService = getPremiumService();
+    return Boolean(
+        premiumService &&
+        typeof premiumService.isPremium === 'function' &&
+        premiumService.isPremium()
+    );
+}
+
+function setPlannerActionButtonLabel(button, label, icon = '') {
+    if (!button) return;
+    const iconMarkup = icon ? `<span class="planner-action-icon">${icon}</span>` : '';
+    button.innerHTML = `${iconMarkup}<span>${label}</span>`;
+}
+
+function openRoutePremiumPaywall() {
+    const paywall = window.BARK && window.BARK.paywall;
+    if (paywall && typeof paywall.openPaywall === 'function') {
+        paywall.openPaywall({ source: 'route-generation' });
+        return;
+    }
+
+    alert('Premium is required to generate driving routes.');
+}
+
+function updateRouteGenerationButtonState() {
+    const button = window.BARK.DOM.startRouteBtn();
+    if (!button) return;
+
+    const isPremium = isPremiumRoutingUnlocked();
+    button.classList.toggle('planner-action-premium-locked', !isPremium);
+    button.dataset.premiumRequired = isPremium ? 'false' : 'true';
+    button.setAttribute('aria-disabled', isPremium ? 'false' : 'true');
+
+    if (!isPremium) {
+        button.disabled = true;
+        button.title = 'Premium is required to generate driving routes.';
+        setPlannerActionButtonLabel(button, 'Premium Route');
+        return;
+    }
+
+    button.disabled = false;
+    button.title = '';
+    setPlannerActionButtonLabel(button, 'Generate Route');
+}
+
 function getTripStopKey(stop) {
     if (!stop) return '';
     return stop.id || `${stop.lat},${stop.lng}`;
@@ -513,6 +563,7 @@ function updateTripUI() {
     }
 
     try { updateTripMapVisuals(); } catch (e) { console.error("Map visuals update failed:", e); }
+    updateRouteGenerationButtonState();
 }
 
 window.BARK.updateTripUI = updateTripUI;
@@ -525,12 +576,6 @@ function initTripPlanner() {
     const optimizeTripBtn = window.BARK.DOM.optimizeTripBtn();
     let currentRouteLayers = [];
     let routeRenderGeneration = 0;
-
-    function setPlannerActionButtonLabel(button, label, icon = '') {
-        if (!button) return;
-        const iconMarkup = icon ? `<span class="planner-action-icon">${icon}</span>` : '';
-        button.innerHTML = `${iconMarkup}<span>${label}</span>`;
-    }
 
     function resetTripPlannerRuntime(options = {}) {
         const resetName = options.resetName !== false;
@@ -598,7 +643,20 @@ function initTripPlanner() {
     }
 
     if (startRouteBtn) {
-        startRouteBtn.onclick = () => { if (getTotalStops() === 0) return; generateAndRenderTripRoute(); };
+        startRouteBtn.onclick = () => {
+            if (getTotalStops() === 0) return;
+            if (!isPremiumRoutingUnlocked()) {
+                openRoutePremiumPaywall();
+                updateRouteGenerationButtonState();
+                return;
+            }
+            generateAndRenderTripRoute();
+        };
+    }
+
+    const premiumService = getPremiumService();
+    if (premiumService && typeof premiumService.subscribe === 'function') {
+        premiumService.subscribe(() => updateTripUI());
     }
 
     async function saveCurrentTrip() {
@@ -625,6 +683,11 @@ function initTripPlanner() {
     async function generateAndRenderTripRoute() {
         const user = (typeof firebase !== 'undefined') ? firebase.auth().currentUser : null;
         if (!user) { alert("Please sign in to generate routes."); return; }
+        if (!isPremiumRoutingUnlocked()) {
+            openRoutePremiumPaywall();
+            updateRouteGenerationButtonState();
+            return;
+        }
         const routeRunId = ++routeRenderGeneration;
         window.BARK.incrementRequestCount();
         const tripDays = window.BARK.tripDays;
