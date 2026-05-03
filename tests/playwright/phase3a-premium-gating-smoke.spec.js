@@ -668,4 +668,35 @@ test.describe('Phase 3A premium gating smoke', () => {
             await freeContext.close();
         }
     });
+
+    test('premium checkout return hides pending cleanup controls after entitlement is active', async ({ browser }) => {
+        test.skip(missingSignedInEnv.length > 0, buildEnvHelp(missingSignedInEnv));
+        test.skip(!PREMIUM_STORAGE_STATE, `Set BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/${DEFAULT_PREMIUM_STORAGE_STATE}"`);
+
+        const context = await browser.newContext({ storageState: premiumStorageStatePath });
+        const page = await context.newPage();
+        try {
+            await waitForSignedInApp(page, withCheckoutParams(BASE_URL, 'success'));
+            await page.waitForFunction(() => window.BARK.services.premium.isPremium() === true, { timeout: 30000 });
+
+            await expect(page.locator('#paywall-overlay')).toHaveClass(/active/);
+            await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'premium');
+            await expect(page.locator('#paywall-title')).toHaveText('Premium active');
+            await expect(page.locator('#paywall-primary-btn')).toContainText('Premium is active');
+            await expect(page.locator('#paywall-primary-btn')).toBeDisabled();
+            await expect(page.locator('#paywall-secondary-btn')).toBeHidden();
+            await expect(page.locator('#paywall-clear-url-btn')).toBeHidden();
+
+            const checkoutParams = await page.evaluate(() => {
+                const params = new URL(window.location.href).searchParams;
+                return {
+                    checkout: params.get('checkout'),
+                    provider: params.get('provider')
+                };
+            });
+            expect(checkoutParams).toEqual({ checkout: null, provider: null });
+        } finally {
+            await context.close();
+        }
+    });
 });

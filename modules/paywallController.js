@@ -71,6 +71,21 @@
         renderCurrentState();
     }
 
+    function clearVerifiedCheckoutReturnState(state) {
+        if (!state || state.mode !== 'premium' || returnState !== 'success') return;
+
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('checkout') || url.searchParams.has('provider')) {
+            url.searchParams.delete('checkout');
+            url.searchParams.delete('provider');
+            window.history.replaceState({}, document.title, url.toString());
+        }
+
+        returnState = null;
+        returnStateStartedAt = null;
+        clearVerificationFallbackTimer();
+    }
+
     function setText(id, text) {
         const node = getElement(id);
         if (node) node.textContent = text;
@@ -233,8 +248,8 @@
                 body: activeCopy,
                 primaryText: 'Premium is active',
                 primaryDisabled: true,
-                secondaryVisible: true,
-                clearVisible: returnState !== null
+                secondaryVisible: false,
+                clearVisible: false
             };
         }
 
@@ -327,6 +342,7 @@
 
     function renderCurrentState() {
         const state = getState();
+        clearVerifiedCheckoutReturnState(state);
         const overlay = getElement('paywall-overlay');
         if (overlay) overlay.dataset.paywallState = state.mode;
 
@@ -493,6 +509,7 @@
         initialized = true;
         returnState = getReturnStateFromUrl();
         returnStateStartedAt = returnState ? Date.now() : null;
+        const initialReturnState = returnState;
 
         bindClick('paywall-close-btn', closePaywall);
         bindClick('paywall-secondary-btn', closePaywall);
@@ -518,8 +535,8 @@
         bindAuthObserverWhenReady();
         renderCurrentState();
 
-        if (returnState === 'success' || returnState === 'canceled') {
-            openPaywall({ source: `checkout-${returnState}` });
+        if (initialReturnState === 'success' || initialReturnState === 'canceled') {
+            openPaywall({ source: `checkout-${initialReturnState}` });
         }
     }
 
