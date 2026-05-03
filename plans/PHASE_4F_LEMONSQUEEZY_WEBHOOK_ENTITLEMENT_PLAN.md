@@ -20,6 +20,7 @@ Readiness verdict: 4F.1 is ready for local QC with mocked webhook payloads and f
 - Webhook secret still must be set before deploy.
 - Real Lemon Squeezy payload paths still need test-mode smoke confirmation before paid launch.
 - Out-of-order provider timestamp protection is not implemented in 4F.1; this must be resolved or explicitly accepted after real Lemon Squeezy test-mode payloads are captured.
+- Phase 4F.2 payload capture and ordering decision planning is documented in `plans/PHASE_4F2_LEMONSQUEEZY_WEBHOOK_PAYLOAD_CAPTURE_PLAN.md`.
 
 4F.1 verification status:
 
@@ -302,8 +303,9 @@ Do not commit either secret. Do not paste either secret into docs, tests, logs, 
 
 - 4F plan only.
 - 4F.1 webhook function + raw-body signature verification tests: implemented locally.
-- 4F.2 entitlement mapping + idempotency tests: implemented locally as part of 4F.1.
-- 4F.3 test-mode webhook smoke with a deployed test/staging function and Lemon Squeezy test-mode webhook simulation: remaining.
+- Entitlement mapping + idempotency tests: implemented locally as part of 4F.1.
+- 4F.2 real test-mode payload capture and provider ordering decision: planned in `plans/PHASE_4F2_LEMONSQUEEZY_WEBHOOK_PAYLOAD_CAPTURE_PLAN.md`.
+- 4F.3 test-mode webhook smoke with finalized payload-path/order handling: remaining.
 - 4G frontend paywall modal/buttons later.
 
 ## Return Summary
