@@ -810,6 +810,35 @@
                     </div>
                 </div>
 
+                <div id="account-status-card" class="profile-section-card account-status-card" hidden>
+                    <div class="account-card-header">
+                        <div>
+                            <div class="account-card-eyebrow">Current account</div>
+                            <h3>Signed in</h3>
+                        </div>
+                        <div id="account-display-premium" class="account-premium-pill">Loading</div>
+                    </div>
+                    <dl class="account-details-list">
+                        <div>
+                            <dt>Email</dt>
+                            <dd id="account-display-email">Loading</dd>
+                        </div>
+                        <div>
+                            <dt>UID</dt>
+                            <dd id="account-display-uid">Loading</dd>
+                        </div>
+                        <div>
+                            <dt>Method</dt>
+                            <dd id="account-display-provider">Loading</dd>
+                        </div>
+                    </dl>
+                    <p class="account-security-copy">Premium is attached to the account you are signed into.</p>
+                    <div class="account-actions">
+                        <button type="button" id="account-switch-btn" class="account-secondary-btn">Switch account</button>
+                        <button type="button" id="account-signout-btn" class="account-danger-btn">Sign out</button>
+                    </div>
+                </div>
+
                 <div id="profile-premium-card" class="profile-section-card paywall-profile-card">
                     <div class="paywall-profile-card-header">
                         <div>
@@ -824,7 +853,7 @@
                     <button type="button" id="profile-premium-action" class="glass-btn paywall-card-action">
                         Upgrade
                     </button>
-                    <div class="paywall-card-note">Internal test checkout uses Lemon Squeezy test mode.</div>
+                    <div class="paywall-card-note">Use the same account when returning from checkout.</div>
                 </div>
 
                 <!-- Unified Virtual Basecamp Module -->
@@ -1145,20 +1174,52 @@
 
             <!-- Logged-Out State: Value Pitch -->
             <div id="login-container" style="margin-top: 20px;">
-                <div
-                    style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 24px; margin-bottom: 24px; border: 1px solid rgba(0,0,0,0.05); text-align: center;">
-                    <h2 style="margin-top: 0; margin-bottom: 8px; font-size: 20px; font-weight: 900; color: #1e293b;">
-                        Unlock Your Profile</h2>
-                    <p style="font-size: 14px; color: #64748b; margin-bottom: 24px; line-height: 1.5;">Sign in to track
-                        your park visits, climb the global leaderboard, earn exclusive achievements, and safely back up
-                        your road trip itineraries.</p>
+                <div class="account-auth-card" id="account-auth-card">
+                    <h2>Unlock Your Profile</h2>
+                    <p class="account-auth-copy">Sign in to track your park visits, climb the global leaderboard, earn achievements, and back up road trip itineraries.</p>
 
-                    <button id="google-login-btn"
-                        style="width: 100%; background: #22c55e; color: white; border: none; padding: 14px; border-radius: 10px; font-weight: 800; font-size: 15px; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 10px; box-shadow: 0 4px 12px rgba(34,197,94,0.3);">
+                    <button id="google-login-btn" class="google-login-btn" type="button">
                         <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google"
-                            style="width: 18px; height: 18px; background: white; border-radius: 50%; padding: 2px;">
+                            class="google-login-icon">
                         Continue with Google
                     </button>
+
+                    <div class="account-divider"><span>or use email</span></div>
+
+                    <div class="account-mode-tabs" role="group" aria-label="Account mode">
+                        <button type="button" id="account-mode-signin" class="account-mode-btn active" aria-pressed="true">Sign in</button>
+                        <button type="button" id="account-mode-create" class="account-mode-btn" aria-pressed="false">Create account</button>
+                        <button type="button" id="account-mode-reset" class="account-mode-btn" aria-pressed="false">Reset password</button>
+                    </div>
+
+                    <div id="account-auth-message" class="account-auth-message" role="status" aria-live="polite" hidden></div>
+
+                    <form id="account-signin-form" class="account-form">
+                        <label for="account-signin-email">Email</label>
+                        <input id="account-signin-email" type="email" autocomplete="email" inputmode="email" required>
+                        <label for="account-signin-password">Password</label>
+                        <input id="account-signin-password" type="password" autocomplete="current-password" required>
+                        <button type="submit" class="account-primary-btn">Sign in with email</button>
+                        <button type="button" id="account-forgot-password-btn" class="account-link-btn">Forgot password?</button>
+                    </form>
+
+                    <form id="account-create-form" class="account-form" hidden>
+                        <label for="account-create-email">Email</label>
+                        <input id="account-create-email" type="email" autocomplete="email" inputmode="email" required>
+                        <label for="account-create-password">Password</label>
+                        <input id="account-create-password" type="password" autocomplete="new-password" minlength="8" required>
+                        <p class="account-field-hint">Use at least 8 characters.</p>
+                        <button type="submit" class="account-primary-btn">Create account</button>
+                    </form>
+
+                    <form id="account-reset-form" class="account-form" hidden>
+                        <label for="account-reset-email">Email</label>
+                        <input id="account-reset-email" type="email" autocomplete="email" inputmode="email" required>
+                        <button type="submit" class="account-primary-btn">Send password reset email</button>
+                        <button type="button" id="account-inline-create-btn" class="account-link-btn">Need a new account?</button>
+                    </form>
+
+                    <p class="account-auth-footnote">Premium is attached to the account you are signed into.</p>
                 </div>
             </div>
 
@@ -1280,7 +1341,7 @@
                 Clear checkout message
             </button>
             <p class="paywall-support-copy">
-                Payment is handled securely by Lemon Squeezy. Premium unlocks only after the verified webhook updates this account.
+                Payment is handled securely by Lemon Squeezy. Premium is attached to the account you are signed into. Use the same account when returning from checkout.
             </p>
             <div id="paywall-source" class="paywall-source">Opened from manual</div>
         </div>
@@ -1316,6 +1377,7 @@
     <script src="services/checkinService.js?v=5" defer></script>
     <script src="services/authPremiumUi.js?v=2" defer></script>
     <script src="services/premiumService.js?v=1" defer></script>
+    <script src="services/authAccountUi.js?v=1" defer></script>
     <script src="modules/paywallController.js?v=1" defer></script>
     <script src="services/authService.js?v=22" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>

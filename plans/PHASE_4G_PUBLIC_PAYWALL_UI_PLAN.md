@@ -16,6 +16,15 @@ Hard stop lines for this phase:
 - Do not unlock premium from `?checkout=success`.
 - Do not roll this UI to beta testers until test-mode checkout, webhook, entitlement, and smoke checks pass.
 
+2026-05-02 implementation note:
+
+- Public-facing account UI was added locally for internal branch testing.
+- Existing Google sign-in remains.
+- Email/password create account, sign-in, password reset, sign out, switch account, and current account display were added.
+- Firebase Console Email/Password provider must be enabled manually before the email/password flows work in deployed/internal testing.
+- Account linking is explicitly deferred.
+- Premium entitlement logic did not change; premium still unlocks only from the current UID's Firestore entitlement through `premiumService`.
+
 ## 1. Public-Facing UX Goal
 
 Build the paywall UI as if real users will eventually see it, while keeping this branch/version internal-only until payment smoke is complete.
@@ -126,6 +135,28 @@ Expected behavior:
 Important rule:
 
 - The app unlocks premium only from `premiumService` reading Firestore entitlement where effective premium is `premium === true` and status is `active` or `manual_active`.
+- The account UI may display the current premium status, but it does not write entitlement or mark an account premium.
+
+## 4A. Account UI Addendum
+
+The public-facing account UI now supports:
+
+- Continue with Google.
+- Create account with email/password.
+- Sign in with email/password.
+- Password reset email.
+- Sign out.
+- Switch account.
+- Current account display with email, Firebase UID, provider/method, and premium status.
+
+Security boundaries:
+
+- Passwords are submitted only to Firebase Auth and are not stored by the app.
+- Client code does not write `users/{uid}.entitlement`.
+- Client code does not set `premiumService` manually.
+- Premium is attached to the currently signed-in Firebase UID.
+- Checkout return messaging must keep reminding users to return with the same account.
+- Account linking between Google and email/password is deferred until a separate focused phase.
 
 ## 5. Frontend Implementation Shape
 
@@ -292,6 +323,16 @@ Before full checkout testing:
 - Test webhook events confirm real payload paths for `firebase_uid`, event ID, status, provider IDs, test mode, store ID, and timestamps.
 - Out-of-order provider timestamp decision from Phase 4F.2/4F.3 is resolved before public/paid launch.
 - Test checkout can produce a webhook carrying `checkout_data.custom.firebase_uid`.
+- The backend `APP_BASE_URL` points to the same app origin/session being used for internal checkout smoke.
+  - Use the production default `https://outswarming.github.io/bark-ranger-map/` for GitHub Pages testing.
+  - Use a local value such as `http://localhost:4173/index.html` for localhost testing.
+  - Do not let the client provide this value.
+
+Internal testing gotcha:
+
+- If checkout starts from localhost and Lemon Squeezy returns to GitHub Pages, the webhook may write entitlement to the UID that created checkout while the returned browser is signed into a different UID/session.
+- That leaves the returned app correctly stuck on `Verifying payment...` because its current Firestore entitlement is not active.
+- This is not a payment security bug. It is the frontend refusing to unlock without entitlement on the current signed-in UID.
 
 Later commands, do not run in this planning phase:
 

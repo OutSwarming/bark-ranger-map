@@ -132,7 +132,7 @@
                 mode: 'signed-out',
                 title: 'Sign in to upgrade',
                 eyebrow: 'Account required',
-                body: 'Sign in first so premium can be attached to your BARK Ranger account.',
+                body: 'Sign in first so premium can be attached to your BARK Ranger account. You can use Google or email/password.',
                 primaryText: 'Sign in to upgrade',
                 secondaryVisible: true,
                 clearVisible: returnState !== null
@@ -287,9 +287,11 @@
 
         setTimeout(() => {
             const loginContainer = getElement('login-container');
+            const emailInput = getElement('account-signin-email');
             const googleBtn = getElement('google-login-btn');
             if (loginContainer) loginContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            if (googleBtn) googleBtn.focus({ preventScroll: true });
+            if (emailInput) emailInput.focus({ preventScroll: true });
+            else if (googleBtn) googleBtn.focus({ preventScroll: true });
         }, 120);
     }
 
