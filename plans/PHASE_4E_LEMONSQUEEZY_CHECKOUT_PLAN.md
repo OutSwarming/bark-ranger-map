@@ -360,4 +360,5 @@ Ready to collect money: NO, not until webhook verification, entitlement updates,
 Next webhook hardening plan:
 
 - Phase 4F.2 payload capture and provider ordering decision is documented in `plans/PHASE_4F2_LEMONSQUEEZY_WEBHOOK_PAYLOAD_CAPTURE_PLAN.md`.
+- Phase 4F.3 test-mode capture deploy gate is documented in `plans/PHASE_4F3_LEMONSQUEEZY_TESTMODE_CAPTURE_GATE.md`.
 - Do not deploy checkout/webhook functions for capture until explicit approval, test-mode secrets, and safe redacted payload handling are confirmed.

@@ -6,6 +6,11 @@ Status: planning only. Do not edit runtime app code, Functions code, frontend co
 
 Readiness verdict: NOT READY to deploy/capture yet. Capture becomes ready only after explicit maintainer approval, correct Firebase target confirmation, test-mode secrets are set, and the maintainer confirms that temporary payload handling will not commit raw customer/payment data.
 
+Phase 4F.3 capture deploy gate:
+
+- The deploy/capture approval checklist is documented in `plans/PHASE_4F3_LEMONSQUEEZY_TESTMODE_CAPTURE_GATE.md`.
+- Do not set secrets or deploy capture functions until that gate is explicitly approved.
+
 ## 1. Current State
 
 - Phase 4E `createCheckoutSession` exists locally and creates Lemon Squeezy test-mode checkout URLs from a backend callable.
