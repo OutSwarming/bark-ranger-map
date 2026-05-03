@@ -413,6 +413,45 @@ async function forceSignedInLikeFreeUser(page) {
     });
 }
 
+async function forceAuthUserAndRenderPaywall(page, uid) {
+    return page.evaluate((nextUid) => {
+        const nextUser = nextUid
+            ? {
+                uid: nextUid,
+                email: `${nextUid}@example.test`
+            }
+            : null;
+        const auth = window.firebase.auth();
+
+        try {
+            Object.defineProperty(auth, 'currentUser', {
+                value: nextUser,
+                configurable: true
+            });
+        } catch (error) {
+            auth.currentUser = nextUser;
+        }
+
+        window.BARK.services.premium.reset({
+            uid: nextUid || null,
+            reason: 'playwright-checkout-return-account-change'
+        });
+        window.BARK.paywall.renderCurrentState();
+
+        const params = new URL(window.location.href).searchParams;
+        const card = document.getElementById('profile-premium-card');
+        return {
+            uid: window.firebase.auth().currentUser && window.firebase.auth().currentUser.uid,
+            profileState: card && card.dataset.paywallState,
+            profileStatus: document.getElementById('profile-premium-status')?.textContent || '',
+            title: document.getElementById('paywall-title')?.textContent || '',
+            checkout: params.get('checkout'),
+            provider: params.get('provider'),
+            isPremium: window.BARK.services.premium.isPremium()
+        };
+    }, uid);
+}
+
 test.describe('Phase 3A premium gating smoke', () => {
     test('signed-out app locks premium controls', async ({ page }) => {
         await waitForSignedOutApp(page);
@@ -584,6 +623,42 @@ test.describe('Phase 3A premium gating smoke', () => {
             await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'verification-delayed', { timeout: 5000 });
             await expectFreePaywallState(page, 'verification-delayed');
             await expect(page.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(false);
+        } finally {
+            await context.close();
+        }
+    });
+
+    test('checkout success verification clears when the signed-in account changes', async ({ browser }) => {
+        const context = await browser.newContext();
+        await context.addInitScript(() => {
+            window.BARK = window.BARK || {};
+            window.BARK.PAYWALL_VERIFYING_FALLBACK_MS = 0;
+        });
+        const page = await context.newPage();
+        try {
+            await waitForSignedOutApp(page, withCheckoutParams(BASE_URL, 'success'));
+            await expectFreePaywallState(page, 'verify-signed-out');
+
+            const firstAccount = await forceAuthUserAndRenderPaywall(page, 'checkout-return-account-a');
+            expect(firstAccount).toMatchObject({
+                uid: 'checkout-return-account-a',
+                profileState: 'verification-delayed',
+                profileStatus: 'Still verifying premium',
+                checkout: 'success',
+                provider: 'lemonsqueezy',
+                isPremium: false
+            });
+
+            const secondAccount = await forceAuthUserAndRenderPaywall(page, 'new-google-account-b');
+            expect(secondAccount).toMatchObject({
+                uid: 'new-google-account-b',
+                profileState: 'free',
+                profileStatus: 'Free plan',
+                checkout: null,
+                provider: null,
+                isPremium: false
+            });
+            await expectFreePaywallState(page, 'free');
         } finally {
             await context.close();
         }

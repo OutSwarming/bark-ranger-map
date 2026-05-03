@@ -19,6 +19,7 @@ Resolved during this downgrade follow-up:
 - BUG-021: Free route generation now opens a clear Premium upgrade explanation without calling ORS.
 - BUG-022: Local settings autosave remains available to everyone, while cloud settings sync/save and cloud hydration are Premium-only.
 - BUG-023: Verified Premium checkout-return modal no longer shows pending-only `Maybe later` or `Clear checkout message` controls.
+- BUG-024: Checkout success verification no longer follows a switched/new account after the verifying account changes.
 
 ## Deployed Firestore Rules
 
@@ -56,7 +57,7 @@ Covered flow:
 - `premiumService`
 - UI Premium active
 
-Current gate did not touch live Lemon Squeezy. A manual TEST MODE checkout return surfaced BUG-023: after entitlement verification, the Premium active modal still showed pending-only cleanup buttons. BUG-023 is fixed and covered by a checkout-return regression; a final human re-skim of the full TEST MODE checkout flow is still useful.
+Current gate did not touch live Lemon Squeezy. Manual TEST MODE checkout/account-switch testing surfaced BUG-023 and BUG-024. BUG-023 fixed the verified Premium active modal cleanup controls. BUG-024 fixed stale checkout success verification following a changed/new Google account. Both are covered by checkout-return regressions; a final human re-skim of the full TEST MODE checkout flow is still useful.
 
 Payment/backend protections are covered by the final function test suite:
 
@@ -79,7 +80,8 @@ Payment/backend protections are covered by the final function test suite:
 | focused BUG-021 route upgrade prompt smoke | PASS 1/1 |
 | focused BUG-022 settings cloud-sync policy smoke | PASS 3/3 |
 | focused BUG-023 verified checkout-return modal smoke | PASS 10/10 in `phase3a-premium-gating-smoke.spec.js` |
-| signed-in `npm run test:e2e:smoke` | PASS 30/30 after adding BUG-015, BUG-016, BUG-017, BUG-021, BUG-022, and BUG-023 product-rule/UX smoke |
+| focused BUG-024 checkout-return account-change smoke | PASS 11/11 in `phase3a-premium-gating-smoke.spec.js` |
+| signed-in `npm run test:e2e:smoke` | PASS 31/31 after adding BUG-015, BUG-016, BUG-017, BUG-021, BUG-022, BUG-023, and BUG-024 product-rule/UX smoke |
 | focused final mobile/console beta sweep | PASS 3/3 |
 | `git diff --check` | PASS |
 
@@ -113,6 +115,7 @@ BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json"
 - BUG-021: Route generation upgrade prompt. QC PASSED for free mobile tap/click, route-specific paywall copy, no free ORS call, and existing premium route generation path.
 - BUG-022: Settings autosave/cloud sync policy. QC PASSED for signed-out local settings persistence, signed-in free local-only settings/no cloud write/upgrade prompt, premium cloud sync payload, and premium-only setting sanitization.
 - BUG-023: Verified Premium checkout-return modal cleanup. QC PASSED for hiding pending-only `Maybe later` and `Clear checkout message` buttons once entitlement is active, while preserving URL-only non-unlock behavior.
+- BUG-024: Checkout success account-change verification cleanup. QC PASSED for clearing stale success verification when a different/new account becomes current before entitlement is active.
 - BUG-005: Mobile paywall/account layout risk. QC PASSED by focused 390x844 mobile sweep covering paywall, route/cloud premium prompts, signed-in account card, marker detail panel, profile order, search, settings, and planner.
 - BUG-006: Runtime console cleanup sweep. QC PASSED by full automated suite and focused signed-out/free/premium mobile console sweep.
 - BUG-019: Android search loop. DEFERRED because no exact Android repro is available; final mobile search smoke did not reproduce it.

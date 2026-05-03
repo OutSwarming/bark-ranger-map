@@ -15,6 +15,7 @@
     let lastSource = 'manual';
     let returnState = null;
     let returnStateStartedAt = null;
+    let returnStateUserUid = null;
     let checkoutInFlight = false;
     let unsubscribePremium = null;
     let verificationFallbackTimer = null;
@@ -61,29 +62,48 @@
         return null;
     }
 
-    function clearCheckoutParams() {
+    function clearCheckoutReturnState() {
         const url = new URL(window.location.href);
         url.searchParams.delete('checkout');
         url.searchParams.delete('provider');
         window.history.replaceState({}, document.title, url.toString());
         returnState = null;
         returnStateStartedAt = null;
+        returnStateUserUid = null;
+        clearVerificationFallbackTimer();
+    }
+
+    function clearCheckoutParams() {
+        clearCheckoutReturnState();
         renderCurrentState();
     }
 
     function clearVerifiedCheckoutReturnState(state) {
         if (!state || state.mode !== 'premium' || returnState !== 'success') return;
+        clearCheckoutReturnState();
+    }
 
-        const url = new URL(window.location.href);
-        if (url.searchParams.has('checkout') || url.searchParams.has('provider')) {
-            url.searchParams.delete('checkout');
-            url.searchParams.delete('provider');
-            window.history.replaceState({}, document.title, url.toString());
+    function syncCheckoutReturnAccount(user) {
+        if (returnState !== 'success') return false;
+
+        const uid = user && user.uid ? user.uid : null;
+        if (!uid) {
+            if (!returnStateUserUid) return false;
+            clearCheckoutReturnState();
+            return true;
         }
 
-        returnState = null;
-        returnStateStartedAt = null;
-        clearVerificationFallbackTimer();
+        if (!returnStateUserUid) {
+            returnStateUserUid = uid;
+            return false;
+        }
+
+        if (returnStateUserUid !== uid) {
+            clearCheckoutReturnState();
+            return true;
+        }
+
+        return false;
     }
 
     function setText(id, text) {
@@ -174,6 +194,7 @@
 
     function getState() {
         const user = getCurrentUser();
+        syncCheckoutReturnAccount(user);
         const entitlement = getEntitlement();
 
         if (returnState === 'canceled') {
