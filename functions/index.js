@@ -3,7 +3,7 @@ const admin = require("firebase-admin");
 const axios = require("axios");
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { google } = require('googleapis');
-const { randomUUID } = require("crypto");
+const { createHash, createHmac, randomUUID, timingSafeEqual } = require("crypto");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -175,6 +175,18 @@ const LEMONSQUEEZY_CHECKOUTS_URL = `${LEMONSQUEEZY_API_ORIGIN}/v1/checkouts`;
 const DEFAULT_LEMONSQUEEZY_STORE_ID = "363425";
 const DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID = "1604336";
 const DEFAULT_APP_BASE_URL = "https://outswarming.github.io/bark-ranger-map/";
+const LEMONSQUEEZY_SUPPORTED_EVENTS = new Set([
+    "subscription_created",
+    "subscription_updated",
+    "subscription_resumed",
+    "subscription_payment_success",
+    "subscription_payment_recovered",
+    "subscription_payment_failed",
+    "subscription_expired",
+    "subscription_cancelled",
+    "subscription_payment_refunded",
+    "order_refunded"
+]);
 
 function cleanOptionalString(value) {
     return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -295,6 +307,259 @@ async function handleCreateCheckoutSession(requestOrData, context, options = {})
     }
 }
 
+function getHeaderValue(req, name) {
+    if (req && typeof req.get === "function") {
+        const value = req.get(name);
+        if (value) return value;
+    }
+
+    const headers = req && req.headers ? req.headers : {};
+    const lowerName = name.toLowerCase();
+    return headers[name] || headers[lowerName] || null;
+}
+
+function getLemonSqueezyWebhookSecret(options = {}) {
+    const env = options.env || process.env;
+    return cleanOptionalString(options.webhookSecret) || cleanOptionalString(env.LEMONSQUEEZY_WEBHOOK_SECRET);
+}
+
+function getRawWebhookBody(req) {
+    const rawBody = req && req.rawBody;
+    if (Buffer.isBuffer(rawBody)) return rawBody;
+    if (typeof rawBody === "string") return Buffer.from(rawBody, "utf8");
+    return null;
+}
+
+function normalizeLemonSqueezySignature(signature) {
+    const value = cleanOptionalString(signature);
+    if (!value) return null;
+    return value.startsWith("sha256=") ? value.slice("sha256=".length).trim() : value;
+}
+
+function verifyLemonSqueezyWebhookSignature(rawBody, signature, secret) {
+    const normalizedSignature = normalizeLemonSqueezySignature(signature);
+    if (!Buffer.isBuffer(rawBody) || !normalizedSignature || !secret) return false;
+
+    const digest = Buffer.from(createHmac("sha256", secret).update(rawBody).digest("hex"), "utf8");
+    const received = Buffer.from(normalizedSignature, "utf8");
+    if (digest.length !== received.length) return false;
+    return timingSafeEqual(digest, received);
+}
+
+function deriveLemonSqueezyEventId(payload, rawBody) {
+    const meta = payload && payload.meta && typeof payload.meta === "object" ? payload.meta : {};
+    const providerId = cleanOptionalString(meta.event_id) ||
+        cleanOptionalString(meta.webhook_event_id) ||
+        cleanOptionalString(meta.id);
+    if (providerId) return providerId;
+
+    const source = Buffer.isBuffer(rawBody)
+        ? rawBody
+        : Buffer.from(JSON.stringify(payload || {}), "utf8");
+    return `derived_${createHash("sha256").update(source).digest("hex")}`;
+}
+
+function getLemonSqueezyEventName(payload, req) {
+    const meta = payload && payload.meta && typeof payload.meta === "object" ? payload.meta : {};
+    return cleanOptionalString(meta.event_name) || cleanOptionalString(getHeaderValue(req, "X-Event-Name")) || "unknown";
+}
+
+function getLemonSqueezyCustomData(payload) {
+    const meta = payload && payload.meta && typeof payload.meta === "object" ? payload.meta : {};
+    return meta.custom_data && typeof meta.custom_data === "object" && !Array.isArray(meta.custom_data)
+        ? meta.custom_data
+        : {};
+}
+
+function isValidFirebaseUid(uid) {
+    return typeof uid === "string" && uid.trim() === uid && uid.length > 0 && uid.length <= 128 && !uid.includes("/");
+}
+
+function getLemonSqueezyAttributes(payload) {
+    return payload &&
+        payload.data &&
+        payload.data.attributes &&
+        typeof payload.data.attributes === "object" &&
+        !Array.isArray(payload.data.attributes)
+        ? payload.data.attributes
+        : {};
+}
+
+function getCurrentPeriodEnd(attributes) {
+    return cleanOptionalString(attributes.ends_at) ||
+        cleanOptionalString(attributes.renews_at) ||
+        cleanOptionalString(attributes.trial_ends_at) ||
+        null;
+}
+
+function isFutureDate(value, nowMs = Date.now()) {
+    const text = cleanOptionalString(value);
+    if (!text) return false;
+    const time = Date.parse(text);
+    return Number.isFinite(time) && time > nowMs;
+}
+
+function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
+    if (!LEMONSQUEEZY_SUPPORTED_EVENTS.has(eventName)) {
+        return { action: "ignore", reason: "unsupported_event" };
+    }
+
+    const attributes = getLemonSqueezyAttributes(payload);
+    if (attributes.test_mode !== true) {
+        return { action: "ignore", reason: "non_test_mode" };
+    }
+
+    if (attributes.store_id !== undefined && String(attributes.store_id) !== DEFAULT_LEMONSQUEEZY_STORE_ID) {
+        return { action: "ignore", reason: "store_mismatch" };
+    }
+
+    const providerStatus = cleanOptionalString(attributes.status);
+    const normalizedStatus = providerStatus ? providerStatus.toLowerCase() : "";
+    const currentPeriodEnd = getCurrentPeriodEnd(attributes);
+    let entitlement = null;
+
+    if (eventName === "subscription_payment_success" || eventName === "subscription_payment_recovered") {
+        entitlement = { premium: true, status: "active" };
+    } else if (eventName === "subscription_payment_failed") {
+        entitlement = { premium: false, status: "past_due" };
+    } else if (eventName === "subscription_expired") {
+        entitlement = { premium: false, status: "expired" };
+    } else if (eventName === "subscription_cancelled") {
+        entitlement = isFutureDate(attributes.ends_at, options.nowMs)
+            ? { premium: true, status: "active" }
+            : { premium: false, status: "canceled" };
+    } else if (eventName === "subscription_payment_refunded" || eventName === "order_refunded") {
+        entitlement = { premium: false, status: "canceled" };
+    } else if (normalizedStatus === "active") {
+        entitlement = { premium: true, status: "active" };
+    } else if (normalizedStatus === "expired") {
+        entitlement = { premium: false, status: "expired" };
+    } else if (normalizedStatus === "past_due" || normalizedStatus === "unpaid") {
+        entitlement = { premium: false, status: "past_due" };
+    } else if (normalizedStatus === "cancelled" || normalizedStatus === "canceled") {
+        entitlement = isFutureDate(attributes.ends_at, options.nowMs)
+            ? { premium: true, status: "active" }
+            : { premium: false, status: "canceled" };
+    }
+
+    if (!entitlement) {
+        return { action: "ignore", reason: "unsupported_status" };
+    }
+
+    return {
+        action: "write",
+        entitlement: {
+            ...entitlement,
+            source: "lemon_squeezy",
+            providerCustomerId: attributes.customer_id === undefined ? null : String(attributes.customer_id),
+            providerSubscriptionId: payload && payload.data && payload.data.type === "subscriptions"
+                ? String(payload.data.id)
+                : attributes.subscription_id === undefined ? null : String(attributes.subscription_id),
+            providerOrderId: payload && payload.data && payload.data.type === "orders"
+                ? String(payload.data.id)
+                : attributes.order_id === undefined ? null : String(attributes.order_id),
+            currentPeriodEnd
+        }
+    };
+}
+
+function getServerTimestamp(options = {}) {
+    return typeof options.serverTimestamp === "function"
+        ? options.serverTimestamp()
+        : admin.firestore.FieldValue.serverTimestamp();
+}
+
+function safeResponse(res, status, body) {
+    if (res && typeof res.status === "function") {
+        res.status(status);
+    } else if (res) {
+        res.statusCode = status;
+    }
+
+    if (res && typeof res.json === "function") return res.json(body);
+    if (res && typeof res.send === "function") return res.send(body);
+    if (res && typeof res.end === "function") return res.end(JSON.stringify(body));
+    return body;
+}
+
+async function handleLemonSqueezyWebhook(req, res, options = {}) {
+    if (!req || req.method !== "POST") {
+        return safeResponse(res, 405, { ok: false, error: "method_not_allowed" });
+    }
+
+    const rawBody = getRawWebhookBody(req);
+    if (!rawBody || rawBody.length === 0) {
+        return safeResponse(res, 400, { ok: false, error: "missing_raw_body" });
+    }
+
+    const signature = getHeaderValue(req, "X-Signature");
+    if (!signature) {
+        return safeResponse(res, 401, { ok: false, error: "missing_signature" });
+    }
+
+    const secret = getLemonSqueezyWebhookSecret(options);
+    if (!secret) {
+        console.error("[payments] Lemon Squeezy webhook secret is not configured.");
+        return safeResponse(res, 500, { ok: false, error: "webhook_not_configured" });
+    }
+
+    if (!verifyLemonSqueezyWebhookSignature(rawBody, signature, secret)) {
+        return safeResponse(res, 401, { ok: false, error: "invalid_signature" });
+    }
+
+    let payload;
+    try {
+        payload = JSON.parse(rawBody.toString("utf8"));
+    } catch (_error) {
+        return safeResponse(res, 400, { ok: false, error: "invalid_json" });
+    }
+
+    const eventName = getLemonSqueezyEventName(payload, req);
+    const eventId = deriveLemonSqueezyEventId(payload, rawBody);
+    const customData = getLemonSqueezyCustomData(payload);
+    const uid = cleanOptionalString(customData.firebase_uid);
+
+    if (!isValidFirebaseUid(uid)) {
+        console.warn("[payments] Lemon Squeezy webhook ignored because firebase_uid is missing or invalid.", {
+            eventName,
+            eventId
+        });
+        return safeResponse(res, 200, { ok: true, ignored: true, reason: "missing_uid" });
+    }
+
+    const mapping = mapLemonSqueezyEntitlement(payload, eventName, options);
+    if (mapping.action !== "write") {
+        return safeResponse(res, 200, { ok: true, ignored: true, reason: mapping.reason || "ignored" });
+    }
+
+    const db = options.firestore || admin.firestore();
+    const userRef = db.collection("users").doc(uid);
+    const userSnapshot = await userRef.get();
+    const userData = userSnapshot && userSnapshot.exists && typeof userSnapshot.data === "function"
+        ? userSnapshot.data()
+        : {};
+    const existingEntitlement = userData && userData.entitlement && typeof userData.entitlement === "object"
+        ? userData.entitlement
+        : {};
+
+    if (existingEntitlement.lastProviderEventId === eventId) {
+        return safeResponse(res, 200, { ok: true, duplicate: true });
+    }
+
+    if (existingEntitlement.status === "manual_active" && existingEntitlement.source !== "lemon_squeezy") {
+        return safeResponse(res, 200, { ok: true, ignored: true, reason: "manual_override" });
+    }
+
+    const entitlement = {
+        ...mapping.entitlement,
+        updatedAt: getServerTimestamp(options),
+        lastProviderEventId: eventId
+    };
+
+    await userRef.set({ entitlement }, { merge: true });
+    return safeResponse(res, 200, { ok: true });
+}
+
 async function handlePremiumRoute(requestOrData, context, options = {}) {
     await requirePremiumCallable(context, "getPremiumRoute", options);
 
@@ -388,6 +653,12 @@ exports.createCheckoutSession = functions
         return handleCreateCheckoutSession(requestOrData, context);
     });
 
+exports.lemonSqueezyWebhook = functions
+    .runWith({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET"] })
+    .https.onRequest(async (req, res) => {
+        return handleLemonSqueezyWebhook(req, res);
+    });
+
 if (process.env.NODE_ENV === "test") {
     exports.__test = {
         normalizeEntitlement,
@@ -399,7 +670,11 @@ if (process.env.NODE_ENV === "test") {
         buildCheckoutReturnUrl,
         buildLemonSqueezyCheckoutPayload,
         extractLemonSqueezyCheckoutUrl,
-        handleCreateCheckoutSession
+        handleCreateCheckoutSession,
+        verifyLemonSqueezyWebhookSignature,
+        deriveLemonSqueezyEventId,
+        mapLemonSqueezyEntitlement,
+        handleLemonSqueezyWebhook
     };
 }
 
