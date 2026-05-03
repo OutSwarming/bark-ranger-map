@@ -2,7 +2,7 @@
 
 Date: 2026-05-03
 Branch: main
-Current commit: 17131f8b0e99b54951f3a013f5be92f839e3c917 (before BUG-013 auth UX fix)
+Current commit: f6e65dc99773a61ae544b928f2128472476ef42a (before account-switch matrix sweep)
 Scope: New premium/internal app only.
 
 ## Status Legend
@@ -40,6 +40,7 @@ Seeded as BUG-001 through BUG-010 in the table below. BUG-011 was added from sta
 | BUG-011 | Non-premium users can inherit premium map settings from localStorage/cloud settings | Premium entitlement/runtime | P1 | 5 | 4 | Reproduced: with `barkMapStyle=terrain`, `barkVisitedFilter=visited`, and `barkPremiumClustering=true`, signed-out/non-premium boot kept OpenTopoMap tiles, visited-only filter, and premium clustering active while controls were locked. Fixed by sanitizing non-premium runtime defaults and blocking premium cloud settings for non-premium users; signed-in free storage-state QC now passes. | Seed localStorage premium map/filter/clustering values, boot signed-out/free, and inspect active layer/filter/clustering while premium controls are locked. | Premium-off gating updated controls but did not sanitize premium-owned runtime settings; cloud hydration could reapply premium settings for free users. | `services/authPremiumUi.js`, `services/authService.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js` | This fix commit | PASS | QC PASSED |
 | BUG-012 | Profile signed-in card order is confusing on mobile | Layout/UI logic | P2 | 5 | 3 | User-reported mobile order put Current Account before profile value content. Fixed DOM order so Premium, Achievement Vault, Virtual Expedition, Dossier, Leaderboard, and My Data & Routes appear before account/admin/footer controls. Signed-in storage-state profile smoke now passes. | Open Profile tab after sign-in on mobile and inspect card order. | Static profile DOM placed `#account-status-card` directly below the welcome/stats card and before the achievement/expedition/profile journey. | `index.html`, `tests/playwright/account-auth-smoke.spec.js` | This fix commit | PASS | QC PASSED |
 | BUG-013 | Google switch account does not show account chooser | Auth UX | P1 | 5 | 4 | Implemented a one-shot switch-account Google chooser intent. Normal Google sign-in builds the default provider; Switch Account sets the intent; the next Google popup provider receives `prompt: "select_account"` and the intent is immediately consumed. Automated provider-stub smoke passes; manual Google chooser confirmation still pending. | Sign in with Google Account A, click Switch Account, click Sign in with Google, confirm Google account chooser appears, choose Account B, and confirm account/premium state belongs to B. | Firebase `auth.signOut()` signs out of the app but does not clear the browser Google session, so a follow-up popup can silently reuse the prior Google account unless the provider asks for account selection. | `services/authService.js`, `services/authAccountUi.js`, `tests/playwright/account-auth-smoke.spec.js` | This fix commit | PARTIAL PASS; manual Google chooser QC pending | FIXED |
+| BUG-014 | Settings autosave can call Firebase Auth before app initialization | Runtime console errors | P2 | 5 | 3 | Reproduced in A12 matrix smoke: free account with premium localStorage settings triggered `BARK settings listener failed for "premiumClusteringEnabled"` and `Firebase: No Firebase App '[DEFAULT]' has been created` during boot sanitization. Fixed by making cloud settings autosave wait until Firebase app/auth is initialized. | Seed `barkMapStyle=terrain`, `barkVisitedFilter=visited`, `barkPremiumClustering=true`, boot with free storage state, and capture console errors. | `settingsController` called `firebaseService.getCurrentUser()`, which calls `firebase.auth()`, before Firebase initialization completed. | `modules/settingsController.js`, `tests/playwright/account-switch-premium-matrix.spec.js` | This fix commit | PASS | QC PASSED |
 
 Probability scale:
 1 = unlikely
@@ -70,6 +71,7 @@ Concern scale:
 - BUG-002 storage-state update: Playwright auth session output now defaults to ignored `playwright/.auth/*.json` paths, and `scripts/save-playwright-storage-state.js` can manually capture free, second-free, and premium account states without storing passwords in code.
 - BUG-012 root cause: the signed-in profile DOM prioritized account/payment-adjacent content directly after the welcome card. No entitlement, account, admin, or feedback handlers needed to change because all existing IDs/classes stayed intact.
 - BUG-013 root cause: Firebase sign-out clears app/Firebase auth state, but not the browser's Google session. Switch Account now sets an in-memory one-shot intent, and the next Google provider is created with `provider.setCustomParameters({ prompt: 'select_account' })`. Normal Google sign-in and email/password sign-in remain unchanged.
+- BUG-014 root cause: settings sanitization can fire settings-store listeners before Firebase initialization. Cloud settings autosave now returns no save context until `firebase.apps.length > 0`, `firebase.auth` exists, and `firebaseService.getCurrentUser()` can be safely read.
 - Signed-in QC storage states were created under ignored paths: `playwright/.auth/free-user.json`, `playwright/.auth/free-user-b.json`, and `playwright/.auth/premium-user.json`. `premium-user.json` was verified as Premium active before saving. `free-user.json` and `free-user-b.json` currently point to the same free UID, so two-free-account isolation remains a setup caveat; distinct free-vs-premium full smoke passed.
 - Phase 4C entitlement smoke was updated to accept both supported premium entitlement sources: `active` from Lemon Squeezy and `manual_active` from admin override.
 
@@ -93,6 +95,8 @@ Concern scale:
 - BUG-013 required signed-in full smoke with `free-user.json`, `free-user-b.json`, and `premium-user.json`: FAIL, 15/16 because `free-user.json` and `free-user-b.json` are the same UID (`LkevgscKPvPqRg9c5YKKXVqtwv02`); this is the known storage-state setup gap, not a BUG-013 regression.
 - BUG-013 signed-in full smoke rerun with distinct free/premium accounts: PASS, 16/16.
 - BUG-013 focused premium-gating smoke with storage states: PASS, 9/9.
+- BUG-014 account-switch premium matrix smoke: initially FAIL 2/4; A12 reproduced Firebase no-app settings listener error. After fix, PASS 4/4 for A01, A02, A06, A07, A08, and A12 coverage.
+- BUG-014 post-fix suite: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; exact required signed-in e2e smoke with `free-user-b.json` FAIL 15/16 because free/free-b share UID; distinct-account rerun with free/premium PASS 16/16; focused premium-gating smoke PASS 9/9; `git diff --check` PASS after generated-log cleanup.
 - Phase 4C premium entitlement smoke with free and premium states: initially failed because the premium account was `active/lemon_squeezy` rather than `manual_active/admin_override`; after test update, PASS, 2/2.
 - Phase 4C global search entitlement smoke with free and premium states: PASS, 3/3.
 - Account auth/profile smoke with signed-in free storage state: PASS, 3/3.
@@ -118,6 +122,40 @@ Concern scale:
 - Signed-in free and signed-in premium runtime QC now pass with storage states. Premium sign-out lock reset is covered. A true second free-account storage state is still needed if we specifically require free-account-A to free-account-B isolation instead of distinct free-to-premium isolation.
 
 ## Fix Log / QC
+
+### BUG-014
+
+Bug selected: Settings autosave can call Firebase Auth before app initialization.
+
+Root cause hypothesis: A non-premium boot with premium localStorage settings sanitizes settings early, which notifies settings-store listeners before Firebase initialization; the cloud autosave path then calls `firebase.auth()` too soon.
+
+Files expected: `modules/settingsController.js`, `tests/playwright/account-switch-premium-matrix.spec.js`, `plans/ACCOUNT_SWITCH_PREMIUM_MATRIX.md`, `plans/PREMIUM_APP_BUG_TRACKER.md`.
+
+Verification plan: Reproduce with free storage state plus premium localStorage settings, capture console errors, fix only the cloud settings save-context guard, and rerun the focused matrix smoke.
+
+Root cause confirmed: `getCloudSettingsSaveContext()` called `firebaseService.getCurrentUser()` without first checking whether the Firebase app had been initialized, causing `Firebase: No Firebase App '[DEFAULT]' has been created`.
+
+Files changed: `modules/settingsController.js`, `tests/playwright/account-switch-premium-matrix.spec.js`, `plans/ACCOUNT_SWITCH_PREMIUM_MATRIX.md`, `plans/PREMIUM_APP_BUG_TRACKER.md`.
+
+Exact behavior before: A12 boot with `barkMapStyle=terrain`, `barkVisitedFilter=visited`, and `barkPremiumClustering=true` sanitized the free account correctly but produced a red console error from the settings listener.
+
+Exact behavior after: The same boot sanitizes to free-safe defaults and produces no auth/premium/settings fatal console error. Cloud autosave simply waits until Firebase is initialized and a current user exists.
+
+Tests run: focused account-switch premium matrix smoke PASS 4/4 after fix; `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; exact required signed-in e2e smoke with `free-user.json`, `free-user-b.json`, and `premium-user.json` FAIL 15/16 because `free-user-b.json` has the same UID as `free-user.json`; signed-in e2e smoke rerun with distinct free/premium accounts PASS 16/16; focused premium-gating smoke PASS 9/9; `git diff --check` PASS after generated-log cleanup.
+
+Risk: Cloud settings autosave can start slightly later during initial boot, but only until Firebase/Auth exists. User-triggered save still requires a signed-in user.
+
+Rollback plan: Revert the BUG-014 fix commit; this restores the previous early Firebase Auth lookup behavior.
+
+QC Result: PASS
+
+Evidence: The failing A12 matrix case reproduced the exact console error before the fix and passed after the save-context guard was added. A01/A02/A06/A07/A08/A12 account/premium state assertions also passed.
+
+Manual steps: None required for BUG-014. No Firebase deploy was run.
+
+Remaining risk: Optional remote data poll connectivity warnings are still tracked under BUG-006 and are not an account/premium ownership regression.
+
+Status update in tracker: BUG-014 is `QC PASSED`.
 
 ### BUG-013
 

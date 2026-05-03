@@ -171,11 +171,23 @@ window.BARK.initSettings = function initSettings() {
 
     const getCloudSettingsSaveContext = () => {
         const firebaseService = window.BARK.services && window.BARK.services.firebase;
-        const currentUser = firebaseService && typeof firebaseService.getCurrentUser === 'function'
-            ? firebaseService.getCurrentUser()
-            : null;
+        const firebaseReady = typeof firebase !== 'undefined' &&
+            firebase.apps &&
+            firebase.apps.length > 0 &&
+            typeof firebase.auth === 'function';
 
-        if (!currentUser || !firebaseService || typeof firebaseService.saveUserSettings !== 'function') {
+        if (!firebaseReady || !firebaseService || typeof firebaseService.getCurrentUser !== 'function') {
+            return null;
+        }
+
+        let currentUser = null;
+        try {
+            currentUser = firebaseService.getCurrentUser();
+        } catch (error) {
+            return null;
+        }
+
+        if (!currentUser || typeof firebaseService.saveUserSettings !== 'function') {
             return null;
         }
 
