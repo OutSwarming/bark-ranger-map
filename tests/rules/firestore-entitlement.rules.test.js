@@ -262,6 +262,44 @@ describe('Firestore entitlement and admin field rules', () => {
         }, { merge: true }));
     });
 
+    it('allows exact BUG-001 owner achievement path and denies unsafe access', async () => {
+        const runtimeUid = 'LkevgscKPvPqRg9c5YKKXVqtwv02';
+        const achievementId = 'bug001RuntimeSmoke';
+        const ownerDb = authedDb(runtimeUid);
+        const otherDb = authedDb('not-the-runtime-owner');
+        const publicDb = unauthDb();
+        const ownerAchievementRef = doc(ownerDb, 'users', runtimeUid, 'achievements', achievementId);
+
+        await assertSucceeds(setDoc(ownerAchievementRef, {
+            achievementId,
+            tier: 'verified',
+            dateEarned: serverTimestamp()
+        }));
+
+        await assertSucceeds(getDoc(ownerAchievementRef));
+
+        await assertFails(setDoc(doc(otherDb, 'users', runtimeUid, 'achievements', achievementId), {
+            achievementId,
+            tier: 'verified',
+            dateEarned: serverTimestamp()
+        }));
+
+        await assertFails(setDoc(doc(publicDb, 'users', runtimeUid, 'achievements', achievementId), {
+            achievementId,
+            tier: 'verified',
+            dateEarned: serverTimestamp()
+        }));
+
+        await assertFails(setDoc(ownerAchievementRef, {
+            achievementId,
+            tier: 'verified',
+            dateEarned: serverTimestamp(),
+            admin: true
+        }));
+
+        await assertFails(deleteDoc(ownerAchievementRef));
+    });
+
     it('denies reading and writing another user achievements', async () => {
         await seedDoc(['users', 'bob', 'achievements', 'bronzePaw'], {
             achievementId: 'bronzePaw',
