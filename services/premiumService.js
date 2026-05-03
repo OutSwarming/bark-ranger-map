@@ -44,6 +44,27 @@ window.BARK.services = window.BARK.services || {};
         return null;
     }
 
+    function getCurrentAuthUid() {
+        try {
+            if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') {
+                return undefined;
+            }
+            const auth = firebase.auth();
+            if (!auth) return undefined;
+            const user = auth.currentUser;
+            return user && user.uid ? user.uid : null;
+        } catch (error) {
+            return undefined;
+        }
+    }
+
+    function entitlementMatchesCurrentUser() {
+        const currentUid = getCurrentAuthUid();
+        if (currentUid === undefined) return true;
+        if (!currentUid) return !debugMeta.uid;
+        return debugMeta.uid === currentUid;
+    }
+
     function normalizeEntitlement(raw) {
         if (!raw || typeof raw !== 'object') {
             return { ...DEFAULT_ENTITLEMENT };
@@ -105,7 +126,7 @@ window.BARK.services = window.BARK.services || {};
     }
 
     function isPremium() {
-        return entitlement.premium === true;
+        return entitlement.premium === true && entitlementMatchesCurrentUser();
     }
 
     function subscribe(listener) {

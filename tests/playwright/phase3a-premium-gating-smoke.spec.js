@@ -222,6 +222,44 @@ test.describe('Phase 3A premium gating smoke', () => {
         }
     });
 
+    test('stale premium entitlement for a previous account does not unlock signed-out runtime', async ({ page }) => {
+        await waitForSignedOutApp(page);
+        const state = await page.evaluate(() => {
+            const service = window.BARK.services.premium;
+            service.setEntitlement({
+                premium: true,
+                status: 'manual_active',
+                source: 'admin_override',
+                manualOverride: true,
+                currentPeriodEnd: null
+            }, {
+                uid: 'previous-premium-user',
+                reason: 'bug-003-stale-uid-regression'
+            });
+
+            const debugState = service.getDebugState();
+            return {
+                currentUid: firebase.auth().currentUser ? firebase.auth().currentUser.uid : null,
+                isPremium: service.isPremium(),
+                entitlement: service.getEntitlement(),
+                debugUid: debugState && debugState.meta ? debugState.meta.uid : null
+            };
+        });
+
+        expect(state.currentUid).toBeNull();
+        expect(state.debugUid).toBe('previous-premium-user');
+        expect(state.entitlement).toMatchObject({
+            premium: true,
+            status: 'manual_active',
+            source: 'admin_override',
+            manualOverride: true,
+            currentPeriodEnd: null
+        });
+        expect(state.isPremium, 'stale previous-account entitlement must not unlock premium').toBe(false);
+        await expectLowRiskPremiumControlsLocked(page);
+        await expectTrailButtonsLocked(page);
+    });
+
     test('signed-in free app keeps entitlement-gated controls locked', async ({ browser }) => {
         test.skip(missingSignedInEnv.length > 0, buildEnvHelp(missingSignedInEnv));
         const context = await browser.newContext({ storageState: storageStatePath });

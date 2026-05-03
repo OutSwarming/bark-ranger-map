@@ -29,7 +29,7 @@ Seeded as BUG-001 through BUG-010 in the table below. BUG-011 was added from sta
 |---|---|---|---|---:|---:|---|---|---|---|---|---|---|
 | BUG-001 | Gamification achievement Firestore permission/runtime issue | Firestore/rules/data sync | P1 | 4 | 4 | Seeded suspicion. Path: `users/{uid}/achievements/{achievementId}`. `npm run test:rules` passed 16/16, including owner-only achievement writes and protected user field denials. Runtime console after deploy/emulator app flow still pending. | Run rules tests and app achievement flow; confirm no permission console error for owner write. | Rules may not match actual achievement write path or client payload shape. | `firestore.rules`, `services`, `modules`, `tests` |  | Rules PASS; runtime QC pending | FOUND |
 | BUG-002 | Paywall verifying state can mislead or get stuck after checkout success URL | Payment/paywall | P1 | 3 | 4 | Seeded suspicion. Signed-out fake success URL kept `premiumService.isPremium()` false, controls locked, and paywall in verifying state with no console errors. Signed-in delayed-webhook state still pending. | Visit `?checkout=success&provider=lemonsqueezy` as non-premium and observe paywall state. | URL return state may drive UI messaging without entitlement refresh completion/failure handling. | `services`, `renderers`, `modules`, `index.html` |  | Partial PASS; signed-in delay pending | FOUND |
-| BUG-003 | Account switch may leave stale premium UI state | Premium entitlement/runtime | P0 | 3 | 5 | Seeded suspicion. Static audit shows `authService` resets entitlement on user change/sign-out, but full premium-to-free/free-to-premium runtime switch needs two storage states. | Sign in premium account, switch to free account, sign out, refresh; observe premium controls. | Cached entitlement/UI state may not be cleared before next user entitlement load. | `services`, `modules`, `renderers`, `state` |  | Pending; storage states required | FOUND |
+| BUG-003 | Account switch may leave stale premium UI state | Premium entitlement/runtime | P0 | 4 | 5 | Reproduced with local runtime probe: after forcing a previous account's `manual_active` entitlement into `premiumService` while Firebase `currentUser` was signed out, `premiumService.isPremium()` returned `true`. That stale ownerless/mismatched entitlement could unlock premium surfaces during auth transitions before `authService` reset caught up. | Sign in premium account, switch to free account or sign out, then inspect `premiumService.isPremium()`, premium controls, map style/filter/clustering, trail/global search, paywall/profile premium text, and fake success URL behavior. | `premiumService.isPremium()` trusted the last normalized entitlement without checking that the entitlement UID matched the current Firebase user. | `services/premiumService.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js` | This fix commit | Partial PASS; signed-in storage-state QC pending | FIXED |
 | BUG-004 | Signed-in free user might still access trails/global search/ORS-adjacent controls if auth-only gating remains | Premium entitlement/runtime | P0 | 3 | 5 | Seeded suspicion. Static audit found trail/global-search execution uses `premiumService.isPremium()` and backend ORS tests pass. Signed-in free UI smoke still needs storage state. | Sign in with free account and try virtual trails, completed trails, global search, routing/geocode. | Legacy auth-only checks or UI unlock predicates may remain. | `services`, `modules`, `engines`, `renderers`, `functions` |  | Backend PASS; signed-in UI pending | FOUND |
 | BUG-005 | Mobile paywall/account layout may be cramped or confusing | Layout/UI logic | P2 | 3 | 3 | Seeded suspicion. Signed-out mobile paywall at 390x844 stayed within viewport and was dismissible/readable. Account card, marker panel, and signed-in mobile states still pending. | Use narrow viewport; open paywall, account card, marker panel, search/filter controls. | Modal/account CSS may not handle small viewport and map overlay constraints. | `renderers`, `modules`, `index.html`, stylesheets |  | Partial PASS; signed-in/mobile panels pending | FOUND |
 | BUG-006 | Runtime console errors from script load order or missing modules | Runtime console errors | P1 | 3 | 4 | Seeded suspicion. Signed-out boot, paywall open, fake success URL, canceled URL, and mobile paywall had no red console errors. Signed-in profile/trip/achievements/logout flows pending. | Boot app and exercise auth, map, marker, profile, trip planner, achievements, logout. | Script order/global dependencies may race or modules may be undefined. | `index.html`, `core`, `modules`, `services`, `renderers` |  | Partial PASS; signed-in flows pending | FOUND |
@@ -59,14 +59,15 @@ Concern scale:
 - Grep found no app-side `premiumLoggedIn`, `checkout=success`, `provider=lemonsqueezy`, or storage-backed `setEntitlement()` premium grant path. `localStorage` is still used for map/filter/settings, which is tracked separately as BUG-011.
 - `firestore.rules` protects user entitlement/provider/admin/payment fields on user docs and allows owner-only achievement writes with only `achievementId`, `tier`, and `dateEarned`; rules tests cover these paths.
 - Static concern: `authService.handleCloudSettingsHydration()` can reapply premium-owned settings after free-user entitlement locking, and signed-out boot can load premium-owned settings from localStorage before auth state settles. Tracked as BUG-011.
+- BUG-003 root cause: UI and engines correctly ask `premiumService.isPremium()`, but `premiumService.isPremium()` previously did not verify the entitlement owner UID against `firebase.auth().currentUser`. The fix keeps that ownership check inside the read-only premium model so stale premium state fails closed during account switches, sign-out, and fake-success return windows.
 
 ## Baseline Test Results
 
 - `npm run test:rules`: PASS, 16/16.
 - `npm --prefix functions test`: PASS, 65/65.
 - `npm run test:functions:emulator`: PASS, 9/9.
-- `npm run test:e2e:smoke`: exit 0, 10/10 skipped because `BARK_E2E_BASE_URL` and storage-state env vars were not exported for the packaged command.
-- Focused premium-gating smoke with local server and `BARK_E2E_BASE_URL=http://localhost:4173/index.html`: PASS, 2 passed and 1 signed-in test skipped because `BARK_E2E_STORAGE_STATE` was not provided.
+- `npm run test:e2e:smoke`: exit 0, 11/11 skipped because `BARK_E2E_BASE_URL` and storage-state env vars were not exported for the packaged command.
+- Focused premium-gating smoke with local server and `BARK_E2E_BASE_URL=http://localhost:4173/index.html`: PASS, 3 passed and 1 signed-in test skipped because `BARK_E2E_STORAGE_STATE` was not provided.
 - `git diff --check`: PASS after removing generated Firebase emulator logs from the worktree.
 
 ## Runtime Smoke Notes
@@ -79,9 +80,45 @@ Concern scale:
 - Mobile paywall: 390x844 viewport kept the modal inside the viewport with readable/dismissible controls.
 - BUG-011 before fix: seeded premium map/filter/clustering localStorage caused non-premium runtime state to use OpenTopoMap/visited-only/premium clustering despite locked controls.
 - BUG-011 after fix: same seed sanitized to default map style, all visits filter, `barkPremiumClustering=false`, and `premiumService.isPremium() === false`.
+- BUG-003 before fix: forcing a previous account `manual_active` entitlement into `premiumService` while signed out produced `premiumService.isPremium() === true`.
+- BUG-003 after fix: the same stale previous-account entitlement remains visible through `getEntitlement()` for diagnostics, but `premiumService.isPremium() === false` because no current Firebase user owns it.
 - Signed-in free, signed-in premium, and account-switch manual runtime flows remain pending because test storage states for the new premium/internal app were not available in this shell.
 
 ## Fix Log / QC
+
+### BUG-003
+
+Bug selected: Account switch may leave stale premium UI state.
+
+Root cause hypothesis: Premium UI subscribers and domain surfaces can observe `premiumService.isPremium()` during an auth transition before `authService` has reset the previous account's entitlement.
+
+Files expected: `services/premiumService.js`, `services/authService.js`, `services/authPremiumUi.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js`.
+
+Verification plan: Reproduce stale premium service state, harden the premium model, add a focused Playwright regression that runs without storage states, then rerun rules/functions/callable emulator/e2e smoke/focused smoke/diff check.
+
+Root cause confirmed: `premiumService.isPremium()` only checked the entitlement's normalized `premium` boolean and ignored `debugMeta.uid` versus `firebase.auth().currentUser.uid`.
+
+Files changed: `services/premiumService.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js`, `plans/PREMIUM_APP_BUG_TRACKER.md`.
+
+Exact behavior before: A stale `manual_active` entitlement tagged to `old-premium-user` returned `isPremium: true` even when `firebase.auth().currentUser` was `null`.
+
+Exact behavior after: `isPremium()` returns true only when the normalized entitlement is premium and the entitlement UID still matches the current Firebase user; signed-out or mismatched-user stale entitlements fail closed.
+
+Tests run: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; `npm run test:functions:emulator` PASS 9/9; `npm run test:e2e:smoke` exit 0 with 11/11 skipped for missing env; focused premium-gating smoke PASS 3/3 runnable and 1 signed-in skip; `git diff --check` PASS after generated log cleanup.
+
+Risk: If a future non-Firebase test harness sets an entitlement with a UID but does not provide Firebase Auth, `isPremium()` treats auth ownership as unknown and preserves prior behavior. In the real app, Firebase Auth is present and stale signed-out/mismatched entitlements fail closed.
+
+Rollback plan: Revert the BUG-003 fix commit; this restores previous `isPremium()` behavior.
+
+QC Result: PARTIAL PASS
+
+Evidence: Local runtime probe reproduced `isPremium: true` before the fix and `isPremium: false` after the fix for the same stale previous-account entitlement. Playwright regression `stale premium entitlement for a previous account does not unlock signed-out runtime` passed.
+
+Manual steps: Boot signed-out app, force `premiumService.setEntitlement({ premium: true, status: 'manual_active' }, { uid: 'previous-premium-user' })`, confirm `premiumService.isPremium() === false`, controls remain locked, trail buttons remain disabled, and no storage or fake-success unlock path is involved.
+
+Remaining risk: Full premium-to-free, free-to-premium, and premium-to-sign-out UI transitions still need real free and premium storage states. The central ownership guard covers the stale entitlement root cause, but complete manual signed-in QC remains pending.
+
+Status update in tracker: BUG-003 is `FIXED`; full signed-in runtime QC remains pending.
 
 ### BUG-011
 
