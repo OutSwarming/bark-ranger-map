@@ -2,7 +2,7 @@
 
 Date: 2026-05-03
 Branch: main
-Current commit: 300f465579f93b838503b312c0dffff8de1c10bb (before BUG-002 fix)
+Current commit: 1d0d145595deed577bffdddba8d290625b54e910 (before BUG-012 fix)
 Scope: New premium/internal app only.
 
 ## Status Legend
@@ -38,6 +38,7 @@ Seeded as BUG-001 through BUG-010 in the table below. BUG-011 was added from sta
 | BUG-009 | Firestore rules must still block client writes to entitlement/provider/admin/payment fields | Firestore/rules/data sync | P0 | 2 | 5 | `npm run test:rules` passed 16/16, including denial for client writes to entitlement/provider/admin/payment-style user fields. | Run rules tests for entitlement/provider/admin/payment write denial. | Recent owner-only rules change may be too broad. | `firestore.rules`, `tests` |  | PASS | QC PASSED |
 | BUG-010 | Old localStorage premium bypass must not exist | Premium entitlement/runtime | P0 | 2 | 5 | Grep found no app-side `premiumLoggedIn`, `checkout=success`, `provider=lemonsqueezy`, or storage-backed `setEntitlement()` premium grant path. Focused smoke kept `premiumLoggedIn=true` while `premiumService.isPremium()` stayed false. | Grep for storage, URL checkout, premium predicates, entitlement setters. | Legacy test/dev bypass code may still be reachable. | `services`, `modules`, `renderers`, `state`, `core`, `index.html` |  | PASS | QC PASSED |
 | BUG-011 | Non-premium users can inherit premium map settings from localStorage/cloud settings | Premium entitlement/runtime | P1 | 5 | 4 | Reproduced: with `barkMapStyle=terrain`, `barkVisitedFilter=visited`, and `barkPremiumClustering=true`, signed-out/non-premium boot kept OpenTopoMap tiles, visited-only filter, and premium clustering active while controls were locked. Fixed by sanitizing non-premium runtime defaults and blocking premium cloud settings for non-premium users. | Seed localStorage premium map/filter/clustering values, boot signed-out/free, and inspect active layer/filter/clustering while premium controls are locked. | Premium-off gating updated controls but did not sanitize premium-owned runtime settings; cloud hydration could reapply premium settings for free users. | `services/authPremiumUi.js`, `services/authService.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js` | This fix commit | PASS | QC PASSED |
+| BUG-012 | Profile signed-in card order is confusing on mobile | Layout/UI logic | P2 | 5 | 3 | User-reported mobile order put Current Account before profile value content. Fixed DOM order so Premium, Achievement Vault, Virtual Expedition, Dossier, Leaderboard, and My Data & Routes appear before account/admin/footer controls. | Open Profile tab after sign-in on mobile and inspect card order. Storage-state visual QC still pending. | Static profile DOM placed `#account-status-card` directly below the welcome/stats card and before the achievement/expedition/profile journey. | `index.html`, `tests/playwright/account-auth-smoke.spec.js` | This fix commit | Partial PASS; signed-in storage-state visual QC pending | FIXED |
 
 Probability scale:
 1 = unlikely
@@ -64,6 +65,7 @@ Concern scale:
 - BUG-004 verification update: `phase3a-premium-gating-smoke.spec.js` now covers forced virtual/completed trail clicks, signed-out global search with a stubbed ORS geocode transport, premium clustering lock state, signed-in free paywall/account expectations, and fake success URL expectations when the free storage state is available. `phase4c-premium-entitlement-smoke.spec.js` and `phase4c-global-search-entitlement-smoke.spec.js` remain the deeper free/premium storage-state tests for entitlement and global search.
 - BUG-002 root cause: `modules/paywallController.js` handled `checkout=success` before checking whether a Firebase user was signed in, so signed-out users saw a disabled verifying state instead of a sign-in path. Signed-in/free users also had no delayed-verification fallback if the webhook entitlement never arrived.
 - BUG-002 storage-state update: Playwright auth session output now defaults to ignored `playwright/.auth/*.json` paths, and `scripts/save-playwright-storage-state.js` can manually capture free, second-free, and premium account states without storing passwords in code.
+- BUG-012 root cause: the signed-in profile DOM prioritized account/payment-adjacent content directly after the welcome card. No entitlement, account, admin, or feedback handlers needed to change because all existing IDs/classes stayed intact.
 
 ## Baseline Test Results
 
@@ -73,6 +75,7 @@ Concern scale:
 - `npm run test:e2e:smoke`: exit 0, 15/15 skipped because `BARK_E2E_BASE_URL` and storage-state env vars were not exported for the packaged command.
 - Focused premium-gating smoke with local server and `BARK_E2E_BASE_URL=http://localhost:4173/index.html`: PASS, 7 passed and 1 signed-in free test skipped because `BARK_E2E_STORAGE_STATE` was not provided. Runnable assertions include signed-out locks, premium setting sanitization, stale entitlement rejection, forced clustering lock, fake success signed-out sign-in prompt, fake success signed-in-like delayed fallback, and canceled URL no-charge copy.
 - `BARK_E2E_BASE_URL=http://localhost:4173/index.html npm run test:e2e:smoke`: PASS, 7 passed and 8 skipped because free/free-b/premium storage-state files were not provided.
+- BUG-012 focused profile order smoke with `BARK_E2E_BASE_URL=http://localhost:4173/index.html`: PASS, 2 passed and 1 signed-in storage-state test skipped.
 - `git diff --check`: PASS after removing generated Firebase emulator logs from the worktree.
 
 ## Runtime Smoke Notes
@@ -91,9 +94,44 @@ Concern scale:
 - BUG-004 before fix: with `premiumService.isPremium() === false`, dispatching a change on `#premium-cluster-toggle` could set `window.premiumClusteringEnabled === true` and `localStorage.barkPremiumClustering === "true"`.
 - BUG-004 after fix: the same non-premium toggle change is coerced back to false, the toggle is disabled with `aria-disabled="true"`, and storage remains `barkPremiumClustering=false`.
 - BUG-004 verification after test update: signed-out/non-premium forced clicks on both trail buttons reset them to inactive/disabled, global search shows locked copy and does not call the stubbed ORS geocode function, and the signed-in free storage-state test is ready to check trail buttons, global search, premium clustering, paywall/account state, and fake success URL once `BARK_E2E_STORAGE_STATE` exists.
+- BUG-012 after fix: static DOM order is Welcome/Stats, Premium Map Tools, Achievement Vault, Virtual Expedition, Completed Expeditions when visible, Classified Dossier, Global Leaderboard, My Data & Routes, Current Account, admin-only Data Refinery container, Suggest Missing Location, Suggest Improvement, Log Out.
 - Signed-in free, signed-in premium, and account-switch manual runtime flows remain pending because test storage states for the new premium/internal app were not available in this shell.
 
 ## Fix Log / QC
+
+### BUG-012
+
+Bug selected: Profile signed-in card order is confusing on mobile.
+
+Root cause hypothesis: The static Profile tab DOM places account/payment-adjacent cards before the main passport/profile value content.
+
+Files expected: `index.html`, `tests/playwright/account-auth-smoke.spec.js`, `plans/PREMIUM_APP_BUG_TRACKER.md`.
+
+Verification plan: Reorder only existing DOM blocks, preserve IDs/classes/event targets, add a Playwright DOM-order assertion that runs without storage state, and add signed-in coverage that activates when storage state exists.
+
+Root cause confirmed: `#account-status-card` was immediately after Welcome/Stats and before Premium Map Tools, Achievement Vault, Virtual Expedition, Dossier, Leaderboard, and My Data & Routes.
+
+Files changed: `index.html`, `tests/playwright/account-auth-smoke.spec.js`, `plans/PREMIUM_APP_BUG_TRACKER.md`.
+
+Exact behavior before: Mobile signed-in Profile showed Welcome/Stats, then Current Account, then Premium Map Tools before the fun profile cards.
+
+Exact behavior after: Profile order is Welcome/Stats, Premium Map Tools, Achievement Vault, Virtual Expedition, Classified Dossier, Global Leaderboard, My Data & Routes, Current Account, admin-only Data Refinery container, Suggest Missing Location, Suggest Improvement, Log Out. The hidden Completed Expeditions card remains tied to Virtual Expedition.
+
+Tests run: focused account auth/profile smoke PASS 2/2 runnable and 1 signed-in skip; `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; `npm run test:e2e:smoke` exit 0 with 15/15 skipped without env; focused premium-gating smoke PASS 7/7 runnable and 1 signed-in skip; `git diff --check` PASS.
+
+Risk: Full signed-in mobile visual QC still needs a real `BARK_E2E_STORAGE_STATE`. The DOM-order assertion runs without storage state and the signed-in assertion is ready once auth state exists.
+
+Rollback plan: Revert the BUG-012 fix commit; this restores the previous Profile tab card order.
+
+QC Result: PARTIAL PASS
+
+Evidence: Playwright `account-auth-smoke.spec.js` now verifies the DOM order from Welcome through Log Out with no console/page errors in the runnable signed-out profile load. Existing account, premium, admin, feedback, and logout IDs/classes were preserved.
+
+Manual steps: Signed-in mobile visual QC was not completed because no storage-state file is available in this shell.
+
+Remaining risk: Visual spacing on an actual signed-in mobile account should be checked after creating `playwright/.auth/free-user.json` or equivalent. No Firebase deploy was run.
+
+Status update in tracker: BUG-012 is `FIXED`; full signed-in visual QC remains pending.
 
 ### BUG-002
 

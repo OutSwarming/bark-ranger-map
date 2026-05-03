@@ -56,6 +56,57 @@ async function openProfile(page) {
     await expect(page.locator('#profile-view')).toBeVisible();
 }
 
+async function getProfileCardOrder(page) {
+    return page.evaluate(() => {
+        const profile = document.getElementById('profile-view');
+        if (!profile) throw new Error('Profile view not found.');
+
+        const cardContaining = (text) => {
+            const cards = Array.from(profile.querySelectorAll('.profile-section-card'));
+            const card = cards.find(element => element.textContent && element.textContent.includes(text));
+            if (!card) throw new Error(`Profile card not found for text: ${text}`);
+            return card;
+        };
+
+        const nodes = {
+            welcome: document.getElementById('user-profile-name').closest('.profile-section-card'),
+            premium: document.getElementById('profile-premium-card'),
+            achievement: cardContaining('Achievement Vault'),
+            virtual: document.getElementById('virtual-basecamp-module'),
+            dossier: cardContaining('Classified'),
+            leaderboard: document.getElementById('leaderboard-container'),
+            data: cardContaining('My Data & Routes'),
+            account: document.getElementById('account-status-card'),
+            admin: document.getElementById('admin-controls-container'),
+            missingLocation: document.getElementById('add-location-portal'),
+            feedback: document.getElementById('feedback-portal'),
+            logout: document.getElementById('logout-btn')
+        };
+
+        Object.entries(nodes).forEach(([key, node]) => {
+            if (!node) throw new Error(`Profile order node missing: ${key}`);
+        });
+
+        const before = (left, right) => Boolean(
+            nodes[left].compareDocumentPosition(nodes[right]) & Node.DOCUMENT_POSITION_FOLLOWING
+        );
+
+        return {
+            welcomeBeforePremium: before('welcome', 'premium'),
+            premiumBeforeAchievement: before('premium', 'achievement'),
+            achievementBeforeVirtual: before('achievement', 'virtual'),
+            virtualBeforeDossier: before('virtual', 'dossier'),
+            dossierBeforeLeaderboard: before('dossier', 'leaderboard'),
+            leaderboardBeforeData: before('leaderboard', 'data'),
+            dataBeforeAccount: before('data', 'account'),
+            accountBeforeAdmin: before('account', 'admin'),
+            adminBeforeMissingLocation: before('admin', 'missingLocation'),
+            missingLocationBeforeFeedback: before('missingLocation', 'feedback'),
+            feedbackBeforeLogout: before('feedback', 'logout')
+        };
+    });
+}
+
 test.describe('account auth UI smoke', () => {
     test('signed-out users see Google, email sign-in, create, and reset options', async ({ page }) => {
         await openApp(page);
@@ -77,6 +128,34 @@ test.describe('account auth UI smoke', () => {
         await expect(page.locator('#account-reset-email')).toBeVisible();
     });
 
+    test('profile card DOM puts account controls below profile value cards', async ({ page }) => {
+        const errors = [];
+        page.on('console', message => {
+            if (message.type() === 'error') errors.push(message.text());
+        });
+        page.on('pageerror', error => {
+            errors.push(error && error.message ? error.message : String(error));
+        });
+
+        await openApp(page);
+        await openProfile(page);
+
+        await expect(getProfileCardOrder(page)).resolves.toEqual({
+            welcomeBeforePremium: true,
+            premiumBeforeAchievement: true,
+            achievementBeforeVirtual: true,
+            virtualBeforeDossier: true,
+            dossierBeforeLeaderboard: true,
+            leaderboardBeforeData: true,
+            dataBeforeAccount: true,
+            accountBeforeAdmin: true,
+            adminBeforeMissingLocation: true,
+            missingLocationBeforeFeedback: true,
+            feedbackBeforeLogout: true
+        });
+        expect(errors).toEqual([]);
+    });
+
     test('signed-in users can sign out from the account card', async ({ browser }) => {
         test.skip(!storageStateExists, [
             `BARK_E2E_STORAGE_STATE points to a missing file: ${storageStatePath || '(unset)'}`,
@@ -91,6 +170,12 @@ test.describe('account auth UI smoke', () => {
             await openProfile(page);
             await expect(page.locator('#account-status-card')).toBeVisible();
             await expect(page.locator('#account-display-uid')).not.toHaveText('Loading');
+            await expect(getProfileCardOrder(page)).resolves.toMatchObject({
+                welcomeBeforePremium: true,
+                premiumBeforeAchievement: true,
+                dataBeforeAccount: true,
+                feedbackBeforeLogout: true
+            });
 
             await page.locator('#account-signout-btn').click();
             await page.waitForFunction(() => !window.firebase.auth().currentUser, { timeout: 30000 });

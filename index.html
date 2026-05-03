@@ -810,35 +810,6 @@
                     </div>
                 </div>
 
-                <div id="account-status-card" class="profile-section-card account-status-card" hidden>
-                    <div class="account-card-header">
-                        <div>
-                            <div class="account-card-eyebrow">Current account</div>
-                            <h3>Signed in</h3>
-                        </div>
-                        <div id="account-display-premium" class="account-premium-pill">Loading</div>
-                    </div>
-                    <dl class="account-details-list">
-                        <div>
-                            <dt>Email</dt>
-                            <dd id="account-display-email">Loading</dd>
-                        </div>
-                        <div>
-                            <dt>UID</dt>
-                            <dd id="account-display-uid">Loading</dd>
-                        </div>
-                        <div>
-                            <dt>Method</dt>
-                            <dd id="account-display-provider">Loading</dd>
-                        </div>
-                    </dl>
-                    <p class="account-security-copy">Premium is attached to the account you are signed into.</p>
-                    <div class="account-actions">
-                        <button type="button" id="account-switch-btn" class="account-secondary-btn">Switch account</button>
-                        <button type="button" id="account-signout-btn" class="account-danger-btn">Sign out</button>
-                    </div>
-                </div>
-
                 <div id="profile-premium-card" class="profile-section-card paywall-profile-card">
                     <div class="paywall-profile-card-header">
                         <div>
@@ -854,6 +825,39 @@
                         Upgrade
                     </button>
                     <div class="paywall-card-note">Use the same account when returning from checkout.</div>
+                </div>
+
+                <!-- 3. Gamification: Vault -->
+                <div class="profile-section-card"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">🏆 Achievement Vault
+                        </h3>
+                        <button id="share-vault-btn" class="glass-btn"
+                            style="font-size: 11px; padding: 6px 12px; border-radius: 8px;">📸 Share</button>
+                    </div>
+
+                    <div class="vault-tabs">
+                        <button class="tab-btn active" data-tab="rare-feats">Rare Feats</button>
+                        <button class="tab-btn" data-tab="paws">Paws</button>
+                        <button class="tab-btn" data-tab="states">States</button>
+                    </div>
+
+                    <div class="vault-drawer" id="vault-drawer" style="max-height: 400px; overflow-y: auto;">
+                        <div class="tab-content active" id="rare-feats-content">
+                            <div class="badge-grid" id="rare-feats-grid"
+                                style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"></div>
+                        </div>
+                        <div class="tab-content" id="paws-content">
+                            <div class="badge-grid" id="paws-grid"
+                                style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"></div>
+                        </div>
+                        <div class="tab-content" id="states-content">
+                            <div class="badge-grid" id="states-grid"
+                                style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"></div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Unified Virtual Basecamp Module -->
@@ -1018,39 +1022,6 @@
                     </div>
                 </div>
 
-                <!-- 3. Gamification: Vault -->
-                <div class="profile-section-card"
-                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
-                    <div
-                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                        <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">🏆 Achievement Vault
-                        </h3>
-                        <button id="share-vault-btn" class="glass-btn"
-                            style="font-size: 11px; padding: 6px 12px; border-radius: 8px;">📸 Share</button>
-                    </div>
-
-                    <div class="vault-tabs">
-                        <button class="tab-btn active" data-tab="rare-feats">Rare Feats</button>
-                        <button class="tab-btn" data-tab="paws">Paws</button>
-                        <button class="tab-btn" data-tab="states">States</button>
-                    </div>
-
-                    <div class="vault-drawer" id="vault-drawer" style="max-height: 400px; overflow-y: auto;">
-                        <div class="tab-content active" id="rare-feats-content">
-                            <div class="badge-grid" id="rare-feats-grid"
-                                style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"></div>
-                        </div>
-                        <div class="tab-content" id="paws-content">
-                            <div class="badge-grid" id="paws-grid"
-                                style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"></div>
-                        </div>
-                        <div class="tab-content" id="states-content">
-                            <div class="badge-grid" id="states-grid"
-                                style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"></div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- 4. Gamification: Dossier -->
                 <div class="profile-section-card"
                     style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
@@ -1165,6 +1136,35 @@
                     <button id="export-csv-btn" class="glass-btn"
                         style="width: 100%; background: #f8fafc; color: #475569; border: 1px dashed #cbd5e1; padding: 14px; border-radius: 12px; font-weight: 700; display: flex; justify-content: center; gap: 8px; transition: all 0.2s ease;">📥
                         Download Raw CSV Data</button>
+                </div>
+
+                <div id="account-status-card" class="profile-section-card account-status-card" hidden>
+                    <div class="account-card-header">
+                        <div>
+                            <div class="account-card-eyebrow">Current account</div>
+                            <h3>Signed in</h3>
+                        </div>
+                        <div id="account-display-premium" class="account-premium-pill">Loading</div>
+                    </div>
+                    <dl class="account-details-list">
+                        <div>
+                            <dt>Email</dt>
+                            <dd id="account-display-email">Loading</dd>
+                        </div>
+                        <div>
+                            <dt>UID</dt>
+                            <dd id="account-display-uid">Loading</dd>
+                        </div>
+                        <div>
+                            <dt>Method</dt>
+                            <dd id="account-display-provider">Loading</dd>
+                        </div>
+                    </dl>
+                    <p class="account-security-copy">Premium is attached to the account you are signed into.</p>
+                    <div class="account-actions">
+                        <button type="button" id="account-switch-btn" class="account-secondary-btn">Switch account</button>
+                        <button type="button" id="account-signout-btn" class="account-danger-btn">Sign out</button>
+                    </div>
                 </div>
 
                 <!-- Admin Action Container injected by JS if user is admin -->
