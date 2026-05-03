@@ -6,9 +6,15 @@ Current app commit before this report: `4d50c1e`
 
 ## Verdict
 
-GO for controlled premium beta with known manual checks still pending.
+NO-GO for paid/controlled premium beta until premium product rules are enforced.
 
-This is not a broad public launch approval. The security/payment/auth/runtime gates passed, Firestore rules are deployed for BUG-001, and signed-in free/premium/account-switch smoke is green. Keep Lemon Squeezy in test-mode workflows until the remaining manual checks are completed.
+The app is closer and auth/payment/rules are much safer, but product-tier enforcement is incomplete. This report is downgraded from the previous controlled-beta GO because free/premium feature boundaries still need a product-rule audit and targeted fixes.
+
+Known blockers:
+
+- BUG-015: Free visited limit of 20 parks is not enforced.
+- BUG-016: Route generation premium gating/enforcement is unclear or incomplete.
+- BUG-017: Premium/free product rule audit needed for all paid surfaces.
 
 ## Deployed Firestore Rules
 
@@ -92,6 +98,9 @@ BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json"
 
 ## Remaining Risks
 
+- Free users may be able to mark more than 20 parks visited.
+- Route generation may not be clearly disabled or consistently blocked for free users.
+- Some premium/free product rules may still be visual-only gates rather than runtime/backend enforced gates.
 - BUG-013 still needs human visual confirmation that Google shows the account chooser after Switch Account.
 - One real Lemon Squeezy test-mode checkout is still useful as a final end-to-end sanity check after all auth/UI fixes.
 - Mobile profile/paywall visual skim is still recommended on a real narrow viewport.
@@ -120,6 +129,7 @@ BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json"
 
 ## Gate Notes
 
+- This gate is downgraded until BUG-015, BUG-016, and BUG-017 are resolved or explicitly accepted.
 - Do not deploy functions as part of this gate.
 - Do not enable live Lemon Squeezy or collect live money.
 - Do not commit Playwright storage states.
