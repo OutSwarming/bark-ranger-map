@@ -6,6 +6,7 @@ const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
 const DEFAULT_BASE_URL = 'http://localhost:4173/index.html';
 const DEFAULT_STORAGE_STATE = 'node_modules/.cache/bark-e2e/storage-state.json';
+const GLOBAL_SEARCH_QUERY = 'zzzxqfreegate';
 
 const missingBaseEnv = [
     !BASE_URL ? 'BARK_E2E_BASE_URL' : null,
@@ -65,8 +66,15 @@ test.beforeAll(() => {
     }
 });
 
-async function openApp(page) {
-    await page.goto(BASE_URL);
+function withCheckoutParams(baseUrl, checkoutState) {
+    const url = new URL(baseUrl);
+    url.searchParams.set('checkout', checkoutState);
+    url.searchParams.set('provider', 'lemonsqueezy');
+    return url.toString();
+}
+
+async function openApp(page, url = BASE_URL) {
+    await page.goto(url);
     await page.waitForFunction(() => {
         const bark = window.BARK;
         return Boolean(
@@ -80,8 +88,8 @@ async function openApp(page) {
     }, { timeout: 30000 });
 }
 
-async function waitForSignedInApp(page) {
-    await openApp(page);
+async function waitForSignedInApp(page, url = BASE_URL) {
+    await openApp(page, url);
     await page.waitForFunction(() => {
         return Boolean(
             window.firebase &&
@@ -97,8 +105,8 @@ async function waitForSignedInApp(page) {
     }, { timeout: 30000 });
 }
 
-async function waitForSignedOutApp(page) {
-    await openApp(page);
+async function waitForSignedOutApp(page, url = BASE_URL) {
+    await openApp(page, url);
     await page.waitForFunction(() => {
         return Boolean(
             window.firebase &&
@@ -144,6 +152,21 @@ async function expectTrailButtonsLocked(page) {
     }
 }
 
+async function expectPremiumClusteringLocked(page) {
+    const toggle = page.locator('#premium-cluster-toggle');
+    await expect(toggle).toHaveCount(1);
+    await expect(toggle).toBeDisabled();
+    await expect(toggle).not.toBeChecked();
+    await expect(toggle).toHaveAttribute('aria-disabled', 'true');
+
+    const state = await page.evaluate(() => ({
+        enabled: window.premiumClusteringEnabled,
+        stored: window.localStorage.getItem('barkPremiumClustering')
+    }));
+    expect(state.enabled).toBe(false);
+    expect(state.stored).toBe('false');
+}
+
 async function expectLowRiskPremiumControlsUnlocked(page) {
     const premiumWrap = page.locator('#premium-filters-wrap');
     const visitedFilter = page.locator('#visited-filter');
@@ -168,11 +191,141 @@ async function expectTrailButtonsUnlocked(page) {
     }
 }
 
+async function forceTrailButtonClick(page, buttonId) {
+    return page.evaluate((id) => {
+        const button = document.getElementById(id);
+        if (!button) return { present: false };
+
+        button.disabled = false;
+        button.setAttribute('aria-disabled', 'false');
+        button.classList.remove('active');
+        button.click();
+
+        if (
+            window.BARK &&
+            window.BARK.paywall &&
+            typeof window.BARK.paywall.closePaywall === 'function'
+        ) {
+            window.BARK.paywall.closePaywall();
+        }
+
+        return {
+            present: true,
+            active: button.classList.contains('active'),
+            disabled: button.disabled === true,
+            ariaDisabled: button.getAttribute('aria-disabled')
+        };
+    }, buttonId);
+}
+
+async function expectForcedTrailClicksBlocked(page) {
+    for (const buttonId of ['toggle-virtual-trail', 'toggle-completed-trails']) {
+        const result = await forceTrailButtonClick(page, buttonId);
+        expect(result, `${buttonId} forced click should fail closed`).toMatchObject({
+            present: true,
+            active: false,
+            disabled: true,
+            ariaDisabled: 'true'
+        });
+    }
+}
+
+async function installGeocodeSpy(page) {
+    await page.evaluate(() => {
+        window.__barkE2eAlerts = [];
+        window.__barkE2eGeocodeCalls = [];
+        const originalAlert = window.alert;
+        const originalGeocode = window.BARK.services.ors.geocode;
+        window.alert = function e2eAlertSpy(message) {
+            window.__barkE2eAlerts.push(String(message));
+        };
+        window.BARK.services.ors.geocode = async function e2eGeocodeSpy(query, options = {}) {
+            window.__barkE2eGeocodeCalls.push({ query, options });
+            return { features: [] };
+        };
+        window.__barkE2eRestoreGeocode = () => {
+            window.alert = originalAlert;
+            window.BARK.services.ors.geocode = originalGeocode;
+        };
+    });
+}
+
+async function showGlobalSearchSuggestion(page) {
+    await page.waitForFunction(() => {
+        const bark = window.BARK;
+        const repo = bark && bark.repos && bark.repos.ParkRepo;
+        return Boolean(
+            bark &&
+            bark.services &&
+            bark.services.ors &&
+            typeof bark.services.ors.geocode === 'function' &&
+            repo &&
+            typeof repo.getAll === 'function' &&
+            repo.getAll().length > 0 &&
+            document.getElementById('park-search') &&
+            document.getElementById('search-suggestions')
+        );
+    }, { timeout: 30000 });
+
+    await page.locator('#park-search').fill(GLOBAL_SEARCH_QUERY);
+    await page.waitForFunction(({ query }) => {
+        const suggestions = document.getElementById('search-suggestions');
+        return Boolean(
+            suggestions &&
+            suggestions.style.display === 'block' &&
+            suggestions.textContent &&
+            suggestions.textContent.includes(query) &&
+            /Search global towns/.test(suggestions.textContent)
+        );
+    }, { query: GLOBAL_SEARCH_QUERY }, { timeout: 30000 });
+}
+
+function globalSearchButton(page) {
+    return page.locator('#search-suggestions .suggestion-item').filter({
+        hasText: /Search global towns/
+    }).last();
+}
+
+async function expectGlobalSearchLocked(page, expectedTextPattern) {
+    await installGeocodeSpy(page);
+    await showGlobalSearchSuggestion(page);
+    await expect(globalSearchButton(page)).toContainText(expectedTextPattern);
+    await globalSearchButton(page).click();
+    await page.waitForFunction(() => (
+        Array.isArray(window.__barkE2eAlerts) &&
+        window.__barkE2eAlerts.length > 0
+    ), { timeout: 5000 });
+    const state = await page.evaluate(() => ({
+        geocodeCalls: window.__barkE2eGeocodeCalls.slice(),
+        alerts: window.__barkE2eAlerts.slice()
+    }));
+    expect(state.geocodeCalls, 'Locked global search must not call ORS geocode').toEqual([]);
+    expect(state.alerts.length, 'Locked global search should show a user-safe prompt').toBeGreaterThan(0);
+}
+
+async function expectFreePaywallState(page, expectedMode = 'free') {
+    await expect(page.locator('#profile-premium-card')).toHaveAttribute('data-paywall-state', expectedMode);
+
+    if (expectedMode === 'verifying') {
+        await expect(page.locator('#profile-premium-status')).toHaveText('Verifying payment...');
+        await expect(page.locator('#profile-premium-action')).toBeDisabled();
+        await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'verifying');
+        await expect(page.locator('#paywall-primary-btn')).toBeDisabled();
+        return;
+    }
+
+    await expect(page.locator('#profile-premium-status')).toHaveText('Free plan');
+    await expect(page.locator('#profile-premium-action')).toHaveAttribute('data-mode', 'free');
+}
+
 test.describe('Phase 3A premium gating smoke', () => {
     test('signed-out app locks premium controls', async ({ page }) => {
         await waitForSignedOutApp(page);
         await expectLowRiskPremiumControlsLocked(page);
         await expectTrailButtonsLocked(page);
+        await expectPremiumClusteringLocked(page);
+        await expectForcedTrailClicksBlocked(page);
+        await expectGlobalSearchLocked(page, /Sign in to unlock global search/);
     });
 
     test('signed-out app sanitizes stored premium map surfaces', async ({ browser }) => {
@@ -189,6 +342,7 @@ test.describe('Phase 3A premium gating smoke', () => {
             await waitForSignedOutApp(page);
             await expectLowRiskPremiumControlsLocked(page);
             await expectTrailButtonsLocked(page);
+            await expectPremiumClusteringLocked(page);
             await page.waitForFunction(() => {
                 const styleEl = document.getElementById('map-style-select');
                 const filterEl = document.getElementById('visited-filter');
@@ -313,6 +467,19 @@ test.describe('Phase 3A premium gating smoke', () => {
             await expect(page.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(false);
             await expectLowRiskPremiumControlsLocked(page);
             await expectTrailButtonsLocked(page);
+            await expectPremiumClusteringLocked(page);
+            await expectForcedTrailClicksBlocked(page);
+            await expectGlobalSearchLocked(page, /Upgrade to unlock global search/);
+            await expectFreePaywallState(page, 'free');
+
+            const fakeSuccessPage = await context.newPage();
+            await waitForSignedInApp(fakeSuccessPage, withCheckoutParams(BASE_URL, 'success'));
+            await expect(fakeSuccessPage.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(false);
+            await expectLowRiskPremiumControlsLocked(fakeSuccessPage);
+            await expectTrailButtonsLocked(fakeSuccessPage);
+            await expectPremiumClusteringLocked(fakeSuccessPage);
+            await expectFreePaywallState(fakeSuccessPage, 'verifying');
+            await fakeSuccessPage.close();
         } finally {
             await context.close();
         }
