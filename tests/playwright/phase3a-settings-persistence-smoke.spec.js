@@ -6,7 +6,7 @@ const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const PREMIUM_STORAGE_STATE = process.env.BARK_E2E_PREMIUM_STORAGE_STATE;
 const STORAGE_STATE = PREMIUM_STORAGE_STATE;
 const DEFAULT_BASE_URL = 'http://localhost:4173/index.html';
-const DEFAULT_STORAGE_STATE = 'node_modules/.cache/bark-e2e/storage-state-premium.json';
+const DEFAULT_STORAGE_STATE = 'playwright/.auth/premium-user.json';
 
 const missingEnv = [
     !BASE_URL ? 'BARK_E2E_BASE_URL' : null,

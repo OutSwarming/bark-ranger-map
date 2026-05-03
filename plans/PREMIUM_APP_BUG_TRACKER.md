@@ -2,7 +2,7 @@
 
 Date: 2026-05-03
 Branch: main
-Current commit: 1e6219ca6913fff71f9dd6bc1be0929d19724e9e
+Current commit: 300f465579f93b838503b312c0dffff8de1c10bb (before BUG-002 fix)
 Scope: New premium/internal app only.
 
 ## Status Legend
@@ -28,7 +28,7 @@ Seeded as BUG-001 through BUG-010 in the table below. BUG-011 was added from sta
 | ID | Title | Area | Severity | Probability | Concern | Evidence | Repro Steps | Suspected Cause | Files Likely Involved | Fix Commit | QC Result | Status |
 |---|---|---|---|---:|---:|---|---|---|---|---|---|---|
 | BUG-001 | Gamification achievement Firestore permission/runtime issue | Firestore/rules/data sync | P1 | 4 | 4 | Seeded suspicion. Path: `users/{uid}/achievements/{achievementId}`. `npm run test:rules` passed 16/16, including owner-only achievement writes and protected user field denials. Runtime console after deploy/emulator app flow still pending. | Run rules tests and app achievement flow; confirm no permission console error for owner write. | Rules may not match actual achievement write path or client payload shape. | `firestore.rules`, `services`, `modules`, `tests` |  | Rules PASS; runtime QC pending | FOUND |
-| BUG-002 | Paywall verifying state can mislead or get stuck after checkout success URL | Payment/paywall | P1 | 3 | 4 | Seeded suspicion. Signed-out fake success URL kept `premiumService.isPremium()` false, controls locked, and paywall in verifying state with no console errors. Signed-in delayed-webhook state still pending. | Visit `?checkout=success&provider=lemonsqueezy` as non-premium and observe paywall state. | URL return state may drive UI messaging without entitlement refresh completion/failure handling. | `services`, `renderers`, `modules`, `index.html` |  | Partial PASS; signed-in delay pending | FOUND |
+| BUG-002 | Paywall verifying state can mislead or get stuck after checkout success URL | Payment/paywall | P1 | 5 | 4 | Reproduced: signed-out fake success URL kept `premiumService.isPremium()` false and controls locked, but left paywall/profile in disabled `verifying` state forever. Fixed signed-out return handling and added a delayed signed-in/free fallback that never unlocks from URL alone. | Visit `?checkout=success&provider=lemonsqueezy` signed out or signed-in/free; observe paywall state before/after fallback. | `checkout=success` branch ran before the signed-out branch and had no timeout/fallback while waiting for Firestore entitlement. | `modules/paywallController.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js`, `scripts/save-playwright-storage-state.js`, `.gitignore`, `package.json` | This fix commit | Partial PASS; real signed-in storage-state QC pending | FIXED |
 | BUG-003 | Account switch may leave stale premium UI state | Premium entitlement/runtime | P0 | 4 | 5 | Reproduced with local runtime probe: after forcing a previous account's `manual_active` entitlement into `premiumService` while Firebase `currentUser` was signed out, `premiumService.isPremium()` returned `true`. That stale ownerless/mismatched entitlement could unlock premium surfaces during auth transitions before `authService` reset caught up. | Sign in premium account, switch to free account or sign out, then inspect `premiumService.isPremium()`, premium controls, map style/filter/clustering, trail/global search, paywall/profile premium text, and fake success URL behavior. | `premiumService.isPremium()` trusted the last normalized entitlement without checking that the entitlement UID matched the current Firebase user. | `services/premiumService.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js` | This fix commit | Partial PASS; signed-in storage-state QC pending | FIXED |
 | BUG-004 | Signed-in free user might still access trails/global search/ORS-adjacent controls if auth-only gating remains | Premium entitlement/runtime | P0 | 4 | 5 | Reproduced and fixed a premium clustering leak: non-premium runtime could set `premiumClusteringEnabled=true` through `#premium-cluster-toggle`. Static audit found virtual/completed trail handlers, global search, paywall/account state, premium map/filter/clustering controls, and backend ORS callables use entitlement state rather than auth-only unlocks. Focused smoke now proves signed-out forced trail clicks fail closed, global search does not call ORS geocode, map/filter/clustering stay locked, and stale/fake storage does not unlock premium. | Sign in with free account or boot signed out, try premium clustering, virtual trails, completed trails, global search, routing/geocode, paywall/account state, and fake success URL behavior. | Settings controller treated premium clustering as an ordinary setting and did not gate setting writes or local/cloud payloads by entitlement; no remaining auth-only target-surface gate was found in static audit. | `modules/settingsController.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js`, `modules/expeditionEngine.js`, `modules/searchEngine.js`, `modules/paywallController.js`, `functions/index.js` | 1e6219c; verification follow-up commit | Partial PASS; signed-in free/premium storage-state runtime QC pending | FIXED |
 | BUG-005 | Mobile paywall/account layout may be cramped or confusing | Layout/UI logic | P2 | 3 | 3 | Seeded suspicion. Signed-out mobile paywall at 390x844 stayed within viewport and was dismissible/readable. Account card, marker panel, and signed-in mobile states still pending. | Use narrow viewport; open paywall, account card, marker panel, search/filter controls. | Modal/account CSS may not handle small viewport and map overlay constraints. | `renderers`, `modules`, `index.html`, stylesheets |  | Partial PASS; signed-in/mobile panels pending | FOUND |
@@ -62,14 +62,17 @@ Concern scale:
 - BUG-003 root cause: UI and engines correctly ask `premiumService.isPremium()`, but `premiumService.isPremium()` previously did not verify the entitlement owner UID against `firebase.auth().currentUser`. The fix keeps that ownership check inside the read-only premium model so stale premium state fails closed during account switches, sign-out, and fake-success return windows.
 - BUG-004 root cause: `premium-cluster-toggle` was rendered outside the main premium filter wrapper and `settingsController` treated `premiumClusteringEnabled` as a normal setting. The fix keeps premium clustering false for non-premium users at the settings owner layer, disables the toggle, blocks local runtime writes, and forces the cloud settings payload to false when entitlement is inactive.
 - BUG-004 verification update: `phase3a-premium-gating-smoke.spec.js` now covers forced virtual/completed trail clicks, signed-out global search with a stubbed ORS geocode transport, premium clustering lock state, signed-in free paywall/account expectations, and fake success URL expectations when the free storage state is available. `phase4c-premium-entitlement-smoke.spec.js` and `phase4c-global-search-entitlement-smoke.spec.js` remain the deeper free/premium storage-state tests for entitlement and global search.
+- BUG-002 root cause: `modules/paywallController.js` handled `checkout=success` before checking whether a Firebase user was signed in, so signed-out users saw a disabled verifying state instead of a sign-in path. Signed-in/free users also had no delayed-verification fallback if the webhook entitlement never arrived.
+- BUG-002 storage-state update: Playwright auth session output now defaults to ignored `playwright/.auth/*.json` paths, and `scripts/save-playwright-storage-state.js` can manually capture free, second-free, and premium account states without storing passwords in code.
 
 ## Baseline Test Results
 
 - `npm run test:rules`: PASS, 16/16.
 - `npm --prefix functions test`: PASS, 65/65.
 - `npm run test:functions:emulator`: PASS, 9/9.
-- `npm run test:e2e:smoke`: exit 0, 12/12 skipped because `BARK_E2E_BASE_URL` and storage-state env vars were not exported for the packaged command.
-- Focused premium-gating smoke with local server and `BARK_E2E_BASE_URL=http://localhost:4173/index.html`: PASS, 4 passed and 1 signed-in free test skipped because `BARK_E2E_STORAGE_STATE` was not provided. Runnable BUG-004 assertions include forced trail clicks, locked global search with no ORS geocode call, locked map/filter/clustering controls, stale entitlement rejection, and fake localStorage bypass rejection.
+- `npm run test:e2e:smoke`: exit 0, 15/15 skipped because `BARK_E2E_BASE_URL` and storage-state env vars were not exported for the packaged command.
+- Focused premium-gating smoke with local server and `BARK_E2E_BASE_URL=http://localhost:4173/index.html`: PASS, 7 passed and 1 signed-in free test skipped because `BARK_E2E_STORAGE_STATE` was not provided. Runnable assertions include signed-out locks, premium setting sanitization, stale entitlement rejection, forced clustering lock, fake success signed-out sign-in prompt, fake success signed-in-like delayed fallback, and canceled URL no-charge copy.
+- `BARK_E2E_BASE_URL=http://localhost:4173/index.html npm run test:e2e:smoke`: PASS, 7 passed and 8 skipped because free/free-b/premium storage-state files were not provided.
 - `git diff --check`: PASS after removing generated Firebase emulator logs from the worktree.
 
 ## Runtime Smoke Notes
@@ -77,7 +80,8 @@ Concern scale:
 - Method: local static server at `http://localhost:4173/index.html` with Playwright runtime checks.
 - Signed-out boot: app loaded, Leaflet map appeared, premium controls stayed locked, and no red console errors were observed.
 - Signed-out paywall: upgrade flow asked for sign-in before checkout; modal opened and closed safely.
-- Fake checkout success URL: `?checkout=success&provider=lemonsqueezy` showed verifying state, did not unlock premium, and kept controls locked.
+- BUG-002 before fix: `?checkout=success&provider=lemonsqueezy` while signed out showed disabled `verifying` state forever, did not unlock premium, and kept controls locked.
+- BUG-002 after fix: signed-out fake success shows `Sign in to verify premium` with enabled sign-in action and no unlock; signed-in-like/free fake success starts in verifying and falls back to `Still verifying premium` without unlocking.
 - Checkout canceled URL: `?checkout=canceled&provider=lemonsqueezy` showed canceled/no-charge messaging and did not unlock premium.
 - Mobile paywall: 390x844 viewport kept the modal inside the viewport with readable/dismissible controls.
 - BUG-011 before fix: seeded premium map/filter/clustering localStorage caused non-premium runtime state to use OpenTopoMap/visited-only/premium clustering despite locked controls.
@@ -90,6 +94,40 @@ Concern scale:
 - Signed-in free, signed-in premium, and account-switch manual runtime flows remain pending because test storage states for the new premium/internal app were not available in this shell.
 
 ## Fix Log / QC
+
+### BUG-002
+
+Bug selected: Paywall verifying state can mislead or get stuck after checkout success URL.
+
+Root cause hypothesis: `checkout=success` can drive a disabled verifying UI even when no signed-in account exists or when Firestore entitlement never arrives.
+
+Files expected: `modules/paywallController.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js`, Playwright auth-state tooling, `.gitignore`.
+
+Verification plan: Reproduce signed-out fake success locally, add non-storage Playwright coverage for signed-out/signed-in-like/canceled return states, keep URL success entitlement-neutral, and leave real signed-in storage-state QC pending unless storage states exist.
+
+Root cause confirmed: `modules/paywallController.js` evaluated the `checkout=success && !premium` branch before the signed-out branch, and the verifying state had no timeout/fallback.
+
+Files changed: `.gitignore`, `modules/paywallController.js`, `package.json`, `scripts/save-playwright-storage-state.js`, `tests/playwright/account-auth-smoke.spec.js`, `tests/playwright/phase1b-visited-smoke.spec.js`, `tests/playwright/phase3a-premium-gating-smoke.spec.js`, `tests/playwright/phase3a-settings-persistence-smoke.spec.js`, `tests/playwright/phase4c-global-search-entitlement-smoke.spec.js`, `tests/playwright/phase4c-premium-entitlement-smoke.spec.js`, `tests/playwright/save-storage-state.js`, `plans/PREMIUM_APP_BUG_TRACKER.md`.
+
+Exact behavior before: Signed-out `?checkout=success&provider=lemonsqueezy` produced `paywallState: "verifying"`, `profileState: "verifying"`, disabled `Checking account...` action, and no useful sign-in recovery path.
+
+Exact behavior after: Signed-out success returns `verify-signed-out` with `Sign in to verify premium`; signed-in/free success remains verifying briefly, then falls back to `verification-delayed` with refresh/support guidance; canceled return stays non-premium with no-charge copy; premium active still depends only on owned Firestore entitlement.
+
+Tests run: `npm run test:rules` PASS 16/16; `npm --prefix functions test` PASS 65/65; `npm run test:functions:emulator` PASS 9/9; focused premium-gating smoke PASS 7/7 runnable and 1 signed-in skip; `npm run test:e2e:smoke` exit 0 with 15/15 skipped without env; URL-backed full smoke PASS 7 passed and 8 skipped; `git diff --check` PASS.
+
+Risk: Real Firebase signed-in free/premium/account-switch runtime QC still requires dedicated storage-state files. The added browser probe simulates signed-in/free entitlement state for the fallback path but does not replace storage-state QC.
+
+Rollback plan: Revert the BUG-002 fix commit; this restores the previous checkout return-state behavior and storage-state defaults.
+
+QC Result: PARTIAL PASS
+
+Evidence: Local probe reproduced signed-out verifying forever before the fix and `verify-signed-out` after the fix. Playwright verifies fake success signed-out does not unlock and asks sign-in, fake success signed-in-like/free falls back without unlock, canceled URL does not unlock, stale/mismatched entitlement does not unlock, and existing ORS/rules protections still pass.
+
+Manual steps: Boot local server, open `http://localhost:4173/index.html?checkout=success&provider=lemonsqueezy` signed out, confirm `premiumService.isPremium() === false`, premium controls locked, paywall title `Sign in to verify premium`, primary button enabled. For signed-in-like fallback, force a Firebase currentUser with no premium entitlement and confirm fallback reaches `Still verifying premium` without unlocking.
+
+Remaining risk: No `playwright/.auth/free-user.json`, `playwright/.auth/free-user-b.json`, or `playwright/.auth/premium-user.json` existed in this shell, so real signed-in/account-switch storage-state tests were skipped. No Firebase deploy was run.
+
+Status update in tracker: BUG-002 is `FIXED`; full signed-in storage-state QC remains pending.
 
 ### BUG-004
 

@@ -3,6 +3,10 @@
   "description": "Cloud Functions for Firebase",
   "scripts": {
     "e2e:auth:save": "node tests/playwright/save-storage-state.js",
+    "e2e:auth:save:manual": "node scripts/save-playwright-storage-state.js all",
+    "e2e:auth:save:free": "node scripts/save-playwright-storage-state.js free",
+    "e2e:auth:save:free-b": "node scripts/save-playwright-storage-state.js free-b",
+    "e2e:auth:save:premium": "node scripts/save-playwright-storage-state.js premium",
     "test:e2e:auth-ui": "playwright test tests/playwright/account-auth-smoke.spec.js --reporter=list",
     "test:e2e:phase1b": "playwright test tests/playwright/phase1b-visited-smoke.spec.js --reporter=list",
     "test:e2e:account-switch": "playwright test tests/playwright/phase3a-account-switch-smoke.spec.js --reporter=list",

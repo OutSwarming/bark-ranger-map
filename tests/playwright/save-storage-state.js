@@ -99,7 +99,7 @@ if (!baseUrl) {
 }
 
 if (!storageState) {
-    fail('BARK_E2E_STORAGE_STATE is required, for example: node_modules/.cache/bark-e2e/storage-state.json');
+    fail('BARK_E2E_STORAGE_STATE is required, for example: playwright/.auth/free-user.json');
 }
 
 try {

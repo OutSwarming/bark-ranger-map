@@ -9,12 +9,15 @@
 
     const PRICE_COPY = '$9.99/year';
     const PROVIDER = 'lemonsqueezy';
+    const DEFAULT_VERIFYING_FALLBACK_MS = 15000;
 
     let initialized = false;
     let lastSource = 'manual';
     let returnState = null;
+    let returnStateStartedAt = null;
     let checkoutInFlight = false;
     let unsubscribePremium = null;
+    let verificationFallbackTimer = null;
 
     function getElement(id) {
         return document.getElementById(id);
@@ -64,6 +67,7 @@
         url.searchParams.delete('provider');
         window.history.replaceState({}, document.title, url.toString());
         returnState = null;
+        returnStateStartedAt = null;
         renderCurrentState();
     }
 
@@ -98,6 +102,34 @@
         return 'Premium is not active on this account.';
     }
 
+    function getVerifyingFallbackMs() {
+        const configured = Number(window.BARK && window.BARK.PAYWALL_VERIFYING_FALLBACK_MS);
+        return Number.isFinite(configured) && configured >= 0
+            ? configured
+            : DEFAULT_VERIFYING_FALLBACK_MS;
+    }
+
+    function getReturnStateElapsedMs() {
+        return returnStateStartedAt ? Date.now() - returnStateStartedAt : 0;
+    }
+
+    function clearVerificationFallbackTimer() {
+        if (!verificationFallbackTimer) return;
+        clearTimeout(verificationFallbackTimer);
+        verificationFallbackTimer = null;
+    }
+
+    function scheduleVerificationFallbackRender(state) {
+        clearVerificationFallbackTimer();
+        if (!state || state.mode !== 'verifying') return;
+
+        const remainingMs = Math.max(0, getVerifyingFallbackMs() - getReturnStateElapsedMs());
+        verificationFallbackTimer = setTimeout(() => {
+            verificationFallbackTimer = null;
+            renderCurrentState();
+        }, remainingMs + 25);
+    }
+
     function getState() {
         const user = getCurrentUser();
         const entitlement = getEntitlement();
@@ -114,7 +146,31 @@
             };
         }
 
+        if (returnState === 'success' && !isPremiumActive() && !user) {
+            return {
+                mode: 'verify-signed-out',
+                title: 'Sign in to verify premium',
+                eyebrow: 'Account required',
+                body: 'Checkout returned, but no signed-in account is available. Sign in with the same account used at checkout to verify premium.',
+                primaryText: 'Sign in to verify premium',
+                secondaryVisible: true,
+                clearVisible: true
+            };
+        }
+
         if (returnState === 'success' && !isPremiumActive()) {
+            if (getReturnStateElapsedMs() >= getVerifyingFallbackMs()) {
+                return {
+                    mode: 'verification-delayed',
+                    title: 'Still verifying premium',
+                    eyebrow: 'Payment pending',
+                    body: 'Still verifying premium. Refresh this page, or contact support with the email on this account if premium does not appear.',
+                    primaryText: 'Refresh account status',
+                    secondaryVisible: true,
+                    clearVisible: true
+                };
+            }
+
             return {
                 mode: 'verifying',
                 title: 'Verifying payment...',
@@ -198,22 +254,26 @@
             return;
         }
 
-        if (mode === 'signed-out') {
+        if (mode === 'signed-out' || mode === 'verify-signed-out') {
             setText('profile-premium-status', 'Sign in first');
-            setText('profile-premium-copy', 'Create or open your account before starting checkout.');
+            setText('profile-premium-copy', mode === 'verify-signed-out'
+                ? 'Sign in with the same account used at checkout to verify premium.'
+                : 'Create or open your account before starting checkout.');
             setButtonState(getElement('profile-premium-action'), {
-                text: 'Sign in to upgrade',
+                text: mode === 'verify-signed-out' ? 'Sign in to verify premium' : 'Sign in to upgrade',
                 mode
             });
             return;
         }
 
-        if (mode === 'verifying') {
-            setText('profile-premium-status', 'Verifying payment...');
-            setText('profile-premium-copy', 'Premium unlocks when the verified webhook updates Firestore entitlement.');
+        if (mode === 'verifying' || mode === 'verification-delayed') {
+            setText('profile-premium-status', mode === 'verification-delayed' ? 'Still verifying premium' : 'Verifying payment...');
+            setText('profile-premium-copy', mode === 'verification-delayed'
+                ? 'Refresh this page, or contact support with the email on this account if premium does not appear.'
+                : 'Premium unlocks when the verified webhook updates Firestore entitlement.');
             setButtonState(getElement('profile-premium-action'), {
-                text: 'Checking account...',
-                disabled: true,
+                text: mode === 'verification-delayed' ? 'Refresh account status' : 'Checking account...',
+                disabled: mode !== 'verification-delayed',
                 mode
             });
             return;
@@ -257,6 +317,7 @@
         });
 
         renderProfileCard(state);
+        scheduleVerificationFallbackRender(state);
         return state;
     }
 
@@ -315,8 +376,13 @@
     async function startCheckout() {
         const state = getState();
 
-        if (state.mode === 'signed-out') {
+        if (state.mode === 'signed-out' || state.mode === 'verify-signed-out') {
             focusSignIn();
+            return;
+        }
+
+        if (state.mode === 'verification-delayed') {
+            window.location.reload();
             return;
         }
 
@@ -398,6 +464,7 @@
         if (initialized) return;
         initialized = true;
         returnState = getReturnStateFromUrl();
+        returnStateStartedAt = returnState ? Date.now() : null;
 
         bindClick('paywall-close-btn', closePaywall);
         bindClick('paywall-secondary-btn', closePaywall);

@@ -6,3 +6,9 @@ BarkRangerMap Auth.json
 *Service Account*.json
 *service-account*.json
 *service_account*.json
+
+# Playwright login/session files - DO NOT COMMIT
+playwright/.auth/
+tests/.auth/
+*.storageState.json
+storageState*.json

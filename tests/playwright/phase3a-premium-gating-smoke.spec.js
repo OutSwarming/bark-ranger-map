@@ -5,7 +5,7 @@ const { test, expect } = require('@playwright/test');
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
 const DEFAULT_BASE_URL = 'http://localhost:4173/index.html';
-const DEFAULT_STORAGE_STATE = 'node_modules/.cache/bark-e2e/storage-state.json';
+const DEFAULT_STORAGE_STATE = 'playwright/.auth/free-user.json';
 const GLOBAL_SEARCH_QUERY = 'zzzxqfreegate';
 
 const missingBaseEnv = [
@@ -306,6 +306,14 @@ async function expectGlobalSearchLocked(page, expectedTextPattern) {
 async function expectFreePaywallState(page, expectedMode = 'free') {
     await expect(page.locator('#profile-premium-card')).toHaveAttribute('data-paywall-state', expectedMode);
 
+    if (expectedMode === 'verify-signed-out') {
+        await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'verify-signed-out');
+        await expect(page.locator('#paywall-title')).toHaveText('Sign in to verify premium');
+        await expect(page.locator('#paywall-primary-btn')).toBeEnabled();
+        await expect(page.locator('#profile-premium-action')).toBeEnabled();
+        return;
+    }
+
     if (expectedMode === 'verifying') {
         await expect(page.locator('#profile-premium-status')).toHaveText('Verifying payment...');
         await expect(page.locator('#profile-premium-action')).toBeDisabled();
@@ -314,8 +322,67 @@ async function expectFreePaywallState(page, expectedMode = 'free') {
         return;
     }
 
+    if (expectedMode === 'verification-delayed') {
+        await expect(page.locator('#profile-premium-status')).toHaveText('Still verifying premium');
+        await expect(page.locator('#profile-premium-action')).toBeEnabled();
+        await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'verification-delayed');
+        await expect(page.locator('#paywall-title')).toHaveText('Still verifying premium');
+        await expect(page.locator('#paywall-primary-btn')).toBeEnabled();
+        await expect(page.locator('#paywall-body')).toContainText('contact support');
+        return;
+    }
+
+    if (expectedMode === 'canceled') {
+        await expect(page.locator('#profile-premium-status')).toHaveText('Checkout canceled');
+        await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'canceled');
+        await expect(page.locator('#paywall-title')).toHaveText('Checkout canceled');
+        await expect(page.locator('#paywall-body')).toContainText('No charge was made');
+        return;
+    }
+
     await expect(page.locator('#profile-premium-status')).toHaveText('Free plan');
     await expect(page.locator('#profile-premium-action')).toHaveAttribute('data-mode', 'free');
+}
+
+async function forceSignedInLikeFreeUser(page) {
+    return page.evaluate(() => {
+        const fakeUser = {
+            uid: 'playwright-free-user',
+            email: 'playwright-free-user@example.test'
+        };
+        const auth = window.firebase.auth();
+
+        try {
+            Object.defineProperty(auth, 'currentUser', {
+                value: fakeUser,
+                configurable: true
+            });
+        } catch (error) {
+            const originalAuth = window.firebase.auth;
+            window.firebase.auth = function patchedAuth() {
+                const nextAuth = originalAuth.call(window.firebase);
+                try {
+                    Object.defineProperty(nextAuth, 'currentUser', {
+                        value: fakeUser,
+                        configurable: true
+                    });
+                } catch (innerError) {
+                    nextAuth.currentUser = fakeUser;
+                }
+                return nextAuth;
+            };
+        }
+
+        window.BARK.services.premium.reset({
+            uid: fakeUser.uid,
+            reason: 'playwright-free-user-return-state'
+        });
+        window.BARK.paywall.renderCurrentState();
+        return {
+            uid: window.firebase.auth().currentUser && window.firebase.auth().currentUser.uid,
+            isPremium: window.BARK.services.premium.isPremium()
+        };
+    });
 }
 
 test.describe('Phase 3A premium gating smoke', () => {
@@ -456,6 +523,51 @@ test.describe('Phase 3A premium gating smoke', () => {
         expect(state.after.disabled).toBe(true);
         expect(state.after.ariaDisabled).toBe('true');
         expect(state.after.stored).toBe('false');
+    });
+
+    test('fake checkout success signed-out asks sign-in without unlocking premium', async ({ page }) => {
+        await waitForSignedOutApp(page, withCheckoutParams(BASE_URL, 'success'));
+        await expect(page.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(false);
+        await expectLowRiskPremiumControlsLocked(page);
+        await expectTrailButtonsLocked(page);
+        await expectPremiumClusteringLocked(page);
+        await expectFreePaywallState(page, 'verify-signed-out');
+    });
+
+    test('fake checkout success signed-in free falls back without unlocking premium', async ({ browser }) => {
+        const context = await browser.newContext();
+        await context.addInitScript(() => {
+            window.BARK = window.BARK || {};
+            window.BARK.PAYWALL_VERIFYING_FALLBACK_MS = 60000;
+        });
+        const page = await context.newPage();
+        try {
+            await waitForSignedOutApp(page, withCheckoutParams(BASE_URL, 'success'));
+            const forced = await forceSignedInLikeFreeUser(page);
+            expect(forced).toMatchObject({
+                uid: 'playwright-free-user',
+                isPremium: false
+            });
+            await expectFreePaywallState(page, 'verifying');
+            await page.evaluate(() => {
+                window.BARK.PAYWALL_VERIFYING_FALLBACK_MS = 0;
+                window.BARK.paywall.renderCurrentState();
+            });
+            await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'verification-delayed', { timeout: 5000 });
+            await expectFreePaywallState(page, 'verification-delayed');
+            await expect(page.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(false);
+        } finally {
+            await context.close();
+        }
+    });
+
+    test('checkout canceled signed-out stays non-premium with no-charge copy', async ({ page }) => {
+        await waitForSignedOutApp(page, withCheckoutParams(BASE_URL, 'canceled'));
+        await expect(page.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(false);
+        await expectLowRiskPremiumControlsLocked(page);
+        await expectTrailButtonsLocked(page);
+        await expectPremiumClusteringLocked(page);
+        await expectFreePaywallState(page, 'canceled');
     });
 
     test('signed-in free app keeps entitlement-gated controls locked', async ({ browser }) => {

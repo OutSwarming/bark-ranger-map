@@ -7,8 +7,8 @@ const FREE_STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
 const PREMIUM_STORAGE_STATE = process.env.BARK_E2E_PREMIUM_STORAGE_STATE;
 
 const DEFAULT_BASE_URL = 'http://localhost:4173/index.html';
-const DEFAULT_FREE_STORAGE_STATE = 'node_modules/.cache/bark-e2e/storage-state.json';
-const DEFAULT_PREMIUM_STORAGE_STATE = 'node_modules/.cache/bark-e2e/storage-state-premium.json';
+const DEFAULT_FREE_STORAGE_STATE = 'playwright/.auth/free-user.json';
+const DEFAULT_PREMIUM_STORAGE_STATE = 'playwright/.auth/premium-user.json';
 const GLOBAL_SEARCH_QUERY = 'zzzxqglobal';
 
 const missingEnv = [
