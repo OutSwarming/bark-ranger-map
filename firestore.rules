@@ -67,6 +67,22 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(leaderboardWritableKeys());
     }
 
+    function achievementWritableKeys() {
+      return [
+        'achievementId',
+        'tier',
+        'dateEarned'
+      ];
+    }
+
+    function isValidAchievementWrite(achievementId) {
+      return request.resource.data.keys().hasOnly(achievementWritableKeys())
+        && request.resource.data.achievementId == achievementId
+        && request.resource.data.achievementId is string
+        && request.resource.data.tier in ['honor', 'verified']
+        && request.resource.data.dateEarned is timestamp;
+    }
+
     match /users/{uid} {
       allow read: if isOwner(uid);
       allow create: if isOwner(uid) && createsNoProtectedUserKeys();
@@ -75,6 +91,12 @@ service cloud.firestore {
 
       match /savedRoutes/{routeId} {
         allow read, create, update, delete: if isOwner(uid);
+      }
+
+      match /achievements/{achievementId} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid) && isValidAchievementWrite(achievementId);
+        allow delete: if false;
       }
 
       match /{document=**} {

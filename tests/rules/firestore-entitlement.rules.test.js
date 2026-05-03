@@ -13,6 +13,7 @@ const {
     deleteDoc,
     doc,
     getDoc,
+    serverTimestamp,
     setDoc,
     updateDoc
 } = require('firebase/firestore');
@@ -240,6 +241,89 @@ describe('Firestore entitlement and admin field rules', () => {
             tripDays: []
         }));
         await assertFails(getDoc(doc(aliceDb, 'users', 'bob', 'savedRoutes', 'route-1')));
+    });
+
+    it('allows owner to read and write their own achievements', async () => {
+        const aliceDb = authedDb('alice');
+        const achievementRef = doc(aliceDb, 'users', 'alice', 'achievements', 'bronzePaw');
+
+        await assertSucceeds(setDoc(achievementRef, {
+            achievementId: 'bronzePaw',
+            tier: 'honor',
+            dateEarned: serverTimestamp()
+        }));
+
+        await assertSucceeds(getDoc(achievementRef));
+
+        await assertSucceeds(setDoc(achievementRef, {
+            achievementId: 'bronzePaw',
+            tier: 'verified',
+            dateEarned: serverTimestamp()
+        }, { merge: true }));
+    });
+
+    it('denies reading and writing another user achievements', async () => {
+        await seedDoc(['users', 'bob', 'achievements', 'bronzePaw'], {
+            achievementId: 'bronzePaw',
+            tier: 'honor',
+            dateEarned: new Date('2026-01-01T00:00:00.000Z')
+        });
+
+        const aliceDb = authedDb('alice');
+
+        await assertFails(getDoc(doc(aliceDb, 'users', 'bob', 'achievements', 'bronzePaw')));
+        await assertFails(setDoc(doc(aliceDb, 'users', 'bob', 'achievements', 'silverPaw'), {
+            achievementId: 'silverPaw',
+            tier: 'honor',
+            dateEarned: serverTimestamp()
+        }));
+    });
+
+    it('denies unauthenticated achievement reads and writes', async () => {
+        await seedDoc(['users', 'alice', 'achievements', 'bronzePaw'], {
+            achievementId: 'bronzePaw',
+            tier: 'honor',
+            dateEarned: new Date('2026-01-01T00:00:00.000Z')
+        });
+
+        const publicDb = unauthDb();
+
+        await assertFails(getDoc(doc(publicDb, 'users', 'alice', 'achievements', 'bronzePaw')));
+        await assertFails(setDoc(doc(publicDb, 'users', 'alice', 'achievements', 'silverPaw'), {
+            achievementId: 'silverPaw',
+            tier: 'honor',
+            dateEarned: serverTimestamp()
+        }));
+    });
+
+    it('denies achievements with unexpected or dangerous fields', async () => {
+        const aliceDb = authedDb('alice');
+
+        await assertFails(setDoc(doc(aliceDb, 'users', 'alice', 'achievements', 'bronzePaw'), {
+            achievementId: 'bronzePaw',
+            tier: 'honor',
+            dateEarned: serverTimestamp(),
+            entitlement: { premium: true, status: 'manual_active' }
+        }));
+
+        await assertFails(setDoc(doc(aliceDb, 'users', 'alice', 'achievements', 'silverPaw'), {
+            achievementId: 'silverPaw',
+            tier: 'honor',
+            dateEarned: serverTimestamp(),
+            isAdmin: true
+        }));
+
+        await assertFails(setDoc(doc(aliceDb, 'users', 'alice', 'achievements', 'goldPaw'), {
+            achievementId: 'wrong-id',
+            tier: 'honor',
+            dateEarned: serverTimestamp()
+        }));
+
+        await assertFails(setDoc(doc(aliceDb, 'users', 'alice', 'achievements', 'platinumPaw'), {
+            achievementId: 'platinumPaw',
+            tier: 'admin',
+            dateEarned: serverTimestamp()
+        }));
     });
 
     it('allows owner leaderboard writes and denies writing another user leaderboard doc', async () => {
