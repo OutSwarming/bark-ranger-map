@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 const path = require('path');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL || 'http://localhost:4173/index.html';
@@ -122,7 +123,7 @@ test.describe('BUG-017 premium product rules audit', () => {
     test('free account cannot bypass global search, clustering, map filters, or trail controls', async ({ browser }) => {
         test.skip(missingEnv.length > 0, `Missing storage state env: ${missingEnv.join(', ')}`);
         const errors = [];
-        const context = await browser.newContext({ storageState: resolveStorageState(FREE_STORAGE_STATE) });
+        const context = await newBarkContext(browser, { storageState: resolveStorageState(FREE_STORAGE_STATE) });
         await context.addInitScript(() => {
             window.localStorage.setItem('premiumLoggedIn', 'true');
             window.localStorage.setItem('barkPremiumClustering', 'true');
@@ -221,7 +222,7 @@ test.describe('BUG-017 premium product rules audit', () => {
     test('premium account can use global search, clustering, map filters, and trail controls', async ({ browser }) => {
         test.skip(missingEnv.length > 0, `Missing storage state env: ${missingEnv.join(', ')}`);
         const errors = [];
-        const context = await browser.newContext({ storageState: resolveStorageState(PREMIUM_STORAGE_STATE) });
+        const context = await newBarkContext(browser, { storageState: resolveStorageState(PREMIUM_STORAGE_STATE) });
         const page = await context.newPage();
         collectRelevantErrors(page, 'premium product rules', errors);
 

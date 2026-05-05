@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const FREE_STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
@@ -161,7 +162,7 @@ async function expectAlertFromClick(page, expectedPattern) {
 test.describe('Phase 4C global search entitlement smoke', () => {
     test('signed-out global search stays locked with sign-in prompt', async ({ browser }) => {
         const errors = [];
-        const context = await browser.newContext();
+        const context = await newBarkContext(browser);
         const page = await context.newPage();
         collectConsoleErrors(page, 'signed-out', errors);
 
@@ -181,7 +182,7 @@ test.describe('Phase 4C global search entitlement smoke', () => {
 
     test('signed-in free global search stays locked and does not call ORS geocode', async ({ browser }) => {
         const errors = [];
-        const context = await browser.newContext({ storageState: freeStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
         const page = await context.newPage();
         collectConsoleErrors(page, 'signed-in free', errors);
 
@@ -201,7 +202,7 @@ test.describe('Phase 4C global search entitlement smoke', () => {
 
     test('premium manual override global search reaches stubbed geocode path', async ({ browser }) => {
         const errors = [];
-        const context = await browser.newContext({ storageState: premiumStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: premiumStorageStatePath });
         const page = await context.newPage();
         collectConsoleErrors(page, 'premium', errors);
 

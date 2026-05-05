@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const FREE_STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
@@ -240,7 +241,7 @@ test.describe('account switch premium matrix smoke', () => {
         const errors = [];
         const diagnostics = [];
 
-        const normalContext = await browser.newContext({ storageState: freeStorageStatePath });
+        const normalContext = await newBarkContext(browser, { storageState: freeStorageStatePath });
         const normalPage = await normalContext.newPage();
         collectMatrixErrors(normalPage, 'A01 free normal', errors, diagnostics);
         try {
@@ -253,7 +254,7 @@ test.describe('account switch premium matrix smoke', () => {
             await normalContext.close();
         }
 
-        const successContext = await browser.newContext({ storageState: freeStorageStatePath });
+        const successContext = await newBarkContext(browser, { storageState: freeStorageStatePath });
         await successContext.addInitScript(() => {
             window.BARK = window.BARK || {};
             window.BARK.PAYWALL_VERIFYING_FALLBACK_MS = 0;
@@ -285,7 +286,7 @@ test.describe('account switch premium matrix smoke', () => {
             ['A02 premium normal', BASE_URL],
             ['A08 premium success', withCheckoutParams(BASE_URL, 'success')]
         ]) {
-            const context = await browser.newContext({ storageState: premiumStorageStatePath });
+            const context = await newBarkContext(browser, { storageState: premiumStorageStatePath });
             const page = await context.newPage();
             collectMatrixErrors(page, label, errors, diagnostics);
             try {
@@ -305,7 +306,7 @@ test.describe('account switch premium matrix smoke', () => {
     test('A06 premium sign-out then refresh stays signed out and locked', async ({ browser }) => {
         const errors = [];
         const diagnostics = [];
-        const context = await browser.newContext({ storageState: premiumStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: premiumStorageStatePath });
         const page = await context.newPage();
         collectMatrixErrors(page, 'A06 premium sign-out refresh', errors, diagnostics);
         try {
@@ -333,7 +334,7 @@ test.describe('account switch premium matrix smoke', () => {
     test('A12 free account sanitizes premium localStorage settings on refresh', async ({ browser }) => {
         const errors = [];
         const diagnostics = [];
-        const context = await browser.newContext({ storageState: freeStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
         await context.addInitScript(() => {
             window.localStorage.setItem('barkMapStyle', 'terrain');
             window.localStorage.setItem('barkVisitedFilter', 'visited');

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const FREE_STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
@@ -365,7 +366,7 @@ test.describe('Phase 4C premium entitlement smoke', () => {
     test('premiumService distinguishes signed-in free and active premium users', async ({ browser }) => {
         const consoleErrors = [];
 
-        const freeContext = await browser.newContext({ storageState: freeStorageStatePath });
+        const freeContext = await newBarkContext(browser, { storageState: freeStorageStatePath });
         const freePage = await freeContext.newPage();
         collectConsoleErrors(freePage, 'free user', consoleErrors);
 
@@ -398,7 +399,7 @@ test.describe('Phase 4C premium entitlement smoke', () => {
             ariaDisabled: 'true'
         });
 
-        const premiumContext = await browser.newContext({ storageState: premiumStorageStatePath });
+        const premiumContext = await newBarkContext(browser, { storageState: premiumStorageStatePath });
         const premiumPage = await premiumContext.newPage();
         collectConsoleErrors(premiumPage, 'premium user', consoleErrors);
 
@@ -445,7 +446,7 @@ test.describe('Phase 4C premium entitlement smoke', () => {
 
     test('localStorage premiumLoggedIn cannot unlock signed-in free user', async ({ browser }) => {
         const consoleErrors = [];
-        const context = await browser.newContext({ storageState: freeStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
         await context.addInitScript(() => {
             window.localStorage.setItem('premiumLoggedIn', 'true');
         });

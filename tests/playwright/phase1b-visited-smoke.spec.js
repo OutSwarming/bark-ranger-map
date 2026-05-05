@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
@@ -247,7 +248,7 @@ test.describe('Phase 1B visited-place regression safety net', () => {
                 vaultRepo.size() === 0;
         }, { timeout: 30000 });
 
-        const restoredContext = await browser.newContext({ storageState: storageStatePath });
+        const restoredContext = await newBarkContext(browser, { storageState: storageStatePath });
         const restoredPage = await restoredContext.newPage();
         try {
             await openSignedInApp(restoredPage);

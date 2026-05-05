@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const FREE_STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
@@ -187,7 +188,7 @@ async function expectAchievementRuntimeHealthy(page, label) {
 
 test.describe('BUG-001 achievement runtime permission smoke', () => {
     test('signed-in free user can evaluate, write, and read achievement docs', async ({ browser }) => {
-        const context = await browser.newContext({ storageState: freeStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
         const page = await context.newPage();
         try {
             await expectAchievementRuntimeHealthy(page, 'free user');
@@ -197,7 +198,7 @@ test.describe('BUG-001 achievement runtime permission smoke', () => {
     });
 
     test('signed-in premium user can evaluate, write, and read achievement docs', async ({ browser }) => {
-        const context = await browser.newContext({ storageState: premiumStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: premiumStorageStatePath });
         const page = await context.newPage();
         try {
             await expectAchievementRuntimeHealthy(page, 'premium user');

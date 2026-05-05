@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
@@ -246,7 +247,7 @@ test.describe('account auth UI smoke', () => {
             `Generate it with BARK_E2E_STORAGE_STATE="$PWD/${DEFAULT_STORAGE_STATE}" npm run e2e:auth:save`
         ].join('\n'));
 
-        const context = await browser.newContext({ storageState: storageStatePath });
+        const context = await newBarkContext(browser, { storageState: storageStatePath });
         const page = await context.newPage();
         try {
             await openApp(page);

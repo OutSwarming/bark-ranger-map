@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL || 'http://localhost:4173/index.html';
 const FREE_STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE || 'playwright/.auth/free-user.json';
@@ -206,7 +207,7 @@ async function seedTwoStopTrip(page) {
 
 test.describe('final mobile and console beta sweep', () => {
     test('signed-out mobile paywall, search, settings, and planner stay readable and console-clean', async ({ browser }) => {
-        const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+        const context = await newBarkContext(browser, { viewport: { width: 390, height: 844 } });
         const page = await context.newPage();
         const errors = [];
         collectFatalConsoleOutput(page, 'signed-out mobile sweep', errors);
@@ -240,7 +241,7 @@ test.describe('final mobile and console beta sweep', () => {
     test('signed-in free mobile profile, premium prompts, route prompt, and sign-out stay console-clean', async ({ browser }) => {
         test.skip(!freeStorageExists, `Missing free storage state: ${freeStorageStatePath}`);
 
-        const context = await browser.newContext({
+        const context = await newBarkContext(browser, {
             storageState: freeStorageStatePath,
             viewport: { width: 390, height: 844 }
         });
@@ -326,7 +327,7 @@ test.describe('final mobile and console beta sweep', () => {
     test('signed-in Premium mobile profile, settings, search, and planner stay console-clean', async ({ browser }) => {
         test.skip(!premiumStorageExists, `Missing premium storage state: ${premiumStorageStatePath}`);
 
-        const context = await browser.newContext({
+        const context = await newBarkContext(browser, {
             storageState: premiumStorageStatePath,
             viewport: { width: 390, height: 844 }
         });

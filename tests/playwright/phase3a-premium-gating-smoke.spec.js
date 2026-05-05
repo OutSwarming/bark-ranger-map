@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
@@ -463,7 +464,7 @@ test.describe('Phase 3A premium gating smoke', () => {
     });
 
     test('signed-out app sanitizes stored premium map surfaces', async ({ browser }) => {
-        const context = await browser.newContext();
+        const context = await newBarkContext(browser);
         await context.addInitScript(() => {
             window.localStorage.setItem('barkMapStyle', 'terrain');
             window.localStorage.setItem('barkVisitedFilter', 'visited');
@@ -602,7 +603,7 @@ test.describe('Phase 3A premium gating smoke', () => {
     });
 
     test('fake checkout success signed-in free falls back without unlocking premium', async ({ browser }) => {
-        const context = await browser.newContext();
+        const context = await newBarkContext(browser);
         await context.addInitScript(() => {
             window.BARK = window.BARK || {};
             window.BARK.PAYWALL_VERIFYING_FALLBACK_MS = 60000;
@@ -629,7 +630,7 @@ test.describe('Phase 3A premium gating smoke', () => {
     });
 
     test('checkout success verification clears when the signed-in account changes', async ({ browser }) => {
-        const context = await browser.newContext();
+        const context = await newBarkContext(browser);
         await context.addInitScript(() => {
             window.BARK = window.BARK || {};
             window.BARK.PAYWALL_VERIFYING_FALLBACK_MS = 0;
@@ -675,7 +676,7 @@ test.describe('Phase 3A premium gating smoke', () => {
 
     test('signed-in free app keeps entitlement-gated controls locked', async ({ browser }) => {
         test.skip(missingSignedInEnv.length > 0, buildEnvHelp(missingSignedInEnv));
-        const context = await browser.newContext({ storageState: storageStatePath });
+        const context = await newBarkContext(browser, { storageState: storageStatePath });
         const page = await context.newPage();
         try {
             await waitForSignedInApp(page);
@@ -705,7 +706,7 @@ test.describe('Phase 3A premium gating smoke', () => {
         test.skip(!PREMIUM_STORAGE_STATE, `Set BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/${DEFAULT_PREMIUM_STORAGE_STATE}"`);
 
         let premiumUid;
-        const premiumContext = await browser.newContext({ storageState: premiumStorageStatePath });
+        const premiumContext = await newBarkContext(browser, { storageState: premiumStorageStatePath });
         const premiumPage = await premiumContext.newPage();
         try {
             await waitForSignedInApp(premiumPage);
@@ -727,7 +728,7 @@ test.describe('Phase 3A premium gating smoke', () => {
             await premiumContext.close();
         }
 
-        const freeContext = await browser.newContext({ storageState: storageStatePath });
+        const freeContext = await newBarkContext(browser, { storageState: storageStatePath });
         const freePage = await freeContext.newPage();
         try {
             await waitForSignedInApp(freePage);
@@ -748,7 +749,7 @@ test.describe('Phase 3A premium gating smoke', () => {
         test.skip(missingSignedInEnv.length > 0, buildEnvHelp(missingSignedInEnv));
         test.skip(!PREMIUM_STORAGE_STATE, `Set BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/${DEFAULT_PREMIUM_STORAGE_STATE}"`);
 
-        const context = await browser.newContext({ storageState: premiumStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: premiumStorageStatePath });
         const page = await context.newPage();
         try {
             await waitForSignedInApp(page, withCheckoutParams(BASE_URL, 'success'));

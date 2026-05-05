@@ -58,6 +58,81 @@ function getPanelVisitEntry(place) {
     return null;
 }
 
+function clearElement(element) {
+    if (!element) return;
+    while (element.firstChild) element.removeChild(element.firstChild);
+}
+
+function setTextWithLineBreaks(element, value) {
+    if (!element) return;
+    clearElement(element);
+    String(value || '').split(/\r?\n/).forEach((line, index) => {
+        if (index > 0) element.appendChild(document.createElement('br'));
+        element.appendChild(document.createTextNode(line));
+    });
+}
+
+function getSafeHttpUrls(value) {
+    if (!value || typeof value !== 'string') return [];
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const matches = value.match(urlRegex) || [];
+
+    return matches
+        .map(rawUrl => rawUrl.replace(/['",]+$/, ''))
+        .map(rawUrl => {
+            try {
+                const url = new URL(rawUrl);
+                return (url.protocol === 'http:' || url.protocol === 'https:') ? url.href : null;
+            } catch (_error) {
+                return null;
+            }
+        })
+        .filter(Boolean);
+}
+
+function configureExternalLink(link, href) {
+    link.href = href;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+}
+
+function createExternalLink(href, className, text) {
+    const link = document.createElement('a');
+    configureExternalLink(link, href);
+    link.className = className;
+    link.textContent = text;
+    return link;
+}
+
+function createMetaPill(icon, value, fallback) {
+    const pill = document.createElement('div');
+    pill.className = 'meta-pill';
+    pill.textContent = `${icon} ${value || fallback}`;
+    return pill;
+}
+
+function buildMapSearchUrl(name, lat, lng, provider) {
+    const numericLat = Number(lat);
+    const numericLng = Number(lng);
+    const hasCoords = Number.isFinite(numericLat) && Number.isFinite(numericLng);
+    const label = String(name || 'Selected location');
+
+    if (provider === 'apple') {
+        const params = new URLSearchParams();
+        params.set('q', label);
+        if (hasCoords) params.set('ll', `${numericLat},${numericLng}`);
+        return `http://maps.apple.com/?${params.toString()}`;
+    }
+
+    const query = hasCoords ? `${numericLat},${numericLng}` : label;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+window.BARK.panelRendererSafety = {
+    getSafeHttpUrls,
+    setTextWithLineBreaks
+};
+
 function renderMarkerClickPanel(context) {
     const marker = context.marker;
     const slidePanel = context.slidePanel;
@@ -88,11 +163,10 @@ function renderMarkerClickPanel(context) {
 
     const metaContainer = document.getElementById('panel-meta-container');
     if (metaContainer) {
-        metaContainer.innerHTML = `
-            <div class="meta-pill">📍 ${d.state || 'N/A'}</div>
-            <div class="meta-pill">🏷️ ${d.swagType}</div>
-            <div class="meta-pill">💰 ${d.cost || 'Free'}</div>
-        `;
+        clearElement(metaContainer);
+        metaContainer.appendChild(createMetaPill('📍', d.state, 'N/A'));
+        metaContainer.appendChild(createMetaPill('🏷️', d.swagType, 'Other'));
+        metaContainer.appendChild(createMetaPill('💰', d.cost, 'Free'));
     }
 
     const suggestEditBtn = document.getElementById('suggest-edit-btn');
@@ -107,9 +181,9 @@ function renderMarkerClickPanel(context) {
         if (infoSection) infoSection.style.display = 'block';
         const container = document.getElementById('panel-info-container');
         const showMoreBtn = document.getElementById('show-more-info');
-        if (infoEl) infoEl.innerHTML = d.info.replace(/\n/g, '<br>');
+        setTextWithLineBreaks(infoEl, d.info);
 
-        const hasManyLines = (infoEl.innerHTML.match(/<br>/g) || []).length > 4;
+        const hasManyLines = String(d.info || '').split(/\r?\n/).length > 5;
 
         if (d.info.length > 250 || hasManyLines) {
             if (container) container.classList.add('report-collapsed');
@@ -126,40 +200,48 @@ function renderMarkerClickPanel(context) {
         }
     } else {
         if (infoSection) infoSection.style.display = 'none';
-        if (infoEl) infoEl.innerHTML = '';
+        clearElement(infoEl);
     }
 
     if (d.pics && typeof d.pics === 'string') {
-        const formattedPics = window.BARK.formatSwagLinks(d.pics);
-        if (formattedPics.includes('<a ')) {
-            if (picsEl) { picsEl.style.display = 'grid'; picsEl.innerHTML = formattedPics; }
+        const pictureUrls = getSafeHttpUrls(d.pics);
+        if (pictureUrls.length > 0) {
+            if (picsEl) {
+                picsEl.style.display = 'grid';
+                clearElement(picsEl);
+                pictureUrls.forEach((url, index) => {
+                    picsEl.appendChild(createExternalLink(url, 'swag-link-btn', `📷 Swag Pic ${index + 1}`));
+                });
+            }
         } else {
-            if (picsEl) { picsEl.style.display = 'none'; picsEl.innerHTML = ''; }
+            if (picsEl) { picsEl.style.display = 'none'; clearElement(picsEl); }
         }
     } else {
-        if (picsEl) { picsEl.style.display = 'none'; picsEl.innerHTML = ''; }
+        if (picsEl) { picsEl.style.display = 'none'; clearElement(picsEl); }
     }
 
-    if (d.video && typeof d.video === 'string' && d.video.startsWith('http')) {
-        if (videoEl) { videoEl.style.display = 'block'; videoEl.href = d.video; }
+    const videoUrl = getSafeHttpUrls(d.video || '')[0];
+    if (videoUrl) {
+        if (videoEl) {
+            videoEl.style.display = 'block';
+            configureExternalLink(videoEl, videoUrl);
+        }
     } else {
         if (videoEl) { videoEl.style.display = 'none'; videoEl.removeAttribute('href'); }
     }
 
     if (websitesContainer) {
-        websitesContainer.innerHTML = '';
+        clearElement(websitesContainer);
         if (d.website && typeof d.website === 'string') {
-            const urlRegex = /(https?:\/\/[^\s]+)/g;
-            const urls = d.website.match(urlRegex);
+            const urls = getSafeHttpUrls(d.website);
             if (urls && urls.length > 0) {
                 websitesContainer.style.display = 'grid';
                 urls.forEach((url, index) => {
-                    const link = document.createElement('a');
-                    link.href = url.replace(/['",]+$/, '');
-                    link.target = '_blank';
-                    link.className = 'website-btn';
-                    link.textContent = urls.length > 1 ? `Website ${index + 1}` : 'Official Website';
-                    websitesContainer.appendChild(link);
+                    websitesContainer.appendChild(createExternalLink(
+                        url,
+                        'website-btn',
+                        urls.length > 1 ? `Website ${index + 1}` : 'Official Website'
+                    ));
                 });
             } else {
                 websitesContainer.style.display = 'none';
@@ -173,11 +255,15 @@ function renderMarkerClickPanel(context) {
     const stickyFooter = document.getElementById('panel-sticky-footer');
     if (stickyFooter) {
         stickyFooter.style.display = 'grid';
-        stickyFooter.innerHTML = `
-            <a href="https://www.google.com/maps/search/?api=1&query=${d.lat},${d.lng}" target="_blank" class="dir-btn">🗺️ Google</a>
-            <a href="http://maps.apple.com/?q=${encodeURIComponent(d.name)}&ll=${d.lat},${d.lng}" target="_blank" class="dir-btn">🧭 Apple</a>
-            <button class="glass-btn btn-trip">➕ Add to Trip</button>
-        `;
+        clearElement(stickyFooter);
+        stickyFooter.appendChild(createExternalLink(buildMapSearchUrl(d.name, d.lat, d.lng, 'google'), 'dir-btn', '🗺️ Google'));
+        stickyFooter.appendChild(createExternalLink(buildMapSearchUrl(d.name, d.lat, d.lng, 'apple'), 'dir-btn', '🧭 Apple'));
+
+        const addTripButton = document.createElement('button');
+        addTripButton.className = 'glass-btn btn-trip';
+        addTripButton.type = 'button';
+        addTripButton.textContent = '➕ Add to Trip';
+        stickyFooter.appendChild(addTripButton);
 
         const btnTrip = stickyFooter.querySelector('.btn-trip');
         if (btnTrip) {
@@ -185,12 +271,12 @@ function renderMarkerClickPanel(context) {
             const syncPopupUI = () => {
                 const inTripDay = Array.from(tripDays).findIndex(day => day.stops.some(s => s.id === d.id));
                 if (inTripDay > -1) {
-                    btnTrip.innerHTML = `✓ In Trip (Day ${inTripDay + 1})`;
+                    btnTrip.textContent = `✓ In Trip (Day ${inTripDay + 1})`;
                     btnTrip.style.background = '#e8f5e9';
                     btnTrip.style.borderColor = '#4CAF50';
                     btnTrip.style.color = '#2E7D32';
                 } else {
-                    btnTrip.innerHTML = `➕ Add to Trip`;
+                    btnTrip.textContent = `➕ Add to Trip`;
                     btnTrip.style.background = '#fff';
                     btnTrip.style.borderColor = '#cbd5e1';
                     btnTrip.style.color = '#333';

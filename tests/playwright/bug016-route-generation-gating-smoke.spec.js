@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const FREE_STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
@@ -212,7 +213,7 @@ async function forceRouteButtonClick(page) {
 test.describe('BUG-016 route generation premium product rule', () => {
     test('signed-in free route generation is visually locked and cannot reach ORS when forced', async ({ browser }) => {
         const errors = [];
-        const context = await browser.newContext({ storageState: freeStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
         const page = await context.newPage();
         collectRelevantErrors(page, 'free route generation', errors);
 
@@ -250,7 +251,7 @@ test.describe('BUG-016 route generation premium product rule', () => {
 
     test('premium route generation stays enabled and reaches the ORS directions path', async ({ browser }) => {
         const errors = [];
-        const context = await browser.newContext({ storageState: premiumStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: premiumStorageStatePath });
         const page = await context.newPage();
         collectRelevantErrors(page, 'premium route generation', errors);
 

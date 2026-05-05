@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL || 'http://localhost:4173/index.html';
 const FREE_STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE || 'playwright/.auth/free-user.json';
@@ -89,7 +90,7 @@ test.describe('BUG-022 settings cloud sync policy', () => {
     test('signed-out users keep basic settings locally without cloud sync', async ({ browser }) => {
         test.setTimeout(90000);
 
-        const context = await browser.newContext();
+        const context = await newBarkContext(browser);
         const page = await context.newPage();
         const errors = [];
         collectRelevantErrors(page, 'signed-out local settings', errors);
@@ -130,7 +131,7 @@ test.describe('BUG-022 settings cloud sync policy', () => {
         test.skip(!freeStorageExists, `Missing free storage state: ${freeStorageStatePath}`);
         test.setTimeout(90000);
 
-        const context = await browser.newContext({ storageState: freeStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
         await context.addInitScript(() => {
             window.localStorage.setItem('premiumLoggedIn', 'true');
             window.localStorage.setItem('barkMapStyle', 'terrain');
@@ -192,7 +193,7 @@ test.describe('BUG-022 settings cloud sync policy', () => {
         test.skip(!premiumStorageExists, `Missing premium storage state: ${premiumStorageStatePath}`);
         test.setTimeout(90000);
 
-        const context = await browser.newContext({ storageState: premiumStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: premiumStorageStatePath });
         const page = await context.newPage();
         const errors = [];
         collectRelevantErrors(page, 'premium cloud settings', errors);

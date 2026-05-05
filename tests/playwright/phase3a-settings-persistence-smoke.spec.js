@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const PREMIUM_STORAGE_STATE = process.env.BARK_E2E_PREMIUM_STORAGE_STATE;
@@ -196,7 +197,7 @@ async function signOut(page) {
 }
 
 async function restoreVisitedFilter(browser, originalValue, errors) {
-    const context = await browser.newContext({ storageState: storageStatePath });
+    const context = await newBarkContext(browser, { storageState: storageStatePath });
     const page = await context.newPage();
     collectRelevantConsoleErrors(page, 'cleanup', errors);
 
@@ -240,7 +241,7 @@ test.describe('Phase 3A settings persistence smoke', () => {
 
             await signOut(page);
 
-            const restoredContext = await browser.newContext({ storageState: storageStatePath });
+            const restoredContext = await newBarkContext(browser, { storageState: storageStatePath });
             const restoredPage = await restoredContext.newPage();
             collectRelevantConsoleErrors(restoredPage, 'restored sign-in', relevantErrors);
             try {

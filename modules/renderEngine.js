@@ -58,11 +58,17 @@ function formatSwagLinks(text) {
     if (!text) return '';
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const urls = text.match(urlRegex);
-    if (!urls) return text;
+    if (!urls) return '';
 
     let resultHTML = '';
     urls.forEach((url, index) => {
-        resultHTML += `<a href="${url}" target="_blank" class="swag-link-btn">📷 Swag Pic ${index + 1}</a> `;
+        try {
+            const parsedUrl = new URL(url.replace(/['",]+$/, ''));
+            if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') return;
+            resultHTML += `<a href="${parsedUrl.href.replace(/"/g, '&quot;')}" target="_blank" rel="noopener noreferrer" class="swag-link-btn">📷 Swag Pic ${index + 1}</a> `;
+        } catch (_error) {
+            // Ignore malformed sheet URLs; marker panels hide the picture section if none survive validation.
+        }
     });
     return resultHTML.trim();
 }

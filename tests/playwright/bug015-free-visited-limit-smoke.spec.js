@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const FREE_STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
@@ -207,7 +208,7 @@ async function verifyGpsCheckin(page, park) {
 test.describe('BUG-015 free visited limit product rule', () => {
     test('free signed-in user can add the twentieth visited park', async ({ browser }) => {
         const errors = [];
-        const context = await browser.newContext({ storageState: freeStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
         const page = await context.newPage();
         collectRelevantErrors(page, 'free add twentieth', errors);
 
@@ -231,7 +232,7 @@ test.describe('BUG-015 free visited limit product rule', () => {
 
     test('free signed-in user cannot add the twenty-first visited park, even with fake localStorage premium', async ({ browser }) => {
         const errors = [];
-        const context = await browser.newContext({ storageState: freeStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
         const page = await context.newPage();
         collectRelevantErrors(page, 'free block twenty-first', errors);
 
@@ -264,7 +265,7 @@ test.describe('BUG-015 free visited limit product rule', () => {
 
     test('free signed-in user at the limit can still unmark a visit', async ({ browser }) => {
         const errors = [];
-        const context = await browser.newContext({ storageState: freeStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
         const page = await context.newPage();
         collectRelevantErrors(page, 'free remove at limit', errors);
 
@@ -288,7 +289,7 @@ test.describe('BUG-015 free visited limit product rule', () => {
 
     test('free signed-in GPS check-in path is also blocked at the limit', async ({ browser }) => {
         const errors = [];
-        const context = await browser.newContext({ storageState: freeStorageStatePath });
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
         const page = await context.newPage();
         collectRelevantErrors(page, 'free gps block at limit', errors);
 
@@ -317,7 +318,7 @@ test.describe('BUG-015 free visited limit product rule', () => {
 
     test('premium user can add beyond the free limit and free context re-applies the limit', async ({ browser }) => {
         const errors = [];
-        const premiumContext = await browser.newContext({ storageState: premiumStorageStatePath });
+        const premiumContext = await newBarkContext(browser, { storageState: premiumStorageStatePath });
         const premiumPage = await premiumContext.newPage();
         collectRelevantErrors(premiumPage, 'premium add over limit', errors);
 
@@ -336,7 +337,7 @@ test.describe('BUG-015 free visited limit product rule', () => {
             await premiumContext.close();
         }
 
-        const freeContext = await browser.newContext({ storageState: freeStorageStatePath });
+        const freeContext = await newBarkContext(browser, { storageState: freeStorageStatePath });
         const freePage = await freeContext.newPage();
         collectRelevantErrors(freePage, 'free after premium limit', errors);
 

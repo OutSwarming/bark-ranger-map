@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const FREE_STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
@@ -113,7 +114,7 @@ async function seedTwoStopTrip(page) {
 test.describe('BUG-021 route generation upgrade prompt', () => {
     test('signed-in free user tapping locked route generation sees upgrade path without ORS call', async ({ browser }) => {
         const errors = [];
-        const context = await browser.newContext({
+        const context = await newBarkContext(browser, {
             storageState: freeStorageStatePath,
             viewport: { width: 390, height: 844 }
         });

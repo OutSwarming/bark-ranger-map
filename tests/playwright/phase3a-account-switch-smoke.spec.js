@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { newBarkContext } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
 const STORAGE_STATE_A = process.env.BARK_E2E_STORAGE_STATE;
@@ -262,8 +263,8 @@ test.describe('Phase 3A account-switch isolation smoke', () => {
         test.setTimeout(90000);
 
         const relevantErrors = [];
-        const contextA = await browser.newContext({ storageState: storageStateAPath });
-        const contextB = await browser.newContext({ storageState: storageStateBPath });
+        const contextA = await newBarkContext(browser, { storageState: storageStateAPath });
+        const contextB = await newBarkContext(browser, { storageState: storageStateBPath });
         const pageA = await contextA.newPage();
         const pageB = await contextB.newPage();
         collectRelevantConsoleErrors(pageA, 'User A', relevantErrors);
