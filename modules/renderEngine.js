@@ -121,6 +121,28 @@ function getVisitedIdsCacheKey() {
     return window.BARK._visitedIdsCacheKey;
 }
 
+function getTripRouteParkIds() {
+    const tripLayer = window.BARK && window.BARK.tripLayer;
+    if (tripLayer && typeof tripLayer.getStopParkIds === 'function') {
+        const ids = tripLayer.getStopParkIds();
+        if (ids instanceof Set) return ids;
+    }
+
+    const days = Array.isArray(window.BARK && window.BARK.tripDays) ? window.BARK.tripDays : [];
+    const ids = new Set();
+    days.forEach(day => {
+        const stops = Array.isArray(day && day.stops) ? day.stops : [];
+        stops.forEach(stop => {
+            if (stop && typeof stop.id === 'string' && stop.id.trim()) ids.add(stop.id.trim());
+        });
+    });
+    return ids;
+}
+
+function getTripRouteParkIdsCacheKey() {
+    return Array.from(getTripRouteParkIds()).sort().join(',');
+}
+
 function getTargetMarkerLayerType(zoom) {
     if (window.BARK.getMarkerLayerPolicy) return window.BARK.getMarkerLayerPolicy(zoom).layerType;
     const forceNoClustering = window.premiumClusteringEnabled && zoom >= 7;
@@ -207,9 +229,7 @@ function getMarkerVisibilityStateKey() {
     const searchCache = window.BARK._searchResultCache || {};
     const searchCacheIds = searchCache.matchedIds ? Array.from(searchCache.matchedIds).sort().join(',') : '';
     const searchCacheStatus = searchCache.complete === false ? 'search-partial' : 'search-complete';
-    // Trip stops no longer affect park marker visibility (Fix #19). Trip badges
-    // live on a dedicated overlay layer; park-pin--in-trip class flips are
-    // handled directly by MarkerLayerManager.refreshTripStopClasses().
+    const routeParkIds = getTripRouteParkIdsCacheKey();
     const visitedIds = getVisitedIdsCacheKey();
     const zoom = map ? map.getZoom() : 0;
     const shouldCull = shouldCullPlainMarkers(zoom);
@@ -223,6 +243,7 @@ function getMarkerVisibilityStateKey() {
         window.BARK.activeSearchQuery || '',
         window.BARK.activeTypeFilter || 'all',
         window.BARK.visitedFilterState || 'all',
+        routeParkIds,
         visitedIds,
         searchCache.query || '',
         searchCacheStatus,
@@ -328,6 +349,7 @@ function updateMarkers() {
     const activeSearchQuery = window.BARK.activeSearchQuery;
     const activeTypeFilter = window.BARK.activeTypeFilter;
     const visitedFilterState = window.BARK.visitedFilterState;
+    const tripRouteParkIds = visitedFilterState === 'route' ? getTripRouteParkIds() : null;
     const _searchResultCache = window.BARK._searchResultCache;
     const queryNorm = window.BARK.normalizeText(activeSearchQuery);
     const cachedSearch = _searchResultCache || {};
@@ -373,6 +395,7 @@ function updateMarkers() {
             : hasRenderVisitedPlace(item);
         if (visitedFilterState === 'visited' && !isVisited) matchesVisited = false;
         if (visitedFilterState === 'unvisited' && isVisited) matchesVisited = false;
+        if (visitedFilterState === 'route') matchesVisited = Boolean(tripRouteParkIds && tripRouteParkIds.has(item.id));
 
         // Trip stops no longer force park-marker visibility (Fix #19); the trip
         // overlay layer renders badges independently. Removing this OR-clause +

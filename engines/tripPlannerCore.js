@@ -63,6 +63,13 @@ function updateTripMapVisuals() {
         diff.removed.forEach(id => affected.add(id));
         if (affected.size > 0) markerManager.refreshTripStopClasses(affected);
     }
+
+    if (window.BARK.visitedFilterState === 'route' && typeof window.syncState === 'function') {
+        if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
+            window.BARK.invalidateMarkerVisibility();
+        }
+        window.syncState();
+    }
 }
 
 // ====== TRIP UI ======

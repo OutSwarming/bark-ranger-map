@@ -2,7 +2,7 @@
 
 Date: 2026-05-04
 Scope: BARK Ranger Map only.
-Current commit before BUG-AUDIT-026 fix: `212564f`
+Current commit before BUG-AUDIT-027 fix: `0bb2220`
 Workspace: `/Users/carterswarm/BarkRangerMap`
 
 ## Important Scope Note
@@ -102,6 +102,26 @@ Notes:
 - It saves the route to Firestore, verifies the success dialog does not contain `Unsupported field value`, confirms the saved custom stop omits the missing `id`, confirms start/end bookends were persisted, loads the route back into the planner, verifies the bookends restore, and deletes the test route.
 - The first full signed-in smoke run passed the new trip-save test but had one transient BUG-022 premium-entitlement wait timeout; the focused BUG-022 rerun passed 3/3 and the full suite passed 36/36 on rerun.
 
+## Fix Batch 4 Results
+
+Scope: BUG-AUDIT-027.
+
+| Check | Result |
+|---|---|
+| `node --check modules/renderEngine.js` | PASS |
+| `node --check engines/tripPlannerCore.js` | PASS |
+| `node --check services/authPremiumUi.js` | PASS |
+| `node --check tests/playwright/bug027-route-only-filter-smoke.spec.js` | PASS |
+| focused BUG-AUDIT-027 route-only filter smoke | PASS 2/2 |
+| signed-in `npm run test:e2e:smoke` with storage states | PASS 38/38 |
+| `npm run test:rules` | PASS 17/17 |
+| `git diff --check` | PASS |
+
+Notes:
+
+- The focused smoke verifies Premium users can pick `Only Trip Route Pins`, the map hides every park pin except official parks currently in `tripDays`, and adding another stop while the filter is active updates the visible pin set.
+- It also verifies a signed-in free user cannot unlock the route-only filter from fake `localStorage`; the app sanitizes back to `all`.
+
 ## Ranked Bug Table
 
 | ID | Title | Area | Severity | Confidence | Evidence | Status |
@@ -132,6 +152,7 @@ Notes:
 | BUG-AUDIT-024 | Settings modal state survives bottom-nav tab switches | Navigation/UX | P2 | 95% | Bottom nav was clickable above Settings, but nav transitions did not close Settings | FIXED / QC PASSED |
 | BUG-AUDIT-025 | Cloud settings autosave can log an error after sign-out | Settings/console | P3 | 90% | Full smoke caught `cloud settings autosave failed: You must be logged in` after settings/sign-out timing | FIXED / QC PASSED |
 | BUG-AUDIT-026 | Saving a trip with custom/geocoded stops can fail with Firestore `undefined` field error | Trip planner/data persistence | P1 | 100% | User reproduced `addDoc()` failing on `Unsupported field value: undefined`; `saveCurrentTrip()` always wrote `id: s.id` | FIXED / QC PASSED |
+| BUG-AUDIT-027 | Visited filter cannot isolate pins currently in the trip route | Map filters/trip planner | P2 | 100% | User requested a third dropdown option to hide all pins except current trip stops; no such route-only filter existed | FIXED / QC PASSED |
 
 ## Detailed Findings
 
@@ -361,6 +382,45 @@ Notes:
   - Invalid stops missing a name or coordinates are dropped from the saved payload. That is safer than saving broken route data, but if such a stop appears in the UI, a future UI validation message would be useful.
 - QC:
   - `tests/playwright/bug026-trip-save-custom-stop-smoke.spec.js` saves the reproduced custom-stop/bookend route to Firestore, verifies success, verifies no `undefined` ID is written for the custom stop, verifies bookends persist, loads the route back, verifies bookends restore, and deletes the test route.
+
+### BUG-AUDIT-027: Visited filter cannot isolate pins currently in the trip route
+
+- Severity: P2
+- Confidence: 100%
+- Area: map filters / trip planner
+- Evidence:
+  - User asked for a third option in the visited/unvisited pin dropdown that removes all pins except parks added to the trip route.
+  - Before this fix, `#visited-filter` only supported `all`, `visited`, and `unvisited`.
+  - `renderEngine.updateMarkers()` filtered by swag, search, type, and visited state, but did not have a route-only branch.
+- How the user saw it:
+  - Build a trip route with several parks.
+  - Open the map filter dropdown.
+  - There was no way to declutter the map to only the pins already in the trip, so route work still happened over a full map of unrelated park pins.
+- Root cause:
+  - Trip stop state lived in `TripLayerManager`, while the pin visibility filter lived in `renderEngine`.
+  - The existing trip overlay intentionally stopped forcing park-marker visibility after the cluster bug fix, so there was no explicit filter state for "only current trip stops."
+- Fix implemented:
+  - Added `Only Trip Route Pins` to the visited filter dropdown.
+  - Added `route` to the premium-allowed visited filter values in `authPremiumUi`.
+  - Added route-stop ID lookup helpers in `renderEngine`.
+  - `updateMarkers()` now treats `visitedFilterState === 'route'` as "visible only when this official park ID is in the current trip."
+  - `updateTripMapVisuals()` invalidates marker visibility and calls `syncState()` when route-only mode is active, so adding/removing trip stops updates the visible pins immediately.
+  - Bumped cache-busters for `authPremiumUi`, `renderEngine`, and `tripPlannerCore`.
+- User-visible behavior after fix:
+  - Premium users can select `Only Trip Route Pins` from the filter dropdown.
+  - All non-route park pins disappear.
+  - Adding another official park to the trip while the filter is active makes that park pin appear in the route-only set.
+  - Switching back to `Show All Places` restores the broader map.
+- Pros of the fix:
+  - Gives route planning a clean declutter mode without changing trip overlay ownership.
+  - Keeps free-user premium gating intact.
+  - Uses the existing marker visibility pipeline instead of removing markers ad hoc.
+- Cons / tradeoffs:
+  - The filter only applies to official BARK park pins. Custom/geocoded trip stops still render through the separate trip overlay, not the park-pin filter.
+  - Like the existing visited/unvisited filters, this route-only filter remains a Premium map filter.
+- QC:
+  - `tests/playwright/bug027-route-only-filter-smoke.spec.js` verifies Premium route-only filtering, live update after adding another trip stop, reset back to all pins, and free-user fake-storage sanitization.
+  - Full signed-in e2e smoke with the new regression included: PASS 38/38.
 
 ### BUG-AUDIT-007: Route generation attaches trip bookends after filtering days
 

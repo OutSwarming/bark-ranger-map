@@ -9,7 +9,7 @@ window.BARK = window.BARK || {};
         visitedFilter: 'all'
     };
     const PREMIUM_MAP_STYLES = new Set(['terrain', 'satellite', 'streets']);
-    const PREMIUM_VISITED_FILTERS = new Set(['visited', 'unvisited']);
+    const PREMIUM_VISITED_FILTERS = new Set(['visited', 'unvisited', 'route']);
 
     function isPremiumActive() {
         const premiumService = window.BARK && window.BARK.services && window.BARK.services.premium;
