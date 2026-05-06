@@ -108,7 +108,63 @@ const closeSlideBtn = document.getElementById('close-slide-panel');
 const navItems = document.querySelectorAll('.nav-item');
 const uiViews = document.querySelectorAll('.ui-view');
 const filterPanel = document.getElementById('filter-panel');
+const bottomNav = document.querySelector('.glass-nav');
 const leafletControls = document.querySelectorAll('.leaflet-control-container');
+
+function findScrollableAncestorWithin(target, root) {
+    let el = target;
+    while (el && el !== document && root.contains(el)) {
+        const style = window.getComputedStyle(el);
+        const canScrollY = /(auto|scroll)/.test(style.overflowY || '') &&
+            el.scrollHeight > el.clientHeight + 1;
+        if (canScrollY) return el;
+        el = el.parentElement;
+    }
+    return null;
+}
+
+function canScrollInDirection(el, deltaY) {
+    if (!el || !Number.isFinite(deltaY) || Math.abs(deltaY) < 1) return false;
+    if (deltaY > 0) return el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+    return el.scrollTop > 1;
+}
+
+function bindFixedSurfaceScrollGuard(root) {
+    if (!root || root._barkScrollGuardBound) return;
+    root._barkScrollGuardBound = true;
+    let lastTouchY = null;
+
+    root.addEventListener('touchstart', (event) => {
+        lastTouchY = event.touches && event.touches.length === 1
+            ? event.touches[0].clientY
+            : null;
+    }, { passive: true });
+
+    const guardScroll = (event) => {
+        let deltaY = event.deltaY || 0;
+        if (event.type === 'touchmove') {
+            if (!event.touches || event.touches.length !== 1 || lastTouchY === null) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            deltaY = lastTouchY - event.touches[0].clientY;
+            lastTouchY = event.touches[0].clientY;
+        }
+
+        const scrollable = findScrollableAncestorWithin(event.target, root);
+        if (scrollable && canScrollInDirection(scrollable, deltaY)) {
+            event.stopPropagation();
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    root.addEventListener('wheel', guardScroll, { passive: false, capture: true });
+    root.addEventListener('touchmove', guardScroll, { passive: false, capture: true });
+}
 
 if (slidePanel && window.MutationObserver) {
     const slidePanelObserver = new MutationObserver(() => {
@@ -228,6 +284,16 @@ if (plannerViewEl) {
 if (slidePanel) {
     L.DomEvent.disableClickPropagation(slidePanel);
     L.DomEvent.disableScrollPropagation(slidePanel);
+}
+if (filterPanel) {
+    L.DomEvent.disableClickPropagation(filterPanel);
+    L.DomEvent.disableScrollPropagation(filterPanel);
+    bindFixedSurfaceScrollGuard(filterPanel);
+}
+if (bottomNav) {
+    L.DomEvent.disableClickPropagation(bottomNav);
+    L.DomEvent.disableScrollPropagation(bottomNav);
+    bindFixedSurfaceScrollGuard(bottomNav);
 }
 
 // Close panel and clear pin

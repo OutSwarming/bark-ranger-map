@@ -2,7 +2,7 @@
 
 Date: 2026-05-04
 Scope: BARK Ranger Map only.
-Current commit before BUG-AUDIT-027 fix: `0bb2220`
+Current commit before BUG-AUDIT-028 fix: `cf46fab`
 Workspace: `/Users/carterswarm/BarkRangerMap`
 
 ## Important Scope Note
@@ -122,6 +122,23 @@ Notes:
 - The focused smoke verifies Premium users can pick `Only Trip Route Pins`, the map hides every park pin except official parks currently in `tripDays`, and adding another stop while the filter is active updates the visible pin set.
 - It also verifies a signed-in free user cannot unlock the route-only filter from fake `localStorage`; the app sanitizes back to `all`.
 
+## Fix Batch 5 Results
+
+Scope: BUG-AUDIT-028.
+
+| Check | Result |
+|---|---|
+| `node --check modules/uiController.js` | PASS |
+| `node --check tests/playwright/bug028-fixed-ui-scroll-guard-smoke.spec.js` | PASS |
+| focused BUG-AUDIT-028 fixed UI scroll guard smoke | PASS 1/1 |
+| signed-in `npm run test:e2e:smoke` with storage states | PASS 39/39 |
+| `git diff --check` | PASS |
+
+Notes:
+
+- The focused mobile smoke verifies the filter panel and bottom nav prevent wheel scroll by default.
+- It also checks wheel gestures over the filter panel do not zoom the map, and wheel gestures over the fixed bottom nav do not scroll the Profile view underneath it.
+
 ## Ranked Bug Table
 
 | ID | Title | Area | Severity | Confidence | Evidence | Status |
@@ -153,6 +170,7 @@ Notes:
 | BUG-AUDIT-025 | Cloud settings autosave can log an error after sign-out | Settings/console | P3 | 90% | Full smoke caught `cloud settings autosave failed: You must be logged in` after settings/sign-out timing | FIXED / QC PASSED |
 | BUG-AUDIT-026 | Saving a trip with custom/geocoded stops can fail with Firestore `undefined` field error | Trip planner/data persistence | P1 | 100% | User reproduced `addDoc()` failing on `Unsupported field value: undefined`; `saveCurrentTrip()` always wrote `id: s.id` | FIXED / QC PASSED |
 | BUG-AUDIT-027 | Visited filter cannot isolate pins currently in the trip route | Map filters/trip planner | P2 | 100% | User requested a third dropdown option to hide all pins except current trip stops; no such route-only filter existed | FIXED / QC PASSED |
+| BUG-AUDIT-028 | Fixed bottom nav and map filter panel leak scroll gestures into the map/page | Navigation/map UI | P2 | 100% | User reproduced scroll gestures over the bottom nav and filter panel moving the underlying surface | FIXED / QC PASSED |
 
 ## Detailed Findings
 
@@ -421,6 +439,43 @@ Notes:
 - QC:
   - `tests/playwright/bug027-route-only-filter-smoke.spec.js` verifies Premium route-only filtering, live update after adding another trip stop, reset back to all pins, and free-user fake-storage sanitization.
   - Full signed-in e2e smoke with the new regression included: PASS 38/38.
+
+### BUG-AUDIT-028: Fixed bottom nav and map filter panel leak scroll gestures into the map/page
+
+- Severity: P2
+- Confidence: 100%
+- Area: navigation / map UI
+- Evidence:
+  - User reported that trying to scroll on the bottom nav bar and map filter area caused the underlying app surface to scroll.
+  - Static root cause: only `#slide-panel` had Leaflet scroll propagation disabled. The fixed filter panel and bottom nav were not guarded against wheel/touchmove scroll chaining.
+  - `#profile-view` and other `.ui-view` panels are scrollable, so wheel/touch gestures over the fixed bottom nav could scroll the active tab behind the nav.
+- How the user saw it:
+  - On mobile or trackpad, swipe/scroll over the bottom nav instead of a content card.
+  - The Profile/Planner page behind it could move.
+  - On the map, scroll gestures over the top filter/search panel could leak to the map/page instead of being swallowed by the fixed UI surface.
+- Root cause:
+  - Fixed overlays were visually above the app but did not act as scroll boundaries.
+  - CSS `overscroll-behavior` on the document was not enough for wheel/touch gestures that target fixed child controls.
+- Fix implemented:
+  - Added a `bindFixedSurfaceScrollGuard()` helper in `modules/uiController.js`.
+  - The helper stops `wheel` and `touchmove` propagation on fixed UI surfaces and prevents default scrolling when the gesture is not inside a child that can legitimately scroll.
+  - Applied the guard to `#filter-panel` and `.glass-nav`.
+  - Added Leaflet click/scroll propagation blocking for `#filter-panel` and `.glass-nav`.
+  - Added CSS overscroll/touch hints to `#filter-panel`, `.filter-content`, `.suggestions-container`, and `.glass-nav`.
+  - Bumped `styles.css` and `uiController.js` cache-busters in `index.html`.
+- User-visible behavior after fix:
+  - Scrolling over the bottom nav no longer scrolls the active tab underneath it.
+  - Scrolling over the filter panel no longer zooms/pans/scrolls the map behind it.
+  - Legitimate internal scroll areas, such as a long suggestions list, can still scroll because the guard allows scroll when the child has room to move.
+- Pros of the fix:
+  - Fix is localized to UI event ownership rather than changing page-wide scrolling.
+  - Click/tap behavior on nav and filter controls stays intact.
+  - The guard protects both wheel and touchmove paths.
+- Cons / tradeoffs:
+  - A gesture over the fixed nav is always treated as nav chrome, not content scroll. That matches user expectation, but users must start scrolling inside the actual content area to move a page.
+- QC:
+  - `tests/playwright/bug028-fixed-ui-scroll-guard-smoke.spec.js` verifies wheel events are prevented on the fixed filter/nav surfaces, filter-panel wheel does not change map zoom, and bottom-nav wheel does not move Profile scroll position.
+  - Full signed-in e2e smoke with the new regression included: PASS 39/39.
 
 ### BUG-AUDIT-007: Route generation attaches trip bookends after filtering days
 

@@ -597,6 +597,8 @@ textarea,
     gap: 12px;
     width: 90%;
     max-width: 500px;
+    overscroll-behavior: contain;
+    touch-action: manipulation;
 }
 
 #filter-panel h1 {
@@ -633,6 +635,7 @@ textarea,
     max-height: 80vh;
     opacity: 1;
     margin-top: 5px;
+    overscroll-behavior: contain;
 }
 
 #filter-panel.collapsed .filter-content {
@@ -687,6 +690,7 @@ textarea,
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
     max-height: 250px;
     overflow-y: auto;
+    overscroll-behavior: contain;
     z-index: 2000;
     margin-top: 5px;
 }
@@ -1257,6 +1261,9 @@ body.app-tab-active #slide-panel {
     align-items: center;
     will-change: transform;
     transform: translate3d(0, 0, 0);
+    overflow: hidden;
+    overscroll-behavior: contain;
+    touch-action: manipulation;
 }
 
 .nav-item {
