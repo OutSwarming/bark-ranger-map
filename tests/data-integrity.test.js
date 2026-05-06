@@ -15,6 +15,11 @@ const csvFiles = [
     }
 ];
 
+const hostedFallbackCsv = {
+    path: path.join(repoRoot, 'assets', 'data', 'bark-fallback.csv'),
+    requiredHeaders: ['Location', 'State', 'lat', 'lng', 'Park id']
+};
+
 test('repo CSV data files do not contain unresolved git conflict markers', () => {
     for (const file of csvFiles) {
         const contents = fs.readFileSync(file.path, 'utf8');
@@ -27,4 +32,17 @@ test('repo CSV data files keep their expected headers after conflict repair', ()
         const firstLine = fs.readFileSync(file.path, 'utf8').split(/\r?\n/, 1)[0];
         assert.equal(firstLine, file.header, `${file.path} header changed unexpectedly`);
     }
+});
+
+test('hosted fallback CSV is deployable and contains canonical park ids', () => {
+    const contents = fs.readFileSync(hostedFallbackCsv.path, 'utf8');
+    assert.doesNotMatch(contents, /^(<<<<<<<|=======|>>>>>>>) /m, `${hostedFallbackCsv.path} contains conflict markers`);
+
+    const firstLine = contents.split(/\r?\n/, 1)[0];
+    for (const header of hostedFallbackCsv.requiredHeaders) {
+        assert.match(firstLine, new RegExp(`(^|,)${header}(,|$)`, 'i'), `${hostedFallbackCsv.path} is missing ${header}`);
+    }
+
+    const lineCount = contents.split(/\r?\n/).filter(Boolean).length;
+    assert.ok(lineCount > 300, `${hostedFallbackCsv.path} should contain the official fallback dataset`);
 });

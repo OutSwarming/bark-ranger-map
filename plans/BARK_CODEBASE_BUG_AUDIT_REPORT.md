@@ -2,7 +2,7 @@
 
 Date: 2026-05-04
 Scope: BARK Ranger Map only.
-Current commit: `32eba0d`
+Current commit before BUG-AUDIT-004 fix: `0b4931f`
 Workspace: `/Users/carterswarm/BarkRangerMap`
 
 ## Important Scope Note
@@ -64,6 +64,24 @@ Scope: BUG-AUDIT-001, BUG-AUDIT-002, and BUG-AUDIT-003.
 
 The e2e smoke was rerun against `http://localhost:4173/index.html` because the saved Playwright storage states are origin-bound to `localhost:4173`.
 
+## Fix Batch 2 Results
+
+Scope: BUG-AUDIT-004.
+
+| Check | Result |
+|---|---|
+| `node --check modules/dataService.js` | PASS |
+| `node --check tests/playwright/bug004-static-fallback-data-smoke.spec.js` | PASS |
+| `node --test tests/data-integrity.test.js` | PASS 3/3 |
+| focused BUG-AUDIT-004 Sheet-blocked cold-boot smoke | PASS 1/1 |
+| signed-in `npm run test:e2e:smoke` with storage states | PASS 35/35 |
+| `git diff --check` | PASS |
+
+Notes:
+
+- The focused smoke blocked the public Google Sheet request, cleared `localStorage.barkCSV`, and verified the app still rendered more than 300 canonical parks and markers from the hosted fallback snapshot.
+- Functions and Firestore rules were not rerun for this batch because the fix only touched hosted static data, client data boot logic, Playwright coverage, and this report.
+
 ## Ranked Bug Table
 
 | ID | Title | Area | Severity | Confidence | Evidence | Status |
@@ -71,7 +89,7 @@ The e2e smoke was rerun against `http://localhost:4173/index.html` because the s
 | BUG-AUDIT-001 | Local browser cache can serve Dee Dee while auditing BARK | QA/runtime | P1 | 100% | Playwright loaded `Just Dee Dee Music Live Map`; cache-blocked run loaded BARK | FIXED / QC PASSED |
 | BUG-AUDIT-002 | Sheet data can inject HTML into marker detail panel | Security/UI | P1 | 95% | `panelRenderer.js` previously wrote sheet fields through `innerHTML` | FIXED / QC PASSED |
 | BUG-AUDIT-003 | CSV data files contain unresolved merge-conflict markers | Data/tooling | P1 | 100% | `data/data.csv` had 216 markers; `data/sheet_data_fetched.csv` had 504 | FIXED / QC PASSED |
-| BUG-AUDIT-004 | Hosted fallback data is excluded, so first-time cold boot can show empty map if Sheet fetch fails | Runtime/data | P1 | 90% | `firebase.json` ignores `data/**`; `loadData()` relies on localStorage or live Sheet | Proven static |
+| BUG-AUDIT-004 | Hosted fallback data is excluded, so first-time cold boot can show empty map if Sheet fetch fails | Runtime/data | P1 | 90% | `firebase.json` ignores `data/**`; `loadData()` relied on localStorage or live Sheet | FIXED / QC PASSED |
 | BUG-AUDIT-005 | Free 20-visit limit is client/runtime only | Product/security | P1 | 95% | Rules allow owner `visitedPlaces` writes; no backend quota owner | Known risk |
 | BUG-AUDIT-006 | Saved routes do not persist trip start/end bookends | Trip planner | P1 | 95% | `saveCurrentTrip()` saves only `tripDays`; load restores only `tripDays` | Proven static |
 | BUG-AUDIT-007 | Route generation attaches trip bookends after filtering days | Trip planner | P1 | 90% | `daysWithStops = tripDays.filter(...)`, then start/end added to filtered first/last day | Proven static |
@@ -214,6 +232,30 @@ The e2e smoke was rerun against `http://localhost:4173/index.html` because the s
   - Publish a sanitized/versioned static data snapshot outside ignored `data/**`.
   - Use load order: local cache, hosted snapshot fallback, then live Sheet update.
   - Add Playwright/network tests for first boot with Sheet blocked and no `localStorage.barkCSV`.
+- Fix implemented:
+  - Added a deployable fallback snapshot at `assets/data/bark-fallback.csv`; it is outside the ignored `data/**` Hosting path and contains the current public Sheet export including canonical `Park id`.
+  - Updated `modules/dataService.js` so cold boot without local `barkCSV` starts the hosted fallback while still polling the live Sheet.
+  - The fallback is skipped if cached/live data has already been accepted, and a newer live Sheet update can still replace the fallback in the normal polling path.
+  - Bumped the `dataService.js` cache-buster in `index.html`.
+  - Added `tests/playwright/bug004-static-fallback-data-smoke.spec.js` to block the Google Sheet, clear local CSV cache, and prove the hosted fallback renders hundreds of parks/markers instead of an empty map.
+  - Added `assets/data/bark-fallback.csv` checks to `tests/data-integrity.test.js`.
+- User-visible repro before fix:
+  - Open the app in a fresh browser/profile with no `localStorage.barkCSV`.
+  - Block or delay the Google Sheet CSV request.
+  - The map can load with zero pins because there is no shipped snapshot to fall back to.
+- User-visible behavior after fix:
+  - The app renders official fallback pins from the hosted snapshot even when the live Sheet request fails on first boot.
+  - When the live Sheet becomes available, the existing poller can update the map to the newer live dataset.
+- Pros of the fix:
+  - First-time users are no longer dependent on a successful live Sheet fetch to see the map.
+  - The fallback file is served by Firebase Hosting because it lives under `assets/data/`, not the ignored `data/**` directory.
+  - The regression test simulates the exact cold-boot/Sheet-failure edge case.
+- Cons / tradeoffs:
+  - The static snapshot can become stale if the live Sheet changes and the repo fallback is not refreshed.
+  - The fallback is still a client-delivered CSV; it improves availability, not data authority or backend validation.
+- QC:
+  - `tests/data-integrity.test.js` verifies the fallback exists, has no conflict markers, includes `Location`, `State`, `lat`, `lng`, and canonical `Park id`, and contains the official dataset scale.
+  - `tests/playwright/bug004-static-fallback-data-smoke.spec.js` proves a Sheet-blocked, no-cache cold boot renders more than 300 canonical parks and markers.
 
 ### BUG-AUDIT-005: Free 20-visit limit is client/runtime only
 
@@ -574,9 +616,9 @@ The e2e smoke was rerun against `http://localhost:4173/index.html` because the s
    - Convert info/pics/website/directions rendering to DOM creation and text nodes.
    - Add XSS regression tests for marker panel fields.
 
-3. BUG-AUDIT-003 / BUG-AUDIT-004: repair data fallback path.
-   - Regenerate corrupt CSV files.
-   - Add hosted static data fallback and a first-boot Sheet-blocked test.
+3. BUG-AUDIT-003 / BUG-AUDIT-004: repair data fallback path. DONE.
+   - Regenerated corrupt CSV files.
+   - Added hosted static data fallback and a first-boot Sheet-blocked test.
 
 ### Next 3 fixes
 
@@ -591,4 +633,4 @@ Current premium/auth/payment backend tests are green, but this audit should down
 Recommended gate wording:
 
 GO for narrow controlled BARK beta only after e2e is rerun in a cache-clean BARK browser context.
-NO-GO for broad public/live launch until XSS, fallback data, trip bookend persistence, and hosting-root risk are fixed.
+NO-GO for broad public/live launch until trip bookend persistence, backend quota hardening, dirty release files, and hosting-root risk are fixed.

@@ -25,6 +25,8 @@ const CSV_COLUMNS = {
 };
 
 const SWAG_TYPE_COLUMNS = ['Swag Type', 'Swag', 'Swag Available'];
+const STATIC_FALLBACK_CSV_URL = 'assets/data/bark-fallback.csv';
+let staticFallbackLoadInFlight = null;
 
 function cleanCSVValue(value) {
     if (value === undefined || value === null) return '';
@@ -195,7 +197,18 @@ function commitCSVCache(csvString, options = {}) {
     localStorage.setItem('barkCSV_time', String(options.cacheTime));
 }
 
+function hasAcceptedParkData() {
+    const parkRepo = window.BARK && window.BARK.repos && window.BARK.repos.ParkRepo;
+    return Boolean(
+        parkRepo &&
+        typeof parkRepo.getAll === 'function' &&
+        parkRepo.getAll().length > 0
+    );
+}
+
 function parseCSVString(csvString, options = {}) {
+    if (options.skipIfDataLoaded && hasAcceptedParkData()) return;
+
     if (isRendering) {
         pendingCSV = csvString;
         pendingCSVOptions = options;
@@ -236,6 +249,44 @@ function parseCSVString(csvString, options = {}) {
 }
 
 window.BARK.parseCSVString = parseCSVString;
+
+function loadStaticFallbackData(reason = 'unknown') {
+    if (hasAcceptedParkData()) return Promise.resolve(false);
+    if (staticFallbackLoadInFlight) return staticFallbackLoadInFlight;
+
+    staticFallbackLoadInFlight = fetch(STATIC_FALLBACK_CSV_URL, { cache: 'force-cache' })
+        .then(res => {
+            if (!res.ok) throw new Error(`Static fallback response was not ok: ${res.status}`);
+            return res.text();
+        })
+        .then(csvString => {
+            if (!csvString || csvString.trim().length < 10 || hasAcceptedParkData()) return false;
+
+            const fallbackHash = quickHash(csvString);
+            rememberDataHash(fallbackHash, 1);
+            parseCSVString(csvString, {
+                skipIfDataLoaded: true,
+                onAccepted: () => {
+                    if (lastDataHash === null) lastDataHash = fallbackHash;
+                    if (window.BARK.debugDataRefresh === true) {
+                        console.info(`[dataService] Loaded hosted static fallback data (${reason}).`);
+                    }
+                }
+            });
+            return true;
+        })
+        .catch(error => {
+            console.warn('[dataService] Hosted static fallback data unavailable:', error);
+            return false;
+        })
+        .finally(() => {
+            staticFallbackLoadInFlight = null;
+        });
+
+    return staticFallbackLoadInFlight;
+}
+
+window.BARK.loadStaticFallbackData = loadStaticFallbackData;
 
 // ====== DATA POLLING ======
 function quickHash(str) {
@@ -436,6 +487,8 @@ function loadData() {
             rememberDataHash(lastDataHash, Date.now());
         }
         parseCSVString(cachedCsv);
+    } else {
+        loadStaticFallbackData('cold boot without local cache');
     }
 
     safeDataPoll();
@@ -454,7 +507,10 @@ function loadData() {
         return;
     }
 
-    runDataPollCycle();
+    runDataPollCycle()
+        .then(() => {
+            if (!hasAcceptedParkData()) loadStaticFallbackData('live sheet poll returned no data');
+        });
 }
 
 window.BARK.loadData = loadData;
