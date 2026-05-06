@@ -2,7 +2,7 @@
 
 Date: 2026-05-04
 Scope: BARK Ranger Map only.
-Current commit before BUG-AUDIT-028 fix: `cf46fab`
+Current commit before BUG-AUDIT-007 fix: `bdd10f3`
 Workspace: `/Users/carterswarm/BarkRangerMap`
 
 ## Important Scope Note
@@ -139,6 +139,23 @@ Notes:
 - The focused mobile smoke verifies the filter panel and bottom nav prevent wheel scroll by default.
 - It also checks wheel gestures over the filter panel do not zoom the map, and wheel gestures over the fixed bottom nav do not scroll the Profile view underneath it.
 
+## Fix Batch 6 Results
+
+Scope: BUG-AUDIT-007.
+
+| Check | Result |
+|---|---|
+| `node --check engines/tripPlannerCore.js` | PASS |
+| `node --check tests/playwright/bug007-route-bookends-smoke.spec.js` | PASS |
+| focused BUG-AUDIT-007 sparse trip bookend routing smoke | PASS 1/1 |
+| signed-in `npm run test:e2e:smoke` with storage states | PASS 40/40 |
+| `git diff --check` | PASS |
+
+Notes:
+
+- The focused smoke creates a Premium sparse trip where the first original day has one stop plus a trip start, the middle day is empty, and the last original day has one stop plus a trip end.
+- The regression verifies the route planner calls ORS twice: once from the start bookend to the first-day stop, and once from the last-day stop to the end bookend. The empty middle day is skipped without moving either bookend to another day.
+
 ## Ranked Bug Table
 
 | ID | Title | Area | Severity | Confidence | Evidence | Status |
@@ -149,7 +166,7 @@ Notes:
 | BUG-AUDIT-004 | Hosted fallback data is excluded, so first-time cold boot can show empty map if Sheet fetch fails | Runtime/data | P1 | 90% | `firebase.json` ignores `data/**`; `loadData()` relied on localStorage or live Sheet | FIXED / QC PASSED |
 | BUG-AUDIT-005 | Free 20-visit limit is client/runtime only | Product/security | P1 | 95% | Rules allow owner `visitedPlaces` writes; no backend quota owner | Known risk |
 | BUG-AUDIT-006 | Saved routes do not persist trip start/end bookends | Trip planner | P1 | 95% | `saveCurrentTrip()` saved only `tripDays`; load restored only `tripDays` | FIXED / QC PASSED |
-| BUG-AUDIT-007 | Route generation attaches trip bookends after filtering days | Trip planner | P1 | 90% | `daysWithStops = tripDays.filter(...)`, then start/end added to filtered first/last day | Proven static |
+| BUG-AUDIT-007 | Route generation attaches trip bookends after filtering days | Trip planner | P1 | 100% | Focused sparse-trip smoke proves start/end bookends stay on original first/last days after fix | FIXED / QC PASSED |
 | BUG-AUDIT-008 | Current worktree has uncommitted Functions/payment files | Release safety | P1 | 100% | `git status --short` shows modified function files | Proven |
 | BUG-AUDIT-009 | Repo root is used as Hosting public directory | Hosting/security | P1 | 85% | `firebase.json` has `"public": "."` with an ignore allowlist | Proven static |
 | BUG-AUDIT-010 | Version sources disagree | Runtime/update UX | P2 | 100% | `version.json=1`, default runtime version `26`, UI default `12` | Proven static |
@@ -480,17 +497,32 @@ Notes:
 ### BUG-AUDIT-007: Route generation attaches trip bookends after filtering days
 
 - Severity: P1
-- Confidence: 90%
+- Confidence: 100%
 - Area: trip planner/route logic
+- Status: FIXED / QC PASSED
 - Evidence:
-  - `generateAndRenderTripRoute()` does `const daysWithStops = tripDays.filter(d => d.stops.length >= 2)`.
-  - It adds `tripStartNode` to the first filtered day and `tripEndNode` to the last filtered day.
+  - Before the fix, `generateAndRenderTripRoute()` did `const daysWithStops = tripDays.filter(d => d.stops.length >= 2)`.
+  - It then added `tripStartNode` to the first filtered day and `tripEndNode` to the last filtered day.
 - Why this matters:
   - Sparse trip days can move the start/end to a different original day than the user intended.
-- Recommended fix:
-  - Iterate original day indexes.
-  - Include bookends before deciding whether a day is routable.
-  - Add tests for one-stop days, empty days, and start/end-only edge cases.
+- How a user would see this bug:
+  - Create a trip with a custom Trip Start, one stop on Day 1, an empty middle day, one stop on the final day, and a custom Trip End.
+  - Tap `Generate Route`.
+  - Before the fix, the app could say each day needs at least two stops or attach the start/end to a filtered day instead of the actual first/last trip day.
+- Root cause:
+  - Route generation decided which days were routable before applying trip start/end bookends.
+  - One-stop first/last days that should become two-point route segments after adding the bookend were filtered out too early.
+- Fix:
+  - `generateAndRenderTripRoute()` now iterates the original `tripDays` indexes, applies start/end bookends to the original first/last day, and only then filters for days with at least two route points.
+  - Empty middle days are skipped, but they no longer change which original day owns the start or end.
+- Pros of the fix:
+  - Sparse trips with real start/end bookends now generate expected route segments.
+  - The change is limited to route-generation planning; trip UI ordering, saved-route shape, and overlay rendering are unchanged.
+- Cons / tradeoffs:
+  - Days with fewer than two route points are still skipped. That is correct for route generation, but users may still need clearer day-level messaging later if they expect an empty day to route.
+- QC:
+  - `tests/playwright/bug007-route-bookends-smoke.spec.js` verifies a Premium sparse trip calls ORS from start-to-first-stop and last-stop-to-end, with no alert.
+  - Full signed-in e2e smoke with the new regression included: PASS 40/40.
 
 ### BUG-AUDIT-008: Current worktree has uncommitted Functions/payment files
 

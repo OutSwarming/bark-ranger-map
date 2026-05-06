@@ -757,8 +757,15 @@ function initTripPlanner() {
         const routeRunId = ++routeRenderGeneration;
         window.BARK.incrementRequestCount();
         const tripDays = window.BARK.tripDays;
-        const daysWithStops = tripDays.filter(d => d.stops.length >= 2);
-        if (daysWithStops.length === 0) { alert("Each day needs at least 2 stops."); return; }
+        const routableDays = tripDays
+            .map((day, originalIndex) => {
+                const dayStops = Array.isArray(day.stops) ? [...day.stops] : [];
+                if (originalIndex === 0 && window.tripStartNode) dayStops.unshift(window.tripStartNode);
+                if (originalIndex === tripDays.length - 1 && window.tripEndNode) dayStops.push(window.tripEndNode);
+                return { day, dayStops, originalIndex };
+            })
+            .filter(routeDay => routeDay.dayStops.length >= 2);
+        if (routableDays.length === 0) { alert("Each day needs at least 2 stops, including trip start/end."); return; }
 
         currentRouteLayers.forEach(removeTripMapLayer); currentRouteLayers = [];
         // Hide the dashed day lines while the generated driving route is on the map.
@@ -775,11 +782,8 @@ function initTripPlanner() {
         const allBounds = [];
         let anySucceeded = false, totalDistMeters = 0, totalDurSeconds = 0;
 
-        for (let i = 0; i < daysWithStops.length; i++) {
-            const day = daysWithStops[i];
-            let dayStops = [...day.stops];
-            if (i === 0 && window.tripStartNode) dayStops.unshift(window.tripStartNode);
-            if (i === daysWithStops.length - 1 && window.tripEndNode) dayStops.push(window.tripEndNode);
+        for (const routeDay of routableDays) {
+            const { day, dayStops } = routeDay;
 
             try {
                 const orsCoordinates = dayStops.map(s => [Number(s.lng), Number(s.lat)]);
