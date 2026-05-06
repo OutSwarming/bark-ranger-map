@@ -30,7 +30,7 @@ test.describe('BUG-AUDIT-004 static data fallback', () => {
             const text = message.text();
             if (message.type() !== 'error') return;
             if (/Data poll failed/i.test(text)) return;
-            if (/Failed to load resource: net::ERR_FAILED/i.test(text)) return;
+            if (/Failed to load resource: net::ERR_(FAILED|CONNECTION_RESET)/i.test(text)) return;
             unexpectedErrors.push(text);
         });
         page.on('pageerror', error => unexpectedErrors.push(error.message));

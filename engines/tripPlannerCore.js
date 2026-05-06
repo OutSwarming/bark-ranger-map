@@ -150,6 +150,64 @@ function getTripStopKey(stop) {
     return stop.id || `${stop.lat},${stop.lng}`;
 }
 
+function getFiniteCoordinate(value) {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function getCleanString(value) {
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+function serializeTripNodeForSave(node) {
+    if (!node || typeof node !== 'object') return null;
+
+    const name = getCleanString(node.name);
+    const lat = getFiniteCoordinate(node.lat);
+    const lng = getFiniteCoordinate(node.lng);
+    if (!name || lat === null || lng === null) return null;
+
+    const serialized = { name, lat, lng };
+    const optionalStringFields = ['id', 'state', 'category', 'swagType', 'customPlaceId', 'placeId'];
+    optionalStringFields.forEach(field => {
+        const value = getCleanString(node[field]);
+        if (value) serialized[field] = value;
+    });
+
+    return serialized;
+}
+
+function serializeTripDayForSave(day) {
+    const stops = Array.isArray(day && day.stops)
+        ? day.stops.map(serializeTripNodeForSave).filter(Boolean)
+        : [];
+    return {
+        color: getCleanString(day && day.color) || window.BARK.DAY_COLORS[0],
+        stops,
+        notes: getCleanString(day && day.notes)
+    };
+}
+
+function buildSavedRouteData(tripName, tripDays) {
+    const serializedDays = Array.isArray(tripDays)
+        ? tripDays.map(serializeTripDayForSave)
+        : [];
+    const routeData = {
+        tripName,
+        tripDays: serializedDays
+    };
+
+    const startNode = serializeTripNodeForSave(window.tripStartNode);
+    const endNode = serializeTripNodeForSave(window.tripEndNode);
+    if (startNode) routeData.tripStartNode = startNode;
+    if (endNode) routeData.tripEndNode = endNode;
+
+    return routeData;
+}
+
+window.BARK.serializeTripNodeForSave = serializeTripNodeForSave;
+window.BARK.buildSavedRouteData = buildSavedRouteData;
+
 function removeTripDay(dayIdx) {
     const tripDays = window.BARK.tripDays;
     if (!Array.isArray(tripDays) || tripDays.length <= 1) return;
@@ -669,11 +727,12 @@ function initTripPlanner() {
         if (!tripName) { alert('Please enter a name for your trip.'); if (nameInput) nameInput.focus(); return false; }
         try {
             const tripDays = window.BARK.tripDays;
-            const routeData = {
-                tripName: tripName,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                tripDays: tripDays.map(d => ({ color: d.color, stops: d.stops.map(s => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng })), notes: d.notes || "" }))
-            };
+            const routeData = buildSavedRouteData(tripName, tripDays);
+            routeData.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+            if (!routeData.tripDays.some(day => day.stops.length > 0)) {
+                alert('Nothing to save — add a valid stop first!');
+                return false;
+            }
             await firebase.firestore().collection('users').doc(user.uid).collection('savedRoutes').add(routeData);
             window.BARK.loadSavedRoutes(user.uid);
             return true;

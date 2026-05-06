@@ -84,6 +84,8 @@ async function loadRouteIntoPlanner(uid, routeId) {
 
         window.BARK.tripDays = (data.tripDays || []).map(d => ({ color: d.color, stops: d.stops, notes: d.notes || "" }));
         window.BARK.activeDayIdx = 0;
+        window.tripStartNode = data.tripStartNode || null;
+        window.tripEndNode = data.tripEndNode || null;
 
         const tripNameInput = document.getElementById('tripNameInput');
         if (tripNameInput) tripNameInput.value = data.tripName || "";

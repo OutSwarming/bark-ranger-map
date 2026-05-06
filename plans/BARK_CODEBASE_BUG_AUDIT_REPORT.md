@@ -2,7 +2,7 @@
 
 Date: 2026-05-04
 Scope: BARK Ranger Map only.
-Current commit before BUG-AUDIT-004 fix: `0b4931f`
+Current commit before BUG-AUDIT-026 fix: `212564f`
 Workspace: `/Users/carterswarm/BarkRangerMap`
 
 ## Important Scope Note
@@ -82,6 +82,26 @@ Notes:
 - The focused smoke blocked the public Google Sheet request, cleared `localStorage.barkCSV`, and verified the app still rendered more than 300 canonical parks and markers from the hosted fallback snapshot.
 - Functions and Firestore rules were not rerun for this batch because the fix only touched hosted static data, client data boot logic, Playwright coverage, and this report.
 
+## Fix Batch 3 Results
+
+Scope: BUG-AUDIT-006 and BUG-AUDIT-026.
+
+| Check | Result |
+|---|---|
+| `node --check engines/tripPlannerCore.js` | PASS |
+| `node --check renderers/routeRenderer.js` | PASS |
+| `node --check tests/playwright/bug026-trip-save-custom-stop-smoke.spec.js` | PASS |
+| focused BUG-AUDIT-026 custom-stop route-save smoke | PASS 1/1 |
+| focused BUG-022 settings cloud-sync smoke rerun after a transient full-suite timeout | PASS 3/3 |
+| signed-in `npm run test:e2e:smoke` with storage states | PASS 36/36 |
+| `git diff --check` | PASS |
+
+Notes:
+
+- The focused smoke uses a signed-in storage state, creates a trip with a custom Hinckley start, a custom Gainesville end, one ID-less custom midpoint, and five canonical BARK stops.
+- It saves the route to Firestore, verifies the success dialog does not contain `Unsupported field value`, confirms the saved custom stop omits the missing `id`, confirms start/end bookends were persisted, loads the route back into the planner, verifies the bookends restore, and deletes the test route.
+- The first full signed-in smoke run passed the new trip-save test but had one transient BUG-022 premium-entitlement wait timeout; the focused BUG-022 rerun passed 3/3 and the full suite passed 36/36 on rerun.
+
 ## Ranked Bug Table
 
 | ID | Title | Area | Severity | Confidence | Evidence | Status |
@@ -91,7 +111,7 @@ Notes:
 | BUG-AUDIT-003 | CSV data files contain unresolved merge-conflict markers | Data/tooling | P1 | 100% | `data/data.csv` had 216 markers; `data/sheet_data_fetched.csv` had 504 | FIXED / QC PASSED |
 | BUG-AUDIT-004 | Hosted fallback data is excluded, so first-time cold boot can show empty map if Sheet fetch fails | Runtime/data | P1 | 90% | `firebase.json` ignores `data/**`; `loadData()` relied on localStorage or live Sheet | FIXED / QC PASSED |
 | BUG-AUDIT-005 | Free 20-visit limit is client/runtime only | Product/security | P1 | 95% | Rules allow owner `visitedPlaces` writes; no backend quota owner | Known risk |
-| BUG-AUDIT-006 | Saved routes do not persist trip start/end bookends | Trip planner | P1 | 95% | `saveCurrentTrip()` saves only `tripDays`; load restores only `tripDays` | Proven static |
+| BUG-AUDIT-006 | Saved routes do not persist trip start/end bookends | Trip planner | P1 | 95% | `saveCurrentTrip()` saved only `tripDays`; load restored only `tripDays` | FIXED / QC PASSED |
 | BUG-AUDIT-007 | Route generation attaches trip bookends after filtering days | Trip planner | P1 | 90% | `daysWithStops = tripDays.filter(...)`, then start/end added to filtered first/last day | Proven static |
 | BUG-AUDIT-008 | Current worktree has uncommitted Functions/payment files | Release safety | P1 | 100% | `git status --short` shows modified function files | Proven |
 | BUG-AUDIT-009 | Repo root is used as Hosting public directory | Hosting/security | P1 | 85% | `firebase.json` has `"public": "."` with an ignore allowlist | Proven static |
@@ -111,6 +131,7 @@ Notes:
 | BUG-AUDIT-023 | Cluster ghost bubble survives Limit Zoom / Bubble Mode transition | Map runtime | P2 | 95% | User reproduced a stale 350-count bubble; layer handoff did not hard-clear markercluster internals | FIXED / QC PASSED |
 | BUG-AUDIT-024 | Settings modal state survives bottom-nav tab switches | Navigation/UX | P2 | 95% | Bottom nav was clickable above Settings, but nav transitions did not close Settings | FIXED / QC PASSED |
 | BUG-AUDIT-025 | Cloud settings autosave can log an error after sign-out | Settings/console | P3 | 90% | Full smoke caught `cloud settings autosave failed: You must be logged in` after settings/sign-out timing | FIXED / QC PASSED |
+| BUG-AUDIT-026 | Saving a trip with custom/geocoded stops can fail with Firestore `undefined` field error | Trip planner/data persistence | P1 | 100% | User reproduced `addDoc()` failing on `Unsupported field value: undefined`; `saveCurrentTrip()` always wrote `id: s.id` | FIXED / QC PASSED |
 
 ## Detailed Findings
 
@@ -288,6 +309,58 @@ Notes:
   - Save `tripStartNode` and `tripEndNode`.
   - Validate `lat/lng/name` on load.
   - Backfill old routes with null bookends.
+- Fix implemented:
+  - Added a route-save serializer in `engines/tripPlannerCore.js` that persists valid `tripStartNode` and `tripEndNode` alongside `tripDays`.
+  - Updated `renderers/routeRenderer.js` so loading a saved route restores `window.tripStartNode` and `window.tripEndNode`.
+  - Bumped route renderer and trip planner cache-busters in `index.html`.
+- User-visible repro before fix:
+  - Add a custom start city and end city, save the route, then load it later.
+  - The saved route restored the stops, but the start/end bookends disappeared.
+- User-visible behavior after fix:
+  - Saved routes keep custom start and end cities when loaded back into the planner.
+- Pros of the fix:
+  - Trips saved after this change preserve the planner shape users saw at save time.
+  - Existing routes without bookends still load because missing bookends fall back to `null`.
+- Cons / tradeoffs:
+  - Old saved routes cannot magically regain dropped start/end bookends because the previous save payload never stored them.
+- QC:
+  - `tests/playwright/bug026-trip-save-custom-stop-smoke.spec.js` saves a route with Hinckley start and Gainesville end, then loads it and verifies both bookends restore.
+
+### BUG-AUDIT-026: Saving a trip with custom/geocoded stops can fail with Firestore undefined field error
+
+- Severity: P1
+- Confidence: 100%
+- Area: trip planner/data persistence
+- Evidence:
+  - User reproduced the mobile alert: `Could not save route: Function addDoc() called with invalid data. Unsupported field value: undefined`.
+  - Repro route included custom/geocoded places (`Hinckley Township, OH, USA`, `Gainesville, FL, USA`) plus BARK pins.
+  - Static root cause: `saveCurrentTrip()` serialized every stop as `{ id: s.id, name: s.name, lat: s.lat, lng: s.lng }`; custom/geocoded stops do not have canonical BARK IDs, so `id` became `undefined`.
+- Why this matters:
+  - Route save failed at the final step after the user had spent time building and optimizing a trip.
+  - Firestore rejects any nested `undefined` value, so one ID-less custom stop can prevent the entire trip from saving.
+- Fix implemented:
+  - Added `serializeTripNodeForSave()` and `buildSavedRouteData()` in `engines/tripPlannerCore.js`.
+  - Required saved nodes to have a name plus finite `lat/lng`.
+  - Optional fields such as `id`, `state`, `category`, `swagType`, `customPlaceId`, and `placeId` are included only when present, never as `undefined`.
+  - Save now rejects only if the sanitized route has no valid stops.
+- User-visible repro before fix:
+  - Set a custom trip start such as Hinckley, OH.
+  - Set a custom trip end such as Gainesville, FL.
+  - Add several BARK pins and at least one custom/geocoded stop.
+  - Optimize the trip and tap Save.
+  - Firestore throws the `Unsupported field value: undefined` alert.
+- User-visible behavior after fix:
+  - The same route shape saves successfully.
+  - ID-less custom stops remain in the saved route by name and coordinates.
+  - Canonical BARK stops keep their IDs.
+- Pros of the fix:
+  - Fixes the actual Firestore rejection instead of hiding the error.
+  - Makes saved-route payloads safer for mixed BARK/custom trips.
+  - Preserves trip start/end bookends at the same time.
+- Cons / tradeoffs:
+  - Invalid stops missing a name or coordinates are dropped from the saved payload. That is safer than saving broken route data, but if such a stop appears in the UI, a future UI validation message would be useful.
+- QC:
+  - `tests/playwright/bug026-trip-save-custom-stop-smoke.spec.js` saves the reproduced custom-stop/bookend route to Firestore, verifies success, verifies no `undefined` ID is written for the custom stop, verifies bookends persist, loads the route back, verifies bookends restore, and deletes the test route.
 
 ### BUG-AUDIT-007: Route generation attaches trip bookends after filtering days
 
@@ -622,7 +695,7 @@ Notes:
 
 ### Next 3 fixes
 
-4. BUG-AUDIT-006 / BUG-AUDIT-007: fix trip planner bookend persistence and sparse-day routing.
+4. BUG-AUDIT-007: fix sparse-day routing after bookend persistence.
 5. BUG-AUDIT-008 / BUG-AUDIT-009: clean release hygiene and move Hosting public files out of repo root.
 6. BUG-AUDIT-010: unify version labels and runtime update logic.
 
