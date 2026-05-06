@@ -107,8 +107,10 @@ Before major feature work, refactors, payment work, Passport/journal/photos/even
 
 - [x] **#22 — Removed client-side ORS key + documented rotation gate (Phase 3 of 3)** (`modules/barkConfig.js`, `index.html`, provider dashboards) ✅
 
+- [x] **#23 — Ghost cluster bubble at low zoom after Limit Zoom Out toggle** (`modules/mapEngine.js`, `index.html`) ✅
+
 ## Current Work
-Phase 1A ParkRepo seam is complete. `repos/ParkRepo.js` owns canonical park records and a module-private lookup Map, `dataService.js` publishes CSV data through `ParkRepo.replaceAll()`, direct `window.BARK.allPoints` / `window.allPoints` JS reads are gone, and the legacy `window.parkLookup` global is gone. Local smoke passed against `http://127.0.0.1:4173/index.html`: CSV data loaded into `ParkRepo`, local search returned `Acadia`, an official park synced through `TripLayerManager`, reload still booted with repo data, map booted, and marker policy/render context checks stayed green. Next: Phase 1B VaultRepo Map ownership.
+Fix #23 (ghost cluster bubble at low zoom after Limit Zoom Out toggle) is complete. `applyMapPerformancePolicy()` in `modules/mapEngine.js` now triggers `rebuildMarkerLayer()` whenever `minZoom` actually changes while the cluster layer is on the map, forcing markercluster to rebuild internal state for the new zoom range. Hot paths (zoom/pan/filter/search heartbeat) are untouched — the rebuild fires only on rare explicit settings toggles and rides on markercluster's existing `chunkedLoading: true`. Cache bumped to `mapEngine.js?v=2`. Phase 1A ParkRepo seam is still complete (canonical park records in `repos/ParkRepo.js`, `window.parkLookup` global gone). Next: Phase 1B VaultRepo Map ownership.
 
 ---
 
@@ -2788,6 +2790,77 @@ None. All ORS-backed features (multi-day route generation, global town/city sear
 | Reliability | 10 | All ORS flows already verified working through callables in Phase 2; this fix only removes a now-unused field |
 | Security | 8 | Client surface is fully clean; final 8 point gap is the unrotated keys in git history — closes to 10 once rotation completes |
 | Debuggability | 9 | `window.BARK.config` is now self-documenting; the comment in `barkConfig.js` points future readers at `services/orsService.js` |
+
+### Fix #23 — Ghost Cluster Bubble at Low Zoom After Limit Zoom Out Toggle
+**Files:** `modules/mapEngine.js`, `index.html`
+**Date:** 2026-05-06
+
+**What was wrong:**
+User flow that reproduced the bug: open the app, toggle ON Standard Pins (clusters become active), zoom in, zoom out to the floor, toggle OFF Limit Zoom Out, zoom further out, then zoom back in. A large cluster bubble (e.g., "350") appeared at low zoom levels and persisted in the DOM as the user zoomed back up — a "ghost pin that does not go away."
+
+`limitZoomOut` is wired to `SETTING_IMPACTS.MAP_BEHAVIOR` in `settingsRegistry.js:137`, so toggling it routes through `applyMapPerformancePolicy()` only (settingsController.js:413). That function called `map.setMinZoom(nextMinZoom)` and then the cheap `refreshMarkerClusters()` — which only reskins existing cluster icons. It did not trigger a marker layer rebuild because `limitZoomOut` does not change `policy.layerType` (markerLayerPolicy.js:33) or `cullPlainMarkers` — it only changes `policy.minZoom` (5 ↔ null).
+
+The previous related fix (commit 216cf63) added `clearClusterLayerInternals()` for the layer-type-change path (cluster → plain), but that path is not triggered by `limitZoomOut`. So the new flow leaks through.
+
+Mechanism of the leak: markercluster builds its internal cluster state (`_currentShownBounds`, zoom-tagged cluster nodes, `removeOutsideVisibleBounds` bookkeeping) anchored to the map's zoom range that was present when markers were added. When `setMinZoom()` lowered the floor below that range, markercluster computed a top-level cluster icon for the newly-accessible low zoom, but its lifecycle handlers couldn't tear that icon down on subsequent zoom events because the icon belonged to a zoom level outside the original active range. The DOM element persisted as the "ghost 350."
+
+**The fix:**
+`applyMapPerformancePolicy()` now compares previous and next `minZoom`. When `minZoom` actually changes AND the cluster layer is currently on the map, it calls the existing `rebuildMarkerLayer()` (which sets `_forceMarkerLayerReset = true` and `_pendingMarkerSync = true`, picked up on the next `syncState` RAF in `renderEngine.js:409-411`). The reset flag drives `MarkerLayerManager.applyVisibility(allPoints, { forceReset: true })` → `moveMarkersToLayer(..., { forceReset: true })` → `resetLayerMembership(points)` → `clusterLayer.clearLayers()` followed by `clusterLayer.addLayers(markersToAdd)`. The clear+re-add forces markercluster to rebuild its internal state for the new zoom range, eliminating the orphaned cluster icon.
+
+Otherwise (no minZoom change, or cluster layer isn't on the map), the function falls back to the cheap `refreshMarkerClusters()` exactly as before — no behavior change for the common settings-effect cycle.
+
+The cache version on `index.html` was bumped from `mapEngine.js?v=1` → `?v=2` so deployed users pick up the fix.
+
+**Why this doesn't slow down pin loading or app lag:**
+- The rebuild only fires when `minZoom` actually changes, which is rare and only happens via explicit user toggle (Limit Zoom Out, Low Graphics, Ultra Low). Not on zoom, pan, filter, or search heartbeat.
+- It only fires when the cluster layer is currently active. In plain pin mode, the path is a no-op (the existing `refreshMarkerClusters()` no-ops too because `hasLayer(clusterLayer)` is false).
+- markercluster is configured with `chunkedLoading: true, chunkInterval: 50, chunkDelay: 100` (mapEngine.js:401-403), so the re-add of ~1,000 markers is chunked across multiple frames and does not block the main thread.
+- The render heartbeat (`renderEngine.js:syncState`), search budget (Fix #11), achievement debounce (Fix #8), visited-ID cache (Fix #10), and trip overlay (Fix #19) are all untouched. None of the hot-path fingerprints or RAF callbacks change.
+- `getMarkerVisibilityStateKey()` already includes `limit-zoom-on/off` (`renderEngine.js:237`), so the next `syncState` after a toggle was already going to recompute marker visibility regardless. The new path adds a one-shot rebuild on top of that — not new work in the render loop.
+
+**Pros of this approach:**
+- Surgical: only triggers on the specific state transition that produces the bug (`minZoom` change while clusters are active).
+- Reuses existing machinery (`rebuildMarkerLayer()` was already the canonical API for "rebuild the cluster hierarchy"). No new abstractions.
+- No change to `markerLayerPolicy.js`, `MarkerLayerManager.js`, `renderEngine.js`, or `settingsRegistry.js`. The fix is one branch in one function.
+- Doesn't regress the 216cf63 layer-type-change path — that fix is in `MarkerLayerManager.js:moveMarkersToLayer`, completely independent.
+- Boot-safe: on initial `applyMapPerformancePolicy()` call (mapEngine.js:137), `window.BARK.markerClusterGroup` doesn't exist yet, so `clusterActive === false` and the rebuild branch never runs. Even if it did, `window.BARK.rebuildMarkerLayer` doesn't exist yet either.
+- Doesn't change the contract for callers — `applyMapPerformancePolicy()` is still synchronous and idempotent from the caller's perspective.
+
+**Cons / tradeoffs:**
+- The `rebuildMarkerLayer()` work is amortized across markercluster's chunk schedule — there's a brief window (50–100ms × `Math.ceil(parkCount / chunkSize)`) where the cluster layer is being re-added. For typical park counts and the rare toggle frequency, this is invisible. If park count grows past ~5,000 (the scale concern the user raised), this rebuild may need to be deferred to idle time or use `requestIdleCallback`. Not needed today.
+- This does not solve the underlying markercluster behavior (its hierarchy doesn't auto-extend on `setMinZoom`). A future markercluster upgrade or replacement would obsolete this workaround. The fix is correctly framed as a workaround at the boundary, not a deep change.
+- If a future setting adds another `MAP_BEHAVIOR` impact that changes `minZoom` for non-cluster reasons, the same path will trigger. That's correct behavior, not a regression.
+
+**Alternatives considered:**
+
+*A — Add `MARKER_LAYER` to `limitZoomOut`'s impact list in `settingsRegistry.js:137`.* This would also work, but it's a wider blast radius: it changes the declarative meaning of `limitZoomOut` (a behavior setting that doesn't actually change which layer is used) and couples the fix to the registry shape. It also wouldn't cover indirect minZoom changes from preset cascades (Low Graphics → limitZoomOut). Rejected.
+
+*B — Call `markerClusterGroup.options.minZoom = nextMinZoom` and hope markercluster picks it up.* markercluster does not re-read `options.minZoom` after construction. Doesn't work.
+
+*C — Manually clear the orphaned cluster icons from the DOM via `querySelectorAll('.bark-cluster-marker')` and remove them.* Treats the symptom not the cause; would re-introduce the same orphan on the next minZoom change. Also fragile against markercluster's own DOM.
+
+*D — Remove `removeOutsideVisibleBounds: true` from the markercluster config.* That option does help on memory at extreme zoom-out, and removing it would have other performance consequences. Doesn't directly address the minZoom-change ghost. Rejected.
+
+**Verification:**
+- `node --check modules/mapEngine.js` passes.
+- Read paths confirm:
+  - `rebuildMarkerLayer()` exists at `mapEngine.js:464`, sets the flags `renderEngine.js:409` reads.
+  - `MarkerLayerManager.moveMarkersToLayer({ forceReset: true })` calls `resetLayerMembership(points)` which calls `clusterLayer.clearLayers()` (MarkerLayerManager.js:206-219).
+  - `applyMapPerformancePolicy()` is invoked from `settingsController.js:414` followed by `window.syncState()` at line 425 — so the deferred rebuild flag is honored on the very next RAF.
+- Boot-time `applyMapPerformancePolicy()` call at `mapEngine.js:137` runs before `markerClusterGroup` and `rebuildMarkerLayer` are defined; both guards (`clusterActive` and `typeof rebuildMarkerLayer === 'function'`) prevent any boot-order issue.
+- Cache version bumped on `index.html:1386` so users pick up the fix on next load.
+- Did not run a live in-browser repro from this terminal session.
+
+**Rating: 9 / 10**
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Long-term solution | 9 | Surgical guard at the right boundary; reuses existing rebuild pipeline; doesn't add new abstractions or alter the registry shape |
+| Speed | 10 | Hot paths untouched; rebuild only fires on rare explicit toggles, chunked by markercluster |
+| Code efficiency | 10 | One branch added in one function; no new files, no helper functions, no global flags |
+| Reliability | 9 | Closes the documented user repro; orthogonal to the 216cf63 layer-type-change fix; boot-safe |
+| User experience | 9 | Eliminates a visible trust-breaking artifact; refresh feels instantaneous on toggle because chunkedLoading hides the work |
+| Debuggability | 8 | The reason for the rebuild is documented at the call site so future maintainers don't optimize it away |
 
 ---
 

@@ -122,7 +122,9 @@ function getActiveMinZoom() {
 
 window.BARK.applyMapPerformancePolicy = function applyMapPerformancePolicy() {
     if (!window.map) return;
+    const previousMinZoom = window.map.getMinZoom();
     const nextMinZoom = getActiveMinZoom();
+    const minZoomChanged = previousMinZoom !== nextMinZoom;
 
     window.map.options.bounceAtZoomLimits = false;
     window.map.setMinZoom(nextMinZoom);
@@ -132,7 +134,24 @@ window.BARK.applyMapPerformancePolicy = function applyMapPerformancePolicy() {
     if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
         window.BARK.invalidateMarkerVisibility();
     }
-    refreshMarkerClusters();
+
+    // BUG-024: Markercluster's internal cluster state (shown bounds, zoom-tagged
+    // nodes, removeOutsideVisibleBounds bookkeeping) is established at the
+    // map's minZoom range present when markers were added. Lowering minZoom via
+    // Limit Zoom Out / Low Graphics / Ultra Low toggle leaves stale top-level
+    // cluster icons orphaned in the DOM at newly-accessible low zooms (the
+    // "ghost 350" bubble). Re-adding markers via rebuildMarkerLayer() forces
+    // markercluster to rebuild that state for the new zoom range. Only fires
+    // on actual minZoom changes while cluster mode is active — never on the
+    // hot zoom/pan/filter paths — and uses chunkedLoading so it doesn't block.
+    const clusterActive = window.BARK.markerClusterGroup
+        && typeof window.map.hasLayer === 'function'
+        && window.map.hasLayer(window.BARK.markerClusterGroup);
+    if (minZoomChanged && clusterActive && typeof window.BARK.rebuildMarkerLayer === 'function') {
+        window.BARK.rebuildMarkerLayer();
+    } else {
+        refreshMarkerClusters();
+    }
 };
 window.BARK.applyMapPerformancePolicy();
 
