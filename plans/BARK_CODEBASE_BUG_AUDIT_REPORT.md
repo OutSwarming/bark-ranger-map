@@ -91,6 +91,8 @@ The e2e smoke was rerun against `http://localhost:4173/index.html` because the s
 | BUG-AUDIT-021 | Native destructive local reset clears broad origin storage | UX/data safety | P3 | 75% | Settings reset uses broad local storage behavior and native confirm copy | Needs focused repro |
 | BUG-AUDIT-022 | Browser geolocation warnings are noisy on boot | Console/UX | P3 | 70% | Playwright boot logs repeated location permission warnings | Observed |
 | BUG-AUDIT-023 | Cluster ghost bubble survives Limit Zoom / Bubble Mode transition | Map runtime | P2 | 95% | User reproduced a stale 350-count bubble; layer handoff did not hard-clear markercluster internals | FIXED / QC PASSED |
+| BUG-AUDIT-024 | Settings modal state survives bottom-nav tab switches | Navigation/UX | P2 | 95% | Bottom nav was clickable above Settings, but nav transitions did not close Settings | FIXED / QC PASSED |
+| BUG-AUDIT-025 | Cloud settings autosave can log an error after sign-out | Settings/console | P3 | 90% | Full smoke caught `cloud settings autosave failed: You must be logged in` after settings/sign-out timing | FIXED / QC PASSED |
 
 ## Detailed Findings
 
@@ -503,6 +505,62 @@ The e2e smoke was rerun against `http://localhost:4173/index.html` because the s
   - Manual browser feedback showed Bubble Mode could still look broken after deploy because `index.html` still referenced `modules/MarkerLayerManager.js?v=8`.
   - Bumped the script URL to `modules/MarkerLayerManager.js?v=9` so browsers fetch the fixed marker-layer manager instead of a cached copy.
   - Rechecked the exact user sequence locally: start in plain pins, enable Premium Bubble Mode, zoom to the Limit Zoom floor, turn Limit Zoom off, zoom out farther, then zoom back in. Bubbles appear at zoom 4/5/6 and explode cleanly at zoom 7+.
+
+### BUG-AUDIT-024: Settings modal state survives bottom-nav tab switches
+
+- Severity: P2
+- Confidence: 95%
+- Area: navigation / modal UX
+- Evidence:
+  - User reported that after opening Settings and returning to the map, the Map tab sometimes needed two taps.
+  - Mobile layout check showed the bottom nav is clickable above the Settings modal, but the nav click path did not clear the active Settings state.
+- How the user saw it:
+  - Open Profile.
+  - Open Settings.
+  - Tap the Map tab in the bottom nav.
+  - Before the fix, Settings could survive the tab switch, so returning to Profile could reopen into stale Settings state or make the first tab transition feel dead.
+- Root cause:
+  - Settings is rendered inside Profile, while the bottom nav lives above app views. The nav handler changed views but did not close transient Profile-owned modals first.
+- Fix implemented:
+  - Added `window.BARK.closeSettingsModal`.
+  - Bottom-nav clicks now close Settings before changing views.
+  - Bumped `modules/settingsController.js` to `v=7` in `index.html`.
+  - Bumped `modules/uiController.js` to `v=10` in `index.html`.
+  - Added `tests/playwright/bug024-settings-nav-smoke.spec.js` and included it in `npm run test:e2e:smoke`.
+- Pros of the fix:
+  - One tap now closes Settings and navigates to the intended tab.
+  - Plain backdrop taps still just close Settings.
+  - Local settings autosave means closing the modal on navigation does not discard setting changes.
+- Cons / tradeoffs:
+  - A tap on a visible nav item while Settings is open is treated as navigation intent. That is generally what users expect, but it means accidental bottom-nav taps leave Settings immediately.
+- Product expectation:
+  - Settings should not remain open after switching away from Profile. Users generally expect modal settings to be transient; returning to Profile should show the profile page, not a stale modal from a previous tab.
+- QC:
+  - Focused BUG-AUDIT-024 Playwright smoke: PASS 1/1.
+  - Full signed-in e2e smoke with the new regression included: PASS 34/34.
+
+### BUG-AUDIT-025: Cloud settings autosave can log an error after sign-out
+
+- Severity: P3
+- Confidence: 90%
+- Area: settings / console cleanup
+- Evidence:
+  - Full smoke caught `[settingsController] cloud settings autosave failed: Error: You must be logged in.` after a settings save/sign-out path.
+- How the user saw it:
+  - Most users would not see visible UI breakage, but the console could show a red settings error after changing settings and signing out quickly.
+- Root cause:
+  - Cloud autosave checked the signed-in Premium context before scheduling, but did not re-check it when the delayed autosave timer fired.
+- Fix implemented:
+  - The autosave timer now re-checks current auth/premium context before writing. If the user is signed out or no longer Premium, it clears the pending local-cloud flag and exits quietly.
+- Pros of the fix:
+  - Local settings still autosave for everyone.
+  - Premium cloud sync still works for Premium users.
+  - Signing out during a delayed autosave no longer creates a false console error.
+- Cons / tradeoffs:
+  - A pending cloud autosave is dropped if the user signs out before the debounce finishes, which is the correct behavior because there is no current account to write to.
+- QC:
+  - Focused settings persistence smoke: PASS 1/1.
+  - Full signed-in e2e smoke: PASS 34/34.
 
 ## Top Fix Queue
 

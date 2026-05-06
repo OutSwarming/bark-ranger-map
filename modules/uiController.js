@@ -243,6 +243,10 @@ navItems.forEach(btn => {
     btn.addEventListener('click', () => {
         const targetId = btn.getAttribute('data-target');
 
+        if (typeof window.BARK.closeSettingsModal === 'function') {
+            window.BARK.closeSettingsModal();
+        }
+
         navItems.forEach(n => n.classList.remove('active'));
         btn.classList.add('active');
 

@@ -263,6 +263,11 @@ window.BARK.initSettings = function initSettings() {
                 scheduleCloudSettingsAutosave();
                 return;
             }
+            const latestContext = getCloudSettingsSaveContext();
+            if (!latestContext || !latestContext.isPremium) {
+                window._pendingLocalSettingsChanges = false;
+                return;
+            }
             saveSettingsToCloud().catch(error => {
                 console.error('[settingsController] cloud settings autosave failed:', error);
             });
@@ -510,6 +515,8 @@ window.BARK.initSettings = function initSettings() {
             settingsOverlay.classList.remove('active');
             restoreSettingsScroll();
         };
+
+        window.BARK.closeSettingsModal = closeSettings;
 
         if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettings);
         settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) closeSettings(); });
