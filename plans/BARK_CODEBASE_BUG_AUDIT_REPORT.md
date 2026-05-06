@@ -499,6 +499,10 @@ The e2e smoke was rerun against `http://localhost:4173/index.html` because the s
   - Focused BUG-AUDIT-023 Playwright smoke: PASS 1/1.
   - Full signed-in e2e smoke with the new regression included: PASS 33/33.
   - `node --check` on changed files: PASS.
+- Follow-up:
+  - Manual browser feedback showed Bubble Mode could still look broken after deploy because `index.html` still referenced `modules/MarkerLayerManager.js?v=8`.
+  - Bumped the script URL to `modules/MarkerLayerManager.js?v=9` so browsers fetch the fixed marker-layer manager instead of a cached copy.
+  - Rechecked the exact user sequence locally: start in plain pins, enable Premium Bubble Mode, zoom to the Limit Zoom floor, turn Limit Zoom off, zoom out farther, then zoom back in. Bubbles appear at zoom 4/5/6 and explode cleanly at zoom 7+.
 
 ## Top Fix Queue
 
