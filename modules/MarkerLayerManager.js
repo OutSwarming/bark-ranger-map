@@ -218,6 +218,18 @@ class MarkerLayerManager {
         });
     }
 
+    clearClusterLayerInternals() {
+        if (!this.clusterLayer) return;
+
+        if (this.map && typeof this.map.hasLayer === 'function' && this.map.hasLayer(this.clusterLayer)) {
+            this.map.removeLayer(this.clusterLayer);
+        }
+
+        if (typeof this.clusterLayer.clearLayers === 'function') {
+            this.clusterLayer.clearLayers();
+        }
+    }
+
     moveMarkersToLayer(points, targetLayerType, options = {}) {
         if (options.forceReset === true) {
             this.resetLayerMembership(points);
@@ -268,7 +280,7 @@ class MarkerLayerManager {
             markersToAdd.push(marker);
         });
 
-        if (clusterMarkersToRemove.length > 0) {
+        if (clusterMarkersToRemove.length > 0 && targetLayerType !== 'plain') {
             this.clusterLayer.removeLayers(clusterMarkersToRemove);
         }
 
@@ -280,9 +292,12 @@ class MarkerLayerManager {
             }
             if (this.map.hasLayer(this.plainLayer)) this.map.removeLayer(this.plainLayer);
         } else {
+            if (clusterMarkersToRemove.length > 0) {
+                this.clusterLayer.removeLayers(clusterMarkersToRemove);
+            }
+            this.clearClusterLayerInternals();
             markersToAdd.forEach(marker => this.plainLayer.addLayer(marker));
             if (!this.map.hasLayer(this.plainLayer)) this.map.addLayer(this.plainLayer);
-            if (this.map.hasLayer(this.clusterLayer)) this.map.removeLayer(this.clusterLayer);
         }
 
         window.BARK._lastLayerType = targetLayerType;

@@ -90,6 +90,7 @@ The e2e smoke was rerun against `http://localhost:4173/index.html` because the s
 | BUG-AUDIT-020 | Functions test suite is slow | CI/tooling | P3 | 80% | `npm --prefix functions test` passed but took about 161 seconds | Observed |
 | BUG-AUDIT-021 | Native destructive local reset clears broad origin storage | UX/data safety | P3 | 75% | Settings reset uses broad local storage behavior and native confirm copy | Needs focused repro |
 | BUG-AUDIT-022 | Browser geolocation warnings are noisy on boot | Console/UX | P3 | 70% | Playwright boot logs repeated location permission warnings | Observed |
+| BUG-AUDIT-023 | Cluster ghost bubble survives Limit Zoom / Bubble Mode transition | Map runtime | P2 | 95% | User reproduced a stale 350-count bubble; layer handoff did not hard-clear markercluster internals | FIXED / QC PASSED |
 
 ## Detailed Findings
 
@@ -467,6 +468,37 @@ The e2e smoke was rerun against `http://localhost:4173/index.html` because the s
   - Location prompts/noise on boot can feel intrusive.
 - Recommended fix:
   - Request location only after a user action unless there is a specific auto-locate requirement.
+
+### BUG-AUDIT-023: Cluster ghost bubble survives Limit Zoom / Bubble Mode transition
+
+- Severity: P2
+- Confidence: 95%
+- Area: map runtime / marker layer lifecycle
+- Evidence:
+  - User reproduced a stale cluster bubble showing about 350 pins after using Bubble Mode with Limit Zoom, turning Limit Zoom off, zooming out, then zooming back in.
+  - `MarkerLayerManager.moveMarkersToLayer()` removed marker objects from the cluster group when switching to plain pins, but it did not hard-clear the Leaflet.markercluster group internals.
+- How the user saw it:
+  - Use the map for a while with Limit Zoom and Bubble Mode enabled.
+  - Turn off Limit Zoom.
+  - Zoom out, then zoom back in.
+  - A large bubble can remain visible even though the map should have exploded back into normal pins.
+- Root cause:
+  - The plain-marker transition removed cluster markers and removed the cluster layer from the map, but it left markercluster's internal cluster/icon state available to survive rapid zoom/mode churn.
+- Fix implemented:
+  - Added `MarkerLayerManager.clearClusterLayerInternals()`.
+  - When target layer type becomes `plain`, the manager now removes any cluster markers, removes the cluster layer from the map, and calls `clearLayers()` on the cluster group before re-attaching plain pins.
+  - Added `tests/playwright/bug023-cluster-ghost-smoke.spec.js`.
+  - Added that regression to `npm run test:e2e:smoke`.
+- Pros of the fix:
+  - The visual ghost bubble is cleared at the layer owner instead of being hidden with CSS.
+  - The fix is localized to marker layer ownership and does not change clustering policy, zoom policy, or pin styling.
+  - The regression exercises the user path: Premium Bubble Mode, Limit Zoom on, Limit Zoom off, zoom out, zoom in, then assert zero cluster bubbles at plain-pin zoom.
+- Cons / tradeoffs:
+  - Switching from clusters to plain pins now does a harder cluster purge. That is slightly more work during the transition, but only happens when changing layer type.
+- QC:
+  - Focused BUG-AUDIT-023 Playwright smoke: PASS 1/1.
+  - Full signed-in e2e smoke with the new regression included: PASS 33/33.
+  - `node --check` on changed files: PASS.
 
 ## Top Fix Queue
 
