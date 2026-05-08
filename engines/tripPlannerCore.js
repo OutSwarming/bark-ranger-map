@@ -4,6 +4,12 @@
  */
 window.BARK = window.BARK || {};
 
+const TRIP_DAY_LIMIT = 50;
+const TRIP_DAY_PAGE_SIZE = 9;
+
+window.BARK.TRIP_DAY_LIMIT = TRIP_DAY_LIMIT;
+window.BARK.TRIP_DAY_PAGE_SIZE = TRIP_DAY_PAGE_SIZE;
+
 function removeTripMapLayer(layer) {
     const mapRef = window.map || (typeof map !== 'undefined' ? map : null);
     if (!layer || !mapRef || typeof mapRef.removeLayer !== 'function') return;
@@ -142,6 +148,82 @@ function openFreeAccountPrompt(source) {
     if (profileTab) profileTab.click();
 }
 
+function clearRouteTelemetryStatus() {
+    const telemetryEl = window.BARK.DOM.routeTelemetry();
+    if (!telemetryEl) return;
+
+    telemetryEl.style.display = 'none';
+    telemetryEl.innerHTML = '';
+    delete telemetryEl.dataset.routeStatus;
+}
+
+function setRouteTelemetryStatus(status, title, detail = '') {
+    const telemetryEl = window.BARK.DOM.routeTelemetry();
+    if (!telemetryEl) return;
+
+    telemetryEl.style.display = 'block';
+    telemetryEl.dataset.routeStatus = status;
+    telemetryEl.innerHTML = '';
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'route-telemetry-title';
+    titleEl.textContent = title;
+    telemetryEl.appendChild(titleEl);
+
+    if (detail) {
+        const detailEl = document.createElement('span');
+        detailEl.className = 'route-telemetry-detail';
+        detailEl.textContent = detail;
+        telemetryEl.appendChild(detailEl);
+    }
+}
+
+function setRouteTelemetrySummary(miles, hrs, mins) {
+    const telemetryEl = window.BARK.DOM.routeTelemetry();
+    if (!telemetryEl) return;
+
+    telemetryEl.style.display = 'block';
+    telemetryEl.dataset.routeStatus = 'complete';
+    telemetryEl.innerHTML = '';
+
+    const label = document.createElement('span');
+    label.className = 'route-telemetry-title';
+    label.textContent = 'Total Drive:';
+    telemetryEl.appendChild(label);
+    telemetryEl.appendChild(document.createTextNode(` ${miles} Miles | ${hrs}h ${mins}m`));
+}
+
+function focusMapSearchForTripStop(dayNumber, dayColor) {
+    const searchInput = window.BARK.DOM.parkSearch();
+    const mapTab = document.querySelector('.nav-item[data-target="map-view"]');
+    if (mapTab) mapTab.click();
+    if (!searchInput) return;
+
+    const filterPanel = document.getElementById('filter-panel');
+    if (filterPanel) filterPanel.style.display = 'flex';
+    searchInput.placeholder = `Search parks or towns to add to Day ${dayNumber}`;
+
+    const focusSearch = () => {
+        try {
+            if (typeof searchInput.scrollIntoView === 'function') {
+                searchInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            if (typeof searchInput.focus === 'function') searchInput.focus({ preventScroll: false });
+            if (typeof searchInput.select === 'function') searchInput.select();
+            searchInput.style.boxShadow = `0 0 0 4px ${dayColor}44`;
+            setTimeout(() => { searchInput.style.boxShadow = ''; }, 1500);
+        } catch (error) {
+            console.warn('[tripPlannerCore] search focus failed:', error);
+        }
+    };
+
+    // First focus stays inside the tap/click gesture for mobile keyboards; the
+    // later retries catch slower tab/layout transitions without changing state.
+    focusSearch();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focusSearch);
+    setTimeout(focusSearch, 80);
+}
+
 function updateRouteGenerationButtonState() {
     const button = window.BARK.DOM.startRouteBtn();
     if (!button) return;
@@ -177,6 +259,95 @@ function getCleanString(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+function getTripDayColor(dayIndex, fallbackColor = null) {
+    const colors = Array.isArray(window.BARK.DAY_COLORS) && window.BARK.DAY_COLORS.length > 0
+        ? window.BARK.DAY_COLORS
+        : ['#1976D2'];
+    return fallbackColor || colors[dayIndex % colors.length];
+}
+
+function createTripDay(dayIndex, stops = []) {
+    return {
+        color: getTripDayColor(dayIndex),
+        stops: Array.isArray(stops) ? stops : [],
+        notes: ""
+    };
+}
+
+function normalizeTripDaysForPlanner(days) {
+    const sourceDays = Array.isArray(days) && days.length > 0
+        ? days.slice(0, TRIP_DAY_LIMIT)
+        : [createTripDay(0)];
+
+    return sourceDays.map((day, dayIndex) => ({
+        color: getCleanString(day && day.color) || getTripDayColor(dayIndex),
+        stops: Array.isArray(day && day.stops) ? day.stops.filter(Boolean) : [],
+        notes: typeof (day && day.notes) === 'string' ? day.notes : ''
+    }));
+}
+
+function enforceTripDayLimit(options = {}) {
+    const existingDays = Array.isArray(window.BARK.tripDays) ? window.BARK.tripDays : [];
+    const wasOverLimit = existingDays.length > TRIP_DAY_LIMIT;
+
+    if (!Array.isArray(window.BARK.tripDays) || window.BARK.tripDays.length === 0 || wasOverLimit) {
+        window.BARK.tripDays = normalizeTripDaysForPlanner(window.BARK.tripDays);
+    } else {
+        window.BARK.tripDays.forEach((day, dayIndex) => {
+            if (!day || typeof day !== 'object') {
+                window.BARK.tripDays[dayIndex] = createTripDay(dayIndex);
+                return;
+            }
+            if (!getCleanString(day.color)) day.color = getTripDayColor(dayIndex);
+            if (!Array.isArray(day.stops)) day.stops = [];
+            if (typeof day.notes !== 'string') day.notes = '';
+        });
+    }
+
+    const lastIndex = Math.max(0, window.BARK.tripDays.length - 1);
+    const requestedActiveDay = Number(window.BARK.activeDayIdx);
+    window.BARK.activeDayIdx = Number.isFinite(requestedActiveDay)
+        ? Math.min(Math.max(0, Math.floor(requestedActiveDay)), lastIndex)
+        : 0;
+
+    if (wasOverLimit && options.notify) {
+        notifyTripDayLimit('Trips can include up to 50 days. Extra days were left off.');
+    }
+
+    return { wasOverLimit };
+}
+
+function notifyTripDayLimit(message = 'Trips can include up to 50 days.') {
+    if (typeof window.BARK.showTripToast === 'function') {
+        window.BARK.showTripToast(message);
+        return;
+    }
+    if (typeof alert === 'function') alert(message);
+}
+
+function canAddTripDay(options = {}) {
+    const tripDays = Array.isArray(window.BARK.tripDays) ? window.BARK.tripDays : [];
+    if (tripDays.length < TRIP_DAY_LIMIT) return true;
+    if (options.notify) notifyTripDayLimit();
+    return false;
+}
+
+function appendTripDayFromPrevious() {
+    const tripDays = window.BARK.tripDays;
+    if (!canAddTripDay({ notify: true })) return false;
+
+    const prevDay = tripDays[tripDays.length - 1];
+    const initialStops = [];
+    if (prevDay && Array.isArray(prevDay.stops) && prevDay.stops.length > 0) {
+        initialStops.push({ ...prevDay.stops[prevDay.stops.length - 1] });
+    }
+
+    tripDays.push(createTripDay(tripDays.length, initialStops));
+    window.BARK.activeDayIdx = tripDays.length - 1;
+    updateTripUI();
+    return true;
+}
+
 function serializeTripNodeForSave(node) {
     if (!node || typeof node !== 'object') return null;
 
@@ -208,7 +379,7 @@ function serializeTripDayForSave(day) {
 
 function buildSavedRouteData(tripName, tripDays) {
     const serializedDays = Array.isArray(tripDays)
-        ? tripDays.map(serializeTripDayForSave)
+        ? tripDays.slice(0, TRIP_DAY_LIMIT).map(serializeTripDayForSave)
         : [];
     const routeData = {
         tripName,
@@ -225,6 +396,7 @@ function buildSavedRouteData(tripName, tripDays) {
 
 window.BARK.serializeTripNodeForSave = serializeTripNodeForSave;
 window.BARK.buildSavedRouteData = buildSavedRouteData;
+window.BARK.normalizeTripDaysForPlanner = normalizeTripDaysForPlanner;
 
 function removeTripDay(dayIdx) {
     const tripDays = window.BARK.tripDays;
@@ -285,8 +457,8 @@ window.addStopToTrip = function (stopData) {
         if (activeDayIdx + 1 < tripDays.length) {
             window.BARK.activeDayIdx = ++activeDayIdx;
         } else {
-            const nextColor = window.BARK.DAY_COLORS[tripDays.length % window.BARK.DAY_COLORS.length];
-            tripDays.push({ color: nextColor, stops: [{ ...lastStopOfCurrentDay }], notes: "" });
+            if (!canAddTripDay({ notify: true })) return false;
+            tripDays.push(createTripDay(tripDays.length, [{ ...lastStopOfCurrentDay }]));
             window.BARK.activeDayIdx = tripDays.length - 1;
             activeDayIdx = window.BARK.activeDayIdx;
         }
@@ -354,7 +526,7 @@ window.executeSmartOptimization = function () {
         sorted.push(currentStop);
     }
 
-    let newTripDays = [], currentDayStops = [], currentDayHours = 0, dayColorIndex = 0;
+    let newTripDays = [], currentDayStops = [], currentDayHours = 0, dayColorIndex = 0, hitTripDayLimit = false;
     for (let i = 0; i < sorted.length; i++) {
         const stop = sorted[i];
         if (currentDayStops.length > 0) {
@@ -365,6 +537,12 @@ window.executeSmartOptimization = function () {
         currentDayStops.push(stop);
         const isLastStop = i === sorted.length - 1;
         if (isLastStop || currentDayStops.length >= userMaxStops || currentDayHours >= userMaxHours) {
+            if (newTripDays.length >= TRIP_DAY_LIMIT) {
+                const remainingStops = sorted.slice(i + 1);
+                newTripDays[TRIP_DAY_LIMIT - 1].stops.push(...currentDayStops, ...remainingStops);
+                hitTripDayLimit = true;
+                break;
+            }
             newTripDays.push({ color: window.BARK.DAY_COLORS[dayColorIndex % window.BARK.DAY_COLORS.length], stops: [...currentDayStops], notes: tripDays[dayColorIndex] ? tripDays[dayColorIndex].notes : "" });
             dayColorIndex++;
             if (!isLastStop) { currentDayStops = [{ ...stop }]; currentDayHours = 0; }
@@ -375,7 +553,7 @@ window.executeSmartOptimization = function () {
     window.BARK.activeDayIdx = 0;
     window.BARK.DOM.optimizerModal().style.display = 'none';
     updateTripUI();
-    showTripToast('✨ Smart Optimization Complete!');
+    showTripToast(hitTripDayLimit ? 'Smart Optimization Complete. Trip capped at 50 days.' : '✨ Smart Optimization Complete!');
 };
 
 window.exportDayToMaps = function (dayIdx) {
@@ -418,9 +596,9 @@ window.shiftDayRight = function () {
 
 window.insertDayAfter = function () {
     const tripDays = window.BARK.tripDays;
-    if (tripDays.length >= 5) return;
-    const nextColor = window.BARK.DAY_COLORS[tripDays.length % window.BARK.DAY_COLORS.length];
-    tripDays.splice(window.BARK.activeDayIdx + 1, 0, { color: nextColor, stops: [], notes: "" });
+    if (!canAddTripDay({ notify: true })) return;
+    const insertIndex = window.BARK.activeDayIdx + 1;
+    tripDays.splice(insertIndex, 0, createTripDay(insertIndex));
     window.BARK.activeDayIdx++;
     updateTripUI();
 };
@@ -487,7 +665,200 @@ window.editBookend = function (type) {
     }
 };
 
+function createTripDayTab(day, dayIndex, activeDayIdx, tripDays) {
+    const tab = document.createElement('div');
+    tab.className = `trip-day-tab${dayIndex === activeDayIdx ? ' active' : ''}`;
+    tab.setAttribute('role', 'button');
+    tab.setAttribute('tabindex', '0');
+    tab.setAttribute('aria-pressed', dayIndex === activeDayIdx ? 'true' : 'false');
+    tab.setAttribute('aria-label', `Day ${dayIndex + 1}, ${day.stops.length} stop${day.stops.length === 1 ? '' : 's'}`);
+    tab.style.setProperty('--day-color', day.color);
+
+    const swatch = document.createElement('input');
+    swatch.type = 'color';
+    swatch.value = day.color;
+    swatch.title = 'Change day color';
+    swatch.className = 'trip-day-color-input';
+    swatch.onclick = (event) => event.stopPropagation();
+    swatch.oninput = (event) => {
+        tripDays[dayIndex].color = event.target.value;
+        updateTripUI();
+    };
+
+    const label = document.createElement('span');
+    label.className = 'trip-day-tab-label';
+    label.textContent = `Day ${dayIndex + 1} (${day.stops.length})`;
+
+    tab.appendChild(swatch);
+    tab.appendChild(label);
+
+    if (tripDays.length > 1 && (window.isTripEditMode || day.stops.length === 0)) {
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'trip-day-remove-btn';
+        delBtn.textContent = '×';
+        delBtn.title = 'Remove day';
+        delBtn.setAttribute('aria-label', `Remove Day ${dayIndex + 1}`);
+        delBtn.onclick = (event) => {
+            event.stopPropagation();
+            removeTripDay(dayIndex);
+        };
+        tab.appendChild(delBtn);
+    }
+
+    const activateTab = () => {
+        window.BARK.activeDayIdx = dayIndex;
+        updateTripUI();
+    };
+    tab.onclick = activateTab;
+    tab.onkeydown = (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            activateTab();
+        }
+    };
+
+    return tab;
+}
+
+function createAddDayButton() {
+    const addDayBtn = document.createElement('button');
+    addDayBtn.type = 'button';
+    addDayBtn.className = 'trip-day-tab trip-day-add-btn';
+    addDayBtn.textContent = '+ Add Day';
+    addDayBtn.disabled = !canAddTripDay();
+    addDayBtn.onclick = appendTripDayFromPrevious;
+    if (addDayBtn.disabled) addDayBtn.title = 'Trips can include up to 50 days.';
+    return addDayBtn;
+}
+
+function scrollTripDayPager(viewport, pageIndex, pageControls) {
+    const boundedPage = Math.max(0, Math.min(pageIndex, pageControls.totalPages - 1));
+    if (pageControls.track && pageControls.track.style && typeof pageControls.track.style.setProperty === 'function') {
+        pageControls.track.style.setProperty('--trip-day-page-index', boundedPage);
+    }
+    updateTripDayPagerControls(pageControls, boundedPage);
+}
+
+function updateTripDayPagerControls(pageControls, pageIndex) {
+    const boundedPage = Math.max(0, Math.min(pageIndex, pageControls.totalPages - 1));
+    pageControls.currentPage = boundedPage;
+    if (pageControls.count) pageControls.count.textContent = `${boundedPage + 1} / ${pageControls.totalPages}`;
+    if (pageControls.prev) pageControls.prev.disabled = boundedPage === 0;
+    if (pageControls.next) pageControls.next.disabled = boundedPage === pageControls.totalPages - 1;
+    pageControls.dots.forEach((dot, dotIndex) => {
+        dot.classList.toggle('active', dotIndex === boundedPage);
+        dot.setAttribute('aria-current', dotIndex === boundedPage ? 'true' : 'false');
+    });
+}
+
+function renderTripDayTabs(tabContainer, tripDays, activeDayIdx) {
+    if (!tabContainer) return;
+
+    const canAddDay = tripDays.length < TRIP_DAY_LIMIT;
+    const totalSlots = tripDays.length + (canAddDay ? 1 : 0);
+    const totalPages = Math.max(1, Math.ceil(totalSlots / TRIP_DAY_PAGE_SIZE));
+    const activePageIdx = Math.min(totalPages - 1, Math.floor(activeDayIdx / TRIP_DAY_PAGE_SIZE));
+
+    tabContainer.innerHTML = '';
+    tabContainer.className = `trip-day-tabs${totalPages > 1 ? ' trip-day-tabs-paged' : ''}`;
+    tabContainer.style.cssText = '';
+    tabContainer.dataset.pageCount = String(totalPages);
+    tabContainer.dataset.dayLimit = String(TRIP_DAY_LIMIT);
+
+    const viewport = document.createElement('div');
+    viewport.className = 'trip-day-pages-viewport';
+    viewport.setAttribute('aria-label', 'Trip days');
+
+    const track = document.createElement('div');
+    track.className = 'trip-day-pages-track';
+    track.style.setProperty('--trip-day-page-index', activePageIdx);
+
+    let dayIndex = 0;
+    for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+        const page = document.createElement('div');
+        page.className = 'trip-day-page';
+        page.setAttribute('aria-label', `Trip day page ${pageIndex + 1}`);
+
+        while (dayIndex < tripDays.length && page.children.length < TRIP_DAY_PAGE_SIZE) {
+            page.appendChild(createTripDayTab(tripDays[dayIndex], dayIndex, activeDayIdx, tripDays));
+            dayIndex++;
+        }
+
+        if (canAddDay && dayIndex >= tripDays.length && page.children.length < TRIP_DAY_PAGE_SIZE && pageIndex === totalPages - 1) {
+            page.appendChild(createAddDayButton());
+        }
+
+        track.appendChild(page);
+    }
+
+    viewport.appendChild(track);
+    tabContainer.appendChild(viewport);
+
+    if (totalPages > 1) {
+        const controls = document.createElement('div');
+        controls.className = 'trip-day-page-controls';
+
+        const prev = document.createElement('button');
+        prev.type = 'button';
+        prev.className = 'trip-day-page-button';
+        prev.textContent = '‹';
+        prev.title = 'Previous trip days';
+        prev.setAttribute('aria-label', 'Previous trip days');
+
+        const dots = [];
+        const dotWrap = document.createElement('div');
+        dotWrap.className = 'trip-day-page-dots';
+        for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+            const dot = document.createElement('button');
+            dot.type = 'button';
+            dot.className = 'trip-day-page-dot';
+            dot.setAttribute('aria-label', `Show trip days page ${pageIndex + 1}`);
+            dotWrap.appendChild(dot);
+            dots.push(dot);
+        }
+
+        const count = document.createElement('span');
+        count.className = 'trip-day-page-count';
+
+        const next = document.createElement('button');
+        next.type = 'button';
+        next.className = 'trip-day-page-button';
+        next.textContent = '›';
+        next.title = 'Next trip days';
+        next.setAttribute('aria-label', 'Next trip days');
+
+        const pageControls = { totalPages, prev, next, count, dots, track, currentPage: activePageIdx };
+        prev.onclick = () => scrollTripDayPager(viewport, pageControls.currentPage - 1, pageControls);
+        next.onclick = () => scrollTripDayPager(viewport, pageControls.currentPage + 1, pageControls);
+        dots.forEach((dot, pageIndex) => {
+            dot.onclick = () => scrollTripDayPager(viewport, pageIndex, pageControls);
+        });
+
+        let touchStartX = null;
+        viewport.addEventListener('touchstart', (event) => {
+            touchStartX = event.touches && event.touches[0] ? event.touches[0].clientX : null;
+        }, { passive: true });
+        viewport.addEventListener('touchend', (event) => {
+            if (touchStartX === null) return;
+            const touchEndX = event.changedTouches && event.changedTouches[0] ? event.changedTouches[0].clientX : touchStartX;
+            const deltaX = touchEndX - touchStartX;
+            touchStartX = null;
+            if (Math.abs(deltaX) < 40) return;
+            scrollTripDayPager(viewport, pageControls.currentPage + (deltaX < 0 ? 1 : -1), pageControls);
+        });
+
+        controls.appendChild(prev);
+        controls.appendChild(dotWrap);
+        controls.appendChild(count);
+        controls.appendChild(next);
+        tabContainer.appendChild(controls);
+        updateTripDayPagerControls(pageControls, activePageIdx);
+    }
+}
+
 function updateTripUI() {
+    enforceTripDayLimit({ notify: true });
     const tripDays = window.BARK.tripDays;
     let activeDayIdx = window.BARK.activeDayIdx;
     const plannerBadge = window.BARK.DOM.plannerBadge();
@@ -504,10 +875,8 @@ function updateTripUI() {
     if (!tabContainer && list.parentElement) {
         tabContainer = document.createElement('div');
         tabContainer.id = 'trip-day-tabs';
-        tabContainer.style.cssText = 'display:flex; gap:6px; flex-wrap: wrap; margin-bottom:14px; align-items:center;';
         list.parentElement.insertBefore(tabContainer, list);
     }
-    if (tabContainer) tabContainer.innerHTML = '';
 
     // START BOOKEND
     let startEl = window.BARK.DOM.uiStartNode();
@@ -524,50 +893,13 @@ function updateTripUI() {
     }
 
     // DAY TABS
-    tripDays.forEach((day, di) => {
-        const tab = document.createElement('div');
-        tab.style.cssText = `display:inline-flex; align-items:center; gap:5px; padding:6px 12px; border-radius:20px; cursor:pointer; font-size:13px; font-weight:600; border: 2px solid ${di === activeDayIdx ? day.color : '#ddd'}; background:${di === activeDayIdx ? day.color : '#f5f5f5'}; color:${di === activeDayIdx ? 'white' : '#555'}; transition: all 0.2s;`;
-
-        const swatch = document.createElement('input');
-        swatch.type = 'color'; swatch.value = day.color; swatch.title = 'Change day color';
-        swatch.style.cssText = 'width:14px; height:14px; border:none; padding:0; background:none; cursor:pointer; border-radius:50%; outline:none;';
-        swatch.onclick = (e) => e.stopPropagation();
-        swatch.oninput = (e) => { tripDays[di].color = e.target.value; updateTripUI(); };
-
-        const label = document.createElement('span');
-        label.textContent = `Day ${di + 1} (${day.stops.length})`;
-        tab.appendChild(swatch); tab.appendChild(label);
-
-        if (tripDays.length > 1 && (window.isTripEditMode || day.stops.length === 0)) {
-            const delBtn = document.createElement('span');
-            delBtn.textContent = '×'; delBtn.title = 'Remove day';
-            delBtn.style.cssText = 'font-size:14px; cursor:pointer; margin-left:2px; line-height:1; padding:1px 3px; border-radius:999px;';
-            delBtn.onclick = (e) => { e.stopPropagation(); removeTripDay(di); };
-            tab.appendChild(delBtn);
-        }
-        tab.onclick = () => { window.BARK.activeDayIdx = di; updateTripUI(); };
-        tabContainer.appendChild(tab);
-    });
-
-    // Add Day button
-    const addDayBtn = document.createElement('button');
-    addDayBtn.textContent = '+ Add Day';
-    addDayBtn.style.cssText = 'padding:6px 12px; border-radius:20px; border:2px dashed #bbb; background:none; color:#888; font-size:13px; font-weight:600; cursor:pointer;';
-    addDayBtn.onclick = () => {
-        const prevDay = tripDays[tripDays.length - 1];
-        const initialStops = [];
-        if (prevDay && prevDay.stops.length > 0) initialStops.push({ ...prevDay.stops[prevDay.stops.length - 1] });
-        tripDays.push({ color: window.BARK.DAY_COLORS[tripDays.length % window.BARK.DAY_COLORS.length], stops: initialStops, notes: "" });
-        window.BARK.activeDayIdx = tripDays.length - 1;
-        updateTripUI();
-    };
-    tabContainer.appendChild(addDayBtn);
+    renderTripDayTabs(tabContainer, tripDays, activeDayIdx);
 
     // Day management bar
     let dayManager = window.BARK.DOM.dayManagementBar();
     if (!dayManager) { dayManager = document.createElement('div'); dayManager.id = 'day-management-bar'; list.parentElement.insertBefore(dayManager, list); }
     if (window.isTripEditMode) {
-        dayManager.innerHTML = `<div style="display: flex; gap: 8px; margin-bottom: 10px; padding: 8px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;"><button onclick="window.shiftDayLeft()" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 700; border-radius: 6px; color: #475569; border: 1px solid #cbd5e1; background: white;" ${activeDayIdx === 0 ? 'disabled' : ''}>← Shift Day</button><button onclick="window.insertDayAfter()" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 700; border-radius: 6px; color: #15803d; border: 1px solid #bbf7d0; background: #f0fdf4;">+ Insert Day</button><button onclick="window.shiftDayRight()" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 700; border-radius: 6px; color: #475569; border: 1px solid #cbd5e1; background: white;" ${activeDayIdx === tripDays.length - 1 ? 'disabled' : ''}>Shift Day →</button></div>`;
+        dayManager.innerHTML = `<div class="trip-day-management-row"><button onclick="window.shiftDayLeft()" class="trip-day-management-btn" ${activeDayIdx === 0 ? 'disabled' : ''}>← Shift Day</button><button onclick="window.insertDayAfter()" class="trip-day-management-btn trip-day-management-insert" ${tripDays.length >= TRIP_DAY_LIMIT ? 'disabled title="Trips can include up to 50 days."' : ''}>+ Insert Day</button><button onclick="window.shiftDayRight()" class="trip-day-management-btn" ${activeDayIdx === tripDays.length - 1 ? 'disabled' : ''}>Shift Day →</button></div>`;
         dayManager.style.display = 'block';
     } else { dayManager.style.display = 'none'; }
 
@@ -578,10 +910,10 @@ function updateTripUI() {
 
     list.innerHTML = '';
 
-    if (activeDay.stops.length > 0) {
+    if (activeDay.stops.length > 0 || tripDays.length > 1) {
         const actionBar = document.createElement('div');
-        actionBar.style.cssText = 'display: flex; justify-content: flex-end; align-items: center; margin-bottom: 12px; padding: 0 4px;';
-        actionBar.innerHTML = `<button onclick="toggleTripEditMode()" class="glass-btn" style="background: ${window.isTripEditMode ? '#e8f5e9' : '#f8fafc'}; border: 1px solid ${window.isTripEditMode ? '#4CAF50' : '#cbd5e1'}; color: ${window.isTripEditMode ? '#2E7D32' : '#64748b'}; font-size: 11px; font-weight: 800; padding: 6px 16px; border-radius: 8px; cursor: pointer; transition: all 0.2s;">${window.isTripEditMode ? '✅ Done Editing' : '✏️ Edit Stops & Days'}</button>`;
+        actionBar.className = 'trip-edit-action-bar';
+        actionBar.innerHTML = `<button onclick="toggleTripEditMode()" class="trip-edit-toggle-btn${window.isTripEditMode ? ' active' : ''}">${window.isTripEditMode ? 'Done Editing' : '✏️ Edit Stops & Days'}</button>`;
         list.appendChild(actionBar);
     }
 
@@ -611,7 +943,7 @@ function updateTripUI() {
     ghostBtn.innerHTML = `➕ Add Stop to Day ${activeDayIdx + 1}`;
     ghostBtn.onmouseover = () => { ghostBtn.style.borderColor = activeDay.color; ghostBtn.style.color = activeDay.color; };
     ghostBtn.onmouseout = () => { ghostBtn.style.borderColor = '#e2e8f0'; ghostBtn.style.color = '#94a3b8'; };
-    ghostBtn.onclick = () => { const gs = window.BARK.DOM.parkSearch(); if (gs) { gs.focus(); gs.scrollIntoView({ behavior: 'smooth', block: 'center' }); gs.style.boxShadow = `0 0 0 4px ${activeDay.color}44`; setTimeout(() => gs.style.boxShadow = '', 1500); document.querySelector('[data-target="map-view"]')?.click(); } };
+    ghostBtn.onclick = () => focusMapSearchForTripStop(activeDayIdx + 1, activeDay.color);
     list.appendChild(ghostBtn);
 
     // Notes
@@ -678,11 +1010,7 @@ function initTripPlanner() {
             if (nameInput) nameInput.value = '';
         }
 
-        const telemetryEl = window.BARK.DOM.routeTelemetry();
-        if (telemetryEl) {
-            telemetryEl.style.display = 'none';
-            telemetryEl.innerHTML = '';
-        }
+        clearRouteTelemetryStatus();
 
         document.querySelectorAll('[id^="inline-suggest-"]').forEach(el => {
             el.style.display = 'none';
@@ -789,48 +1117,58 @@ function initTripPlanner() {
         }
 
         if (startRouteBtn) {
-            setPlannerActionButtonLabel(startRouteBtn, 'Calculating...');
+            setPlannerActionButtonLabel(startRouteBtn, 'Generating...');
             startRouteBtn.disabled = true;
         }
+
+        setRouteTelemetryStatus('working', 'Generating route...', `Building drive lines for ${routableDays.length} day${routableDays.length === 1 ? '' : 's'}.`);
+        const slowRouteTimer = setTimeout(() => {
+            if (routeRunId !== routeRenderGeneration) return;
+            setRouteTelemetryStatus('slow', 'Still generating route...', 'This might take a few minutes for bigger trips.');
+        }, 1800);
 
         const allBounds = [];
         let anySucceeded = false, totalDistMeters = 0, totalDurSeconds = 0;
 
-        for (const routeDay of routableDays) {
-            const { day, dayStops } = routeDay;
+        try {
+            for (const routeDay of routableDays) {
+                const { day, dayStops } = routeDay;
 
-            try {
-                const orsCoordinates = dayStops.map(s => [Number(s.lng), Number(s.lat)]);
-                const geoJSONData = await window.BARK.services.ors.directions(orsCoordinates, { radiuses: new Array(orsCoordinates.length).fill(-1) });
-                const stillSignedIn = typeof firebase !== 'undefined' && firebase.auth().currentUser;
-                if (routeRunId !== routeRenderGeneration || !stillSignedIn) break;
-                const layer = L.geoJSON(geoJSONData, { style: () => ({ color: day.color, weight: 5, opacity: 0.85, dashArray: '10, 8' }) }).addTo(map);
-                currentRouteLayers.push(layer); allBounds.push(layer.getBounds()); anySucceeded = true;
-                const summary = geoJSONData.features[0].properties.summary;
-                if (summary) { totalDistMeters += summary.distance; totalDurSeconds += summary.duration; }
-            } catch (err) { console.error(`Route failed for day (${day.color}):`, err); alert(`A day's route failed: ${err.message}`); }
-        }
+                try {
+                    const orsCoordinates = dayStops.map(s => [Number(s.lng), Number(s.lat)]);
+                    const geoJSONData = await window.BARK.services.ors.directions(orsCoordinates, { radiuses: new Array(orsCoordinates.length).fill(-1) });
+                    const stillSignedIn = typeof firebase !== 'undefined' && firebase.auth().currentUser;
+                    if (routeRunId !== routeRenderGeneration || !stillSignedIn) break;
+                    const layer = L.geoJSON(geoJSONData, { style: () => ({ color: day.color, weight: 5, opacity: 0.85, dashArray: '10, 8' }) }).addTo(map);
+                    currentRouteLayers.push(layer); allBounds.push(layer.getBounds()); anySucceeded = true;
+                    const summary = geoJSONData.features[0].properties.summary;
+                    if (summary) { totalDistMeters += summary.distance; totalDurSeconds += summary.duration; }
+                } catch (err) { console.error(`Route failed for day (${day.color}):`, err); alert(`A day's route failed: ${err.message}`); }
+            }
 
-        if (allBounds.length > 0) {
-            const combined = allBounds.reduce((acc, b) => acc.extend(b), allBounds[0]);
-            map.fitBounds(combined, { padding: [50, 50], animate: !window.instantNav, duration: window.instantNav ? 0 : 0.5 });
-        }
+            if (allBounds.length > 0) {
+                const combined = allBounds.reduce((acc, b) => acc.extend(b), allBounds[0]);
+                map.fitBounds(combined, { padding: [50, 50], animate: !window.instantNav, duration: window.instantNav ? 0 : 0.5 });
+            }
 
-        const telemetryEl = window.BARK.DOM.routeTelemetry();
-        if (telemetryEl) {
-            if (anySucceeded) {
-                const miles = (totalDistMeters * 0.000621371).toFixed(1);
-                const hrs = Math.floor(totalDurSeconds / 3600);
-                const mins = Math.floor((totalDurSeconds % 3600) / 60);
-                telemetryEl.style.display = 'block';
-                telemetryEl.innerHTML = `<span style="font-weight: 700; color: #1976D2;">Total Drive:</span> ${miles} Miles | ${hrs}h ${mins}m`;
-            } else { telemetryEl.style.display = 'none'; }
-        }
+            if (routeRunId === routeRenderGeneration) {
+                if (anySucceeded) {
+                    const miles = (totalDistMeters * 0.000621371).toFixed(1);
+                    const hrs = Math.floor(totalDurSeconds / 3600);
+                    const mins = Math.floor((totalDurSeconds % 3600) / 60);
+                    setRouteTelemetrySummary(miles, hrs, mins);
+                } else {
+                    setRouteTelemetryStatus('error', 'Route was not generated.', 'Try again or use fewer stops per day.');
+                }
+            }
 
-        if (anySucceeded) document.querySelector('[data-target="map-view"]')?.click();
-        if (startRouteBtn) {
-            setPlannerActionButtonLabel(startRouteBtn, 'Generate Route');
-            startRouteBtn.disabled = false;
+            if (anySucceeded) document.querySelector('[data-target="map-view"]')?.click();
+        } finally {
+            clearTimeout(slowRouteTimer);
+            if (routeRunId === routeRenderGeneration && startRouteBtn) {
+                setPlannerActionButtonLabel(startRouteBtn, 'Generate Route');
+                startRouteBtn.disabled = false;
+            }
         }
     }
 }

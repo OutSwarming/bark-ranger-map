@@ -9,6 +9,8 @@
 
     const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const MIN_PASSWORD_LENGTH = 8;
+    const MIN_USERNAME_LENGTH = 2;
+    const MAX_USERNAME_LENGTH = 30;
 
     let initialized = false;
     let activeMode = 'signin';
@@ -29,6 +31,11 @@
             title: 'Create a free account to save this trip',
             body: 'Save routes, day notes, and B.A.R.K. stops so your planning work is still here later.',
             source: 'saved route'
+        },
+        'load-route': {
+            title: 'Create a free account to load saved trips',
+            body: 'Saved routes live in your free B.A.R.K. account so you can reopen trips from any device.',
+            source: 'load route'
         },
         expedition: {
             title: 'Create a free account to track walks',
@@ -110,7 +117,7 @@
         setTimeout(() => {
             showMode(mode || 'create', { focus: false });
             const loginContainer = getElement('login-container');
-            const target = getElement(mode === 'signin' ? 'account-signin-email' : 'account-create-email');
+            const target = getAccountFormFocusTarget(mode || 'create');
             const googleBtn = getElement('google-login-btn');
             if (loginContainer) loginContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
             if (target) target.focus({ preventScroll: true });
@@ -141,9 +148,26 @@
         return typeof value === 'string' ? value.trim() : '';
     }
 
+    function cleanUsername(value) {
+        return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+    }
+
     function readPassword(id) {
         const input = getElement(id);
         return input && typeof input.value === 'string' ? input.value : '';
+    }
+
+    function validateUsername(username) {
+        if (username.length < MIN_USERNAME_LENGTH) {
+            return `Choose a username with at least ${MIN_USERNAME_LENGTH} characters.`;
+        }
+        if (username.length > MAX_USERNAME_LENGTH) {
+            return `Keep your username to ${MAX_USERNAME_LENGTH} characters or fewer.`;
+        }
+        if (/[\r\n<>]/.test(username)) {
+            return 'Use a username without angle brackets or line breaks.';
+        }
+        return null;
     }
 
     function validateEmail(email) {
@@ -164,7 +188,7 @@
         const code = error && error.code ? String(error.code) : '';
         switch (code) {
             case 'auth/email-already-in-use':
-                return 'That email already has an account. Sign in or reset your password.';
+                return 'That email already has a B.A.R.K. account. Sign in, use Continue with Google, or reset your password.';
             case 'auth/invalid-email':
                 return 'Enter a valid email address.';
             case 'auth/weak-password':
@@ -200,6 +224,10 @@
         return user && user.isAnonymous ? 'Anonymous' : 'Firebase Auth';
     }
 
+    function getUserDisplayName(user) {
+        return cleanUsername(user && user.displayName) || 'Bark Ranger';
+    }
+
     function getPremiumLabel() {
         const premiumService = getPremiumService();
         if (!premiumService || typeof premiumService.getEntitlement !== 'function') {
@@ -225,6 +253,12 @@
         });
     }
 
+    function getAccountFormFocusTarget(mode) {
+        if (mode === 'reset') return getElement('account-reset-email');
+        if (mode === 'create') return getElement('account-create-username');
+        return getElement('account-signin-email');
+    }
+
     function showMode(mode, options = {}) {
         activeMode = ['signin', 'create', 'reset'].includes(mode) ? mode : 'signin';
         setHidden('account-signin-form', activeMode !== 'signin');
@@ -234,9 +268,7 @@
         setStatus('', 'neutral');
 
         if (options.focus === false) return;
-        const target = activeMode === 'reset'
-            ? getElement('account-reset-email')
-            : getElement(activeMode === 'create' ? 'account-create-email' : 'account-signin-email');
+        const target = getAccountFormFocusTarget(activeMode);
         if (target) target.focus({ preventScroll: true });
     }
 
@@ -260,17 +292,75 @@
 
         if (!signedIn) return;
 
+        setText('account-display-name', getUserDisplayName(user));
         setText('account-display-email', user.email || 'No email on this account');
         setText('account-display-uid', user.uid || 'Unavailable');
         setText('account-display-provider', getProviderLabel(user));
         setText('account-display-premium', getPremiumLabel());
     }
 
+    function seedAccountEmailFields(email) {
+        if (!email) return;
+        ['account-signin-email', 'account-reset-email'].forEach(id => {
+            const input = getElement(id);
+            if (input) input.value = email;
+        });
+    }
+
+    function clearCreateUsernameField() {
+        const input = getElement('account-create-username');
+        if (input) input.value = '';
+    }
+
+    function getServerTimestamp() {
+        if (typeof firebase === 'undefined' || !firebase.firestore || !firebase.firestore.FieldValue) return null;
+
+        try {
+            return firebase.firestore.FieldValue.serverTimestamp();
+        } catch (error) {
+            return null;
+        }
+    }
+
+    async function saveCreatedAccountProfile(user, username, email) {
+        if (!user) return;
+
+        if (typeof user.updateProfile === 'function') {
+            try {
+                await user.updateProfile({ displayName: username });
+            } catch (error) {
+                console.warn('[authAccountUi] updateProfile displayName failed:', error);
+            }
+        }
+
+        try {
+            if (typeof firebase === 'undefined' || !firebase.firestore) return;
+            if (typeof window.BARK.incrementRequestCount === 'function') window.BARK.incrementRequestCount();
+
+            const timestamp = getServerTimestamp();
+            const profilePayload = {
+                displayName: username,
+                username,
+                email: user.email || email || '',
+                profileUpdatedAt: timestamp || Date.now()
+            };
+            if (timestamp) profilePayload.createdAt = timestamp;
+
+            await firebase.firestore().collection('users').doc(user.uid).set(profilePayload, { merge: true });
+        } catch (error) {
+            console.warn('[authAccountUi] user profile seed failed:', error);
+        }
+
+        setText('user-profile-name', username);
+        setText('account-display-name', username);
+    }
+
     async function createAccount(event) {
         event.preventDefault();
+        const username = cleanUsername(getElement('account-create-username') && getElement('account-create-username').value);
         const email = cleanEmail(getElement('account-create-email') && getElement('account-create-email').value);
         const password = readPassword('account-create-password');
-        const validationError = validateEmail(email) || validatePassword(password);
+        const validationError = validateUsername(username) || validateEmail(email) || validatePassword(password);
         if (validationError) {
             setStatus(validationError, 'error');
             return;
@@ -278,11 +368,17 @@
 
         try {
             setStatus('Creating account...', 'neutral');
-            await getFirebaseAuth().createUserWithEmailAndPassword(email, password);
+            const auth = getFirebaseAuth();
+            const credential = await auth.createUserWithEmailAndPassword(email, password);
+            const user = (credential && credential.user) || auth.currentUser;
+            await saveCreatedAccountProfile(user, username, email);
             clearPasswordFields();
+            clearCreateUsernameField();
             setStatus('Account created. You are signed in.', 'success');
+            refreshAccountDisplay();
         } catch (error) {
             console.error('[authAccountUi] createUserWithEmailAndPassword failed:', error);
+            if (error && error.code === 'auth/email-already-in-use') seedAccountEmailFields(email);
             setStatus(getSafeAuthError(error), 'error');
         }
     }
@@ -320,7 +416,7 @@
         try {
             setStatus('Sending reset email...', 'neutral');
             await getFirebaseAuth().sendPasswordResetEmail(email);
-            setStatus('Password reset email sent. Check your inbox.', 'success');
+            setStatus('If this email has a B.A.R.K. password account, a reset link will arrive shortly. Google accounts should use Continue with Google.', 'success');
         } catch (error) {
             console.error('[authAccountUi] sendPasswordResetEmail failed:', error);
             setStatus(getSafeAuthError(error), 'error');
@@ -332,6 +428,7 @@
             await getFirebaseAuth().signOut();
             if (options.switchAccount) requestGoogleAccountChooser();
             clearPasswordFields();
+            clearCreateUsernameField();
             setStatus(options.switchAccount ? 'Signed out. Choose another account.' : 'Signed out.', 'success');
             showMode('signin');
             const loginContainer = getElement('login-container');

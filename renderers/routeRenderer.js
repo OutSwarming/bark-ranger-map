@@ -74,6 +74,17 @@ function renderRoutesMessage(message) {
     if (plannerList) plannerList.innerHTML = html;
 }
 
+function openFreeAccountPrompt(source) {
+    const accountUi = window.BARK && window.BARK.authAccountUi;
+    if (accountUi && typeof accountUi.openAccountPrompt === 'function') {
+        accountUi.openAccountPrompt({ source, mode: 'create' });
+        return;
+    }
+
+    const profileTab = document.querySelector('.nav-item[data-target="profile-view"]');
+    if (profileTab) profileTab.click();
+}
+
 async function loadRouteIntoPlanner(uid, routeId) {
     const firebaseService = window.BARK.services && window.BARK.services.firebase;
     if (!firebaseService || typeof firebaseService.loadSavedRoute !== 'function') return;
@@ -82,7 +93,13 @@ async function loadRouteIntoPlanner(uid, routeId) {
         const data = await firebaseService.loadSavedRoute(uid, routeId);
         if (!data) return;
 
-        window.BARK.tripDays = (data.tripDays || []).map(d => ({ color: d.color, stops: d.stops, notes: d.notes || "" }));
+        const rawTripDays = (data.tripDays || []).map(d => ({ color: d.color, stops: d.stops, notes: d.notes || "" }));
+        const normalizeTripDays = window.BARK && typeof window.BARK.normalizeTripDaysForPlanner === 'function'
+            ? window.BARK.normalizeTripDaysForPlanner
+            : days => Array.isArray(days) && days.length > 0 ? days.slice(0, 50) : [];
+        const normalizedTripDays = normalizeTripDays(rawTripDays);
+        const trimmedToLimit = rawTripDays.length > normalizedTripDays.length;
+        window.BARK.tripDays = normalizedTripDays;
         window.BARK.activeDayIdx = 0;
         window.tripStartNode = data.tripStartNode || null;
         window.tripEndNode = data.tripEndNode || null;
@@ -96,7 +113,10 @@ async function loadRouteIntoPlanner(uid, routeId) {
         if (plannerContainer) plannerContainer.style.display = 'none';
 
         document.querySelector('[data-target="map-view"]')?.click();
-        if (typeof window.BARK.showTripToast === 'function') window.BARK.showTripToast(`Route Loaded: ${data.tripName || "Untitled"}`);
+        if (typeof window.BARK.showTripToast === 'function') {
+            const suffix = trimmedToLimit ? ' Trip capped at 50 days.' : '';
+            window.BARK.showTripToast(`Route Loaded: ${data.tripName || "Untitled"}${suffix}`);
+        }
     } catch (error) {
         console.error("[routeRenderer] load saved route failed:", error);
     }
@@ -173,7 +193,8 @@ function togglePlannerRoutes() {
             loadSavedRoutes(user.uid);
         } else {
             const list = document.getElementById('planner-saved-routes-list');
-            if (list) list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Please log in to see saved routes.</p>';
+            if (list) list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Create a free account to save and load trips.</p>';
+            openFreeAccountPrompt('load-route');
         }
     } else {
         container.style.display = 'none';
