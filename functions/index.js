@@ -169,6 +169,10 @@ const ROUTE_SNAP_RADIUS_METERS = 2000;
 const ROUTE_FALLBACK_GEOCODE_RADIUS_KM = 50;
 const ROUTE_FALLBACK_GEOCODE_SIZE = 10;
 const ROUTE_FALLBACK_CANDIDATE_LIMIT = 6;
+const ORS_RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const ORS_RETRY_MAX_ATTEMPTS = 4;
+const ORS_RETRY_BASE_DELAY_MS = 1500;
+const ORS_RETRY_MAX_DELAY_MS = 12000;
 
 function getCallablePayload(requestOrData) {
     return requestOrData && requestOrData.data ? requestOrData.data : requestOrData || {};
@@ -176,6 +180,95 @@ function getCallablePayload(requestOrData) {
 
 function getOrsApiKey(options = {}) {
     return typeof options.getOrsApiKey === "function" ? options.getOrsApiKey() : process.env.ORS_API_KEY;
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
+}
+
+function getHeaderValue(headers, headerName) {
+    if (!headers || !headerName) return null;
+    if (typeof headers.get === "function") return headers.get(headerName);
+
+    const lowerName = headerName.toLowerCase();
+    const matchingKey = Object.keys(headers).find(key => key.toLowerCase() === lowerName);
+    return matchingKey ? headers[matchingKey] : null;
+}
+
+function parseRetryAfterMs(value) {
+    if (!value) return null;
+
+    const seconds = Number(value);
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+
+    const timestamp = Date.parse(value);
+    if (!Number.isNaN(timestamp)) return Math.max(0, timestamp - Date.now());
+
+    return null;
+}
+
+function getOrsErrorStatus(error) {
+    const status = error && error.response ? Number(error.response.status) : Number(error && error.status);
+    return Number.isFinite(status) ? status : null;
+}
+
+function isRetryableOrsError(error) {
+    const status = getOrsErrorStatus(error);
+    if (status) return ORS_RETRYABLE_STATUS_CODES.has(status);
+
+    return Boolean(error && !error.response);
+}
+
+function getOrsRetryDelayMs(error, attemptIndex, options = {}) {
+    const baseDelay = Number.isFinite(Number(options.orsRetryBaseDelayMs))
+        ? Number(options.orsRetryBaseDelayMs)
+        : ORS_RETRY_BASE_DELAY_MS;
+    const maxDelay = Number.isFinite(Number(options.orsRetryMaxDelayMs))
+        ? Number(options.orsRetryMaxDelayMs)
+        : ORS_RETRY_MAX_DELAY_MS;
+    const retryAfterMs = parseRetryAfterMs(getHeaderValue(error && error.response && error.response.headers, "retry-after"));
+    const exponentialDelay = baseDelay * (2 ** attemptIndex);
+    const cappedDelay = Math.min(maxDelay, retryAfterMs !== null ? retryAfterMs : exponentialDelay);
+    const jitter = options.disableOrsRetryJitter
+        ? 0
+        : Math.floor(Math.random() * Math.min(500, Math.max(0, baseDelay / 3)));
+
+    return Math.max(0, cappedDelay + jitter);
+}
+
+async function requestOrsWithRetry(requestFn, options = {}) {
+    const maxAttempts = Number.isFinite(Number(options.orsRetryMaxAttempts))
+        ? Math.max(1, Math.floor(Number(options.orsRetryMaxAttempts)))
+        : ORS_RETRY_MAX_ATTEMPTS;
+
+    for (let attemptIndex = 0; attemptIndex < maxAttempts; attemptIndex += 1) {
+        try {
+            return await requestFn();
+        } catch (error) {
+            const isLastAttempt = attemptIndex >= maxAttempts - 1;
+            if (isLastAttempt || !isRetryableOrsError(error)) throw error;
+
+            const delayMs = getOrsRetryDelayMs(error, attemptIndex, options);
+            console.warn("[routing] ORS request was throttled or unavailable; retrying.", {
+                status: getOrsErrorStatus(error),
+                attempt: attemptIndex + 1,
+                maxAttempts,
+                delayMs
+            });
+
+            if (delayMs > 0) await sleep(delayMs);
+        }
+    }
+
+    throw new Error("ORS retry exhausted.");
+}
+
+function getOrsWithRetry(get, url, options = {}) {
+    return requestOrsWithRetry(() => get(url), options);
+}
+
+function postOrsWithRetry(post, url, body, config, options = {}) {
+    return requestOrsWithRetry(() => post(url, body, config), options);
 }
 
 function isValidRouteCoordinatePair(pair) {
@@ -312,7 +405,7 @@ async function fetchRouteFallbackCandidates(coordinate, waypoint, apiKey, option
     });
     if (waypoint.country) params.set("boundary.country", waypoint.country);
 
-    const response = await get(`${ORS_GEOCODE_URL}?${params.toString()}`);
+    const response = await getOrsWithRetry(get, `${ORS_GEOCODE_URL}?${params.toString()}`, options);
     const features = response && response.data && Array.isArray(response.data.features)
         ? response.data.features
         : [];
@@ -329,7 +422,7 @@ async function resolveRouteFallbackCoordinate(coordinate, waypoint, apiKey, opti
     if (candidates.length === 0) return null;
 
     const post = options.axiosPost || axios.post;
-    const response = await post(ORS_SNAP_URL, {
+    const response = await postOrsWithRetry(post, ORS_SNAP_URL, {
         locations: candidates.map(candidate => candidate.coordinate),
         radius: Number.isFinite(Number(options.routeSnapRadiusMeters))
             ? Number(options.routeSnapRadiusMeters)
@@ -340,7 +433,7 @@ async function resolveRouteFallbackCoordinate(coordinate, waypoint, apiKey, opti
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
-    });
+    }, options);
 
     const snapped = getSnappedRouteLocations(candidates.map(candidate => candidate.coordinate), response.data);
     const resolvedIndex = snapped.findIndex(Boolean);
@@ -361,7 +454,7 @@ async function snapRouteCoordinates(coordinates, apiKey, options = {}) {
         : ROUTE_SNAP_RADIUS_METERS;
 
     try {
-        const response = await post(ORS_SNAP_URL, {
+        const response = await postOrsWithRetry(post, ORS_SNAP_URL, {
             locations: coordinates,
             radius
         }, {
@@ -370,7 +463,7 @@ async function snapRouteCoordinates(coordinates, apiKey, options = {}) {
                 "Content-Type": "application/json",
                 "Accept": "application/json"
             }
-        });
+        }, options);
         const snapped = getSnappedRouteLocations(coordinates, response.data);
         const waypoints = normalizeRouteWaypoints(options.waypoints, coordinates);
 
@@ -818,16 +911,23 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
 
     try {
         const post = options.axiosPost || axios.post;
-        const response = await post(ORS_DIRECTIONS_URL, body, {
+        const response = await postOrsWithRetry(post, ORS_DIRECTIONS_URL, body, {
             headers: {
                 "Authorization": apiKey,
                 "Content-Type": "application/json",
                 "Accept": "application/json, application/geo+json; charset=utf-8"
             }
-        });
+        }, options);
         return response.data;
     } catch (error) {
-        console.error("Networking/ORS Error:", error.message);
+        const status = getOrsErrorStatus(error);
+        console.error("Networking/ORS Error:", error.message, { status });
+        if (status === 429) {
+            throw new functions.https.HttpsError(
+                "resource-exhausted",
+                "Routing is busy. Please try again in a minute."
+            );
+        }
         throw new functions.https.HttpsError("internal", "Failed to calculate route.");
     }
 }
@@ -861,7 +961,7 @@ async function handlePremiumGeocode(requestOrData, context, options = {}) {
 
     try {
         const get = options.axiosGet || axios.get;
-        const response = await get(`https://api.openrouteservice.org/geocode/search?${params.toString()}`);
+        const response = await getOrsWithRetry(get, `${ORS_GEOCODE_URL}?${params.toString()}`, options);
         return response.data;
     } catch (error) {
         console.error("Networking/ORS Geocode Error:", error.message);
@@ -870,7 +970,7 @@ async function handlePremiumGeocode(requestOrData, context, options = {}) {
 }
 
 exports.getPremiumRoute = functions
-    .runWith({ secrets: ["ORS_API_KEY"] })
+    .runWith({ secrets: ["ORS_API_KEY"], timeoutSeconds: 120 })
     .https.onCall(async (requestOrData, context) => {
         return handlePremiumRoute(requestOrData, context);
     });

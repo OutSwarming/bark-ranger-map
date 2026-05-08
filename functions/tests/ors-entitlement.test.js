@@ -285,6 +285,66 @@ describe("ORS premium callable handlers", () => {
         assert.equal(capturedRequests[1].config.headers.Authorization, "test-key");
     });
 
+    it("retries rate-limited ORS route requests before returning a route", async () => {
+        const rawCoordinates = [[-83.4161, 36.2124], [-82.5508, 35.5953]];
+        const snappedCoordinates = [[-83.4164, 36.2127], [-82.5506, 35.5954]];
+        let directionAttempts = 0;
+
+        const result = await handlePremiumRoute(
+            {
+                data: {
+                    coordinates: rawCoordinates,
+                    radiuses: [-1, -1]
+                }
+            },
+            authedContext("premium-user"),
+            {
+                firestore: makeFirestore({ entitlement: premiumEntitlement }),
+                getOrsApiKey: () => "test-key",
+                orsRetryMaxAttempts: 3,
+                orsRetryBaseDelayMs: 0,
+                disableOrsRetryJitter: true,
+                axiosPost: async (url) => {
+                    if (/\/snap\//.test(url)) {
+                        return {
+                            data: {
+                                locations: snappedCoordinates.map(location => ({ location }))
+                            }
+                        };
+                    }
+
+                    directionAttempts += 1;
+                    if (directionAttempts < 3) {
+                        const error = new Error("Request failed with status code 429");
+                        error.response = {
+                            status: 429,
+                            headers: { "retry-after": "0" }
+                        };
+                        throw error;
+                    }
+
+                    return {
+                        data: {
+                            type: "FeatureCollection",
+                            features: [{
+                                properties: {
+                                    summary: {
+                                        distance: 1000,
+                                        duration: 600
+                                    }
+                                }
+                            }]
+                        }
+                    };
+                }
+            }
+        );
+
+        assert.equal(directionAttempts, 3);
+        assert.equal(result.type, "FeatureCollection");
+        assert.deepEqual(result.features[0].properties.summary, { distance: 1000, duration: 600 });
+    });
+
     it("uses a local geocode fallback when ORS cannot snap a named park pin", async () => {
         const capturedPosts = [];
         const capturedGets = [];
@@ -396,6 +456,7 @@ describe("ORS premium callable handlers", () => {
             {
                 firestore: makeFirestore({ entitlement: premiumEntitlement }),
                 getOrsApiKey: () => "test-key",
+                orsRetryMaxAttempts: 1,
                 axiosPost: async (url, body, config) => {
                     capturedRequests.push({ url, body, config });
                     if (/\/snap\//.test(url)) {

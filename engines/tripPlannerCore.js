@@ -6,6 +6,8 @@ window.BARK = window.BARK || {};
 
 const TRIP_DAY_LIMIT = 50;
 const TRIP_DAY_PAGE_SIZE = 9;
+const ROUTE_DAY_THROTTLE_THRESHOLD = 8;
+const ROUTE_DAY_THROTTLE_MS = 3000;
 
 window.BARK.TRIP_DAY_LIMIT = TRIP_DAY_LIMIT;
 window.BARK.TRIP_DAY_PAGE_SIZE = TRIP_DAY_PAGE_SIZE;
@@ -191,6 +193,14 @@ function setRouteTelemetrySummary(miles, hrs, mins) {
     label.textContent = 'Total Drive:';
     telemetryEl.appendChild(label);
     telemetryEl.appendChild(document.createTextNode(` ${miles} Miles | ${hrs}h ${mins}m`));
+}
+
+function waitForRouteDayThrottle(routeDayIndex, routableDayCount) {
+    if (routableDayCount <= ROUTE_DAY_THROTTLE_THRESHOLD || routeDayIndex >= routableDayCount - 1) {
+        return Promise.resolve();
+    }
+
+    return new Promise(resolve => setTimeout(resolve, ROUTE_DAY_THROTTLE_MS));
 }
 
 function focusMapSearchForTripStop(dayNumber, dayColor) {
@@ -1131,10 +1141,20 @@ function initTripPlanner() {
         let anySucceeded = false, totalDistMeters = 0, totalDurSeconds = 0;
 
         try {
-            for (const routeDay of routableDays) {
+            for (let routeDayIndex = 0; routeDayIndex < routableDays.length; routeDayIndex += 1) {
+                const routeDay = routableDays[routeDayIndex];
                 const { day, dayStops } = routeDay;
 
                 try {
+                    const currentStatus = window.BARK.DOM.routeTelemetry()?.dataset.routeStatus;
+                    if (routableDays.length > 1) {
+                        setRouteTelemetryStatus(
+                            currentStatus === 'slow' ? 'slow' : 'working',
+                            currentStatus === 'slow' ? 'Still generating route...' : 'Generating route...',
+                            `Building drive line ${routeDayIndex + 1} of ${routableDays.length}.`
+                        );
+                    }
+
                     const orsCoordinates = dayStops.map(s => [Number(s.lng), Number(s.lat)]);
                     const parkRepo = window.BARK.repos && window.BARK.repos.ParkRepo;
                     const orsWaypoints = dayStops.map((stop, index) => {
@@ -1161,6 +1181,9 @@ function initTripPlanner() {
                     const summary = geoJSONData.features[0].properties.summary;
                     if (summary) { totalDistMeters += summary.distance; totalDurSeconds += summary.duration; }
                 } catch (err) { console.error(`Route failed for day (${day.color}):`, err); alert(`A day's route failed: ${err.message}`); }
+
+                if (routeRunId !== routeRenderGeneration) break;
+                await waitForRouteDayThrottle(routeDayIndex, routableDays.length);
             }
 
             if (allBounds.length > 0) {

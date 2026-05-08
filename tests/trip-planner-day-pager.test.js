@@ -383,6 +383,7 @@ test('route generation shows working and slow status messages before completion'
     harness.resolveDirections();
     await Promise.resolve();
     await Promise.resolve();
+    await Promise.resolve();
 
     assert.equal(harness.element('route-telemetry').dataset.routeStatus, 'complete');
     assert.match(harness.getTextContent(harness.element('route-telemetry')), /Total Drive/);
