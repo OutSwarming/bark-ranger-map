@@ -139,7 +139,24 @@ test.describe('BUG-017 premium product rules audit', () => {
             await showGlobalSearchSuggestion(page);
             await expect(globalSearchButton(page)).toContainText('Upgrade to unlock global search');
             await globalSearchButton(page).click();
-            await page.waitForFunction(() => window.__barkBug017Alerts.length > 0, { timeout: 5000 });
+            await page.waitForFunction(() => {
+                const overlay = document.getElementById('paywall-overlay');
+                const title = document.getElementById('paywall-title');
+                return Boolean(
+                    overlay &&
+                    overlay.classList.contains('active') &&
+                    title &&
+                    /Global towns and cities/.test(title.textContent || '')
+                );
+            }, { timeout: 5000 });
+
+            const lockedSearchState = await page.evaluate(() => ({
+                geocodeCalls: window.__barkBug017GeocodeCalls.slice(),
+                alerts: window.__barkBug017Alerts.slice(),
+                paywallTitle: document.getElementById('paywall-title').textContent,
+                paywallBody: document.getElementById('paywall-body').textContent,
+                paywallSource: document.getElementById('paywall-source').textContent
+            }));
 
             const forcedState = await page.evaluate(() => {
                 const visitedFilter = document.getElementById('visited-filter');
@@ -172,6 +189,8 @@ test.describe('BUG-017 premium product rules audit', () => {
                     isPremium: window.BARK.services.premium.isPremium(),
                     geocodeCalls: window.__barkBug017GeocodeCalls.slice(),
                     alerts: window.__barkBug017Alerts.slice(),
+                    paywallTitle: document.getElementById('paywall-title').textContent,
+                    paywallBody: document.getElementById('paywall-body').textContent,
                     premiumLoggedIn: window.localStorage.getItem('premiumLoggedIn'),
                     visitedFilterValue: visitedFilter.value,
                     visitedFilterState: window.BARK.visitedFilterState,
@@ -192,8 +211,13 @@ test.describe('BUG-017 premium product rules audit', () => {
             });
 
             expect(forcedState.isPremium).toBe(false);
-            expect(forcedState.geocodeCalls, 'free global search must not call ORS geocode').toEqual([]);
-            expect(forcedState.alerts.length, 'free global search should show a user-safe prompt').toBeGreaterThan(0);
+            expect(lockedSearchState.geocodeCalls, 'free global search must not call ORS geocode').toEqual([]);
+            expect(lockedSearchState.alerts, 'free global search should use the paywall modal instead of alert').toEqual([]);
+            expect(lockedSearchState.paywallTitle).toMatch(/Global towns and cities/);
+            expect(lockedSearchState.paywallBody).toMatch(/add any city or town to your trip/);
+            expect(lockedSearchState.paywallSource).toContain('global town search');
+            expect(forcedState.geocodeCalls, 'free premium controls must not call ORS geocode').toEqual([]);
+            expect(forcedState.paywallTitle).toMatch(/Premium map filters|Premium map tools|Global towns and cities/);
             expect(forcedState.premiumLoggedIn).toBe('true');
             expect(forcedState.visitedFilterValue).toBe('all');
             expect(forcedState.visitedFilterState).toBe('all');

@@ -137,7 +137,106 @@
         return 'Premium is not active on this account.';
     }
 
+    function normalizeSource(source) {
+        const normalized = typeof source === 'string' ? source.trim() : '';
+        if ([
+            'global-town-search',
+            'global-search',
+            'global-towns',
+            'federated-search'
+        ].includes(normalized)) {
+            return 'global-town-search';
+        }
+
+        if ([
+            'virtual-trails',
+            'premium-virtual-trail',
+            'premium-trail-controls',
+            'toggle-virtual-trail',
+            'toggle-completed-trails'
+        ].includes(normalized)) {
+            return 'virtual-trails';
+        }
+
+        if ([
+            'premium-map-filters',
+            'premium-map-filter',
+            'premium-visited-filter',
+            'premium-map-style',
+            'visited-filter',
+            'map-style'
+        ].includes(normalized)) {
+            return 'premium-map-filters';
+        }
+
+        return normalized || 'manual';
+    }
+
+    function getFeatureUpgradeCopy(source = lastSource) {
+        const normalized = normalizeSource(source);
+
+        if (normalized === 'global-town-search') {
+            return {
+                title: 'Global towns and cities are a Premium feature',
+                eyebrow: 'Premium trip search',
+                body: 'Upgrade to search beyond B.A.R.K. stops, add any city or town to your trip, and build routes around real-world stops.',
+                primaryText: 'Upgrade Now'
+            };
+        }
+
+        if (normalized === 'virtual-trails') {
+            return {
+                title: 'Virtual trail tracking is a Premium feature',
+                eyebrow: 'Premium trail tracking',
+                body: 'Upgrade to turn on active-trail progress and conquered-trail overlays on the map.',
+                primaryText: 'Upgrade Now'
+            };
+        }
+
+        if (normalized === 'premium-map-filters') {
+            return {
+                title: 'Premium map filters are a Premium feature',
+                eyebrow: 'Premium map tools',
+                body: 'Upgrade to use visited-aware filters, premium map styles, and route pin filtering while planning.',
+                primaryText: 'Upgrade Now'
+            };
+        }
+
+        if (normalized === 'premium-map-tools') {
+            return {
+                title: 'Premium map tools are a Premium feature',
+                eyebrow: 'Premium map tools',
+                body: 'Upgrade for visited-aware filters, premium map styles, virtual trail controls, and global town search.',
+                primaryText: 'Upgrade Now'
+            };
+        }
+
+        return null;
+    }
+
+    function getSignedOutUpgradeCopy() {
+        const featureCopy = getFeatureUpgradeCopy();
+        if (featureCopy) {
+            return {
+                title: featureCopy.title,
+                eyebrow: featureCopy.eyebrow,
+                body: `${featureCopy.body} Sign in first so premium can be attached to your BARK Ranger account.`,
+                primaryText: 'Sign in to upgrade'
+            };
+        }
+
+        return {
+            title: 'Sign in to upgrade',
+            eyebrow: 'Account required',
+            body: 'Sign in first so premium can be attached to your BARK Ranger account. You can use Google or email/password.',
+            primaryText: 'Sign in to upgrade'
+        };
+    }
+
     function getFreeUpgradeCopy() {
+        const featureCopy = getFeatureUpgradeCopy();
+        if (featureCopy) return featureCopy;
+
         if (lastSource === 'route-generation') {
             return {
                 title: 'Route generation is a Premium feature',
@@ -247,12 +346,13 @@
         }
 
         if (!user) {
+            const signedOutCopy = getSignedOutUpgradeCopy();
             return {
                 mode: 'signed-out',
-                title: 'Sign in to upgrade',
-                eyebrow: 'Account required',
-                body: 'Sign in first so premium can be attached to your BARK Ranger account. You can use Google or email/password.',
-                primaryText: 'Sign in to upgrade',
+                title: signedOutCopy.title,
+                eyebrow: signedOutCopy.eyebrow,
+                body: signedOutCopy.body,
+                primaryText: signedOutCopy.primaryText,
                 secondaryVisible: true,
                 clearVisible: returnState !== null
             };
@@ -354,7 +454,7 @@
         }
 
         setText('profile-premium-status', mode === 'inactive' ? 'Premium inactive' : 'Free plan');
-        setText('profile-premium-copy', mode === 'inactive' ? state.body : 'Upgrade for visited-aware filters, map styles, trail controls, and global search.');
+        setText('profile-premium-copy', mode === 'inactive' ? state.body : 'Upgrade for visited-aware filters, map styles, trail controls, and global towns.');
         setButtonState(getElement('profile-premium-action'), {
             text: 'Upgrade',
             mode
@@ -498,7 +598,12 @@
             const target = event.target;
             if (target && target.closest && target.closest('#premium-login-jump, #premium-upgrade-btn')) return;
             event.preventDefault();
-            openPaywall({ source: 'premium-map-tools' });
+            const source = target && target.closest && target.closest('#toggle-virtual-trail, #toggle-completed-trails')
+                ? 'virtual-trails'
+                : target && target.closest && target.closest('#visited-filter, #map-style-select')
+                    ? 'premium-map-filters'
+                    : 'premium-map-tools';
+            openPaywall({ source });
         }, true);
     }
 

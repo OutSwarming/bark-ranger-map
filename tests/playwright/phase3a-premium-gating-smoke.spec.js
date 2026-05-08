@@ -321,15 +321,22 @@ async function expectGlobalSearchLocked(page, expectedTextPattern) {
     await expect(globalSearchButton(page)).toContainText(expectedTextPattern);
     await globalSearchButton(page).click();
     await page.waitForFunction(() => (
-        Array.isArray(window.__barkE2eAlerts) &&
-        window.__barkE2eAlerts.length > 0
+        document.getElementById('paywall-overlay') &&
+        document.getElementById('paywall-overlay').classList.contains('active') &&
+        /Global towns and cities/.test(document.getElementById('paywall-title').textContent || '')
     ), { timeout: 5000 });
     const state = await page.evaluate(() => ({
         geocodeCalls: window.__barkE2eGeocodeCalls.slice(),
-        alerts: window.__barkE2eAlerts.slice()
+        alerts: window.__barkE2eAlerts.slice(),
+        paywallTitle: document.getElementById('paywall-title').textContent,
+        paywallBody: document.getElementById('paywall-body').textContent,
+        paywallSource: document.getElementById('paywall-source').textContent
     }));
     expect(state.geocodeCalls, 'Locked global search must not call ORS geocode').toEqual([]);
-    expect(state.alerts.length, 'Locked global search should show a user-safe prompt').toBeGreaterThan(0);
+    expect(state.alerts, 'Locked global search should use the paywall modal instead of alert').toEqual([]);
+    expect(state.paywallTitle).toMatch(/Global towns and cities/);
+    expect(state.paywallBody).toMatch(/add any city or town to your trip/);
+    expect(state.paywallSource).toContain('global town search');
 }
 
 async function expectFreePaywallState(page, expectedMode = 'free') {

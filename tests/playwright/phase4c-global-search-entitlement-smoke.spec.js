@@ -150,13 +150,28 @@ function globalSearchButton(page) {
     }).last();
 }
 
-async function expectAlertFromClick(page, expectedPattern) {
+async function expectGlobalSearchPaywallFromClick(page) {
     await globalSearchButton(page).click();
     await page.waitForFunction(() => {
-        return Array.isArray(window.__barkE2eAlerts) && window.__barkE2eAlerts.length > 0;
+        const overlay = document.getElementById('paywall-overlay');
+        const title = document.getElementById('paywall-title');
+        return Boolean(
+            overlay &&
+            overlay.classList.contains('active') &&
+            title &&
+            /Global towns and cities/.test(title.textContent || '')
+        );
     }, { timeout: 5000 });
-    const alerts = await getAlertMessages(page);
-    expect(alerts[alerts.length - 1]).toMatch(expectedPattern);
+    const state = await page.evaluate(() => ({
+        alerts: Array.isArray(window.__barkE2eAlerts) ? window.__barkE2eAlerts.slice() : [],
+        title: document.getElementById('paywall-title').textContent,
+        body: document.getElementById('paywall-body').textContent,
+        source: document.getElementById('paywall-source').textContent
+    }));
+    expect(state.alerts, 'locked global search should use the paywall modal instead of alert').toEqual([]);
+    expect(state.title).toMatch(/Global towns and cities/);
+    expect(state.body).toMatch(/add any city or town to your trip/);
+    expect(state.source).toContain('global town search');
 }
 
 test.describe('Phase 4C global search entitlement smoke', () => {
@@ -172,7 +187,7 @@ test.describe('Phase 4C global search entitlement smoke', () => {
             await showGlobalSearchSuggestion(page);
 
             await expect(globalSearchButton(page)).toContainText('Sign in to unlock global search');
-            await expectAlertFromClick(page, /sign in/i);
+            await expectGlobalSearchPaywallFromClick(page);
             await expect(await getGeocodeCallCount(page)).toBe(0);
             expect(errors, errors.join('\n')).toEqual([]);
         } finally {
@@ -192,7 +207,7 @@ test.describe('Phase 4C global search entitlement smoke', () => {
             await showGlobalSearchSuggestion(page);
 
             await expect(globalSearchButton(page)).toContainText('Upgrade to unlock global search');
-            await expectAlertFromClick(page, /upgrade|premium/i);
+            await expectGlobalSearchPaywallFromClick(page);
             await expect(await getGeocodeCallCount(page)).toBe(0);
             expect(errors, errors.join('\n')).toEqual([]);
         } finally {

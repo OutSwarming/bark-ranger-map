@@ -111,7 +111,7 @@ function getGlobalSearchLockCopy() {
     if (isSignedInForGlobalSearchPrompt()) {
         return {
             hint: 'Upgrade to unlock global search',
-            alert: 'Searching for custom towns and locations is a Premium feature. Upgrade to unlock global search.'
+            alert: 'Searching for custom towns and locations is a Premium feature. Upgrade to add any city or town to your trip.'
         };
     }
 
@@ -121,8 +121,24 @@ function getGlobalSearchLockCopy() {
     };
 }
 
-function alertGlobalSearchLocked() {
+function openGlobalSearchPaywall() {
+    const paywall = window.BARK && window.BARK.paywall;
+    if (paywall && typeof paywall.openPaywall === 'function') {
+        paywall.openPaywall({ source: 'global-town-search' });
+        return;
+    }
+
+    const authPremiumUi = window.BARK && window.BARK.authPremiumUi;
+    if (authPremiumUi && typeof authPremiumUi.openPremiumPrompt === 'function') {
+        authPremiumUi.openPremiumPrompt('global-town-search');
+        return;
+    }
+
     alert(getGlobalSearchLockCopy().alert);
+}
+
+function alertGlobalSearchLocked() {
+    openGlobalSearchPaywall();
 }
 
 function getLocalParkMatches(query, limit = SEARCH_SUGGESTION_LIMIT) {
