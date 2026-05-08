@@ -162,12 +162,74 @@ function getCanonicalParkId(value) {
 // 1. LEGACY MAP FUNCTIONS (ROUTING & LEADERBOARD)
 // ============================================================================
 
+const ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/driving-car/geojson";
+const ORS_SNAP_URL = "https://api.openrouteservice.org/v2/snap/driving-car/json";
+const ROUTE_SNAP_RADIUS_METERS = 2000;
+
 function getCallablePayload(requestOrData) {
     return requestOrData && requestOrData.data ? requestOrData.data : requestOrData || {};
 }
 
 function getOrsApiKey(options = {}) {
     return typeof options.getOrsApiKey === "function" ? options.getOrsApiKey() : process.env.ORS_API_KEY;
+}
+
+function isValidRouteCoordinatePair(pair) {
+    return Array.isArray(pair) &&
+        pair.length >= 2 &&
+        Number.isFinite(Number(pair[0])) &&
+        Number.isFinite(Number(pair[1]));
+}
+
+function normalizeRouteCoordinatePair(pair) {
+    if (!isValidRouteCoordinatePair(pair)) return null;
+    return [Number(pair[0]), Number(pair[1])];
+}
+
+function normalizeRouteCoordinates(coordinates) {
+    if (!Array.isArray(coordinates)) return null;
+    const normalized = coordinates.map(normalizeRouteCoordinatePair);
+    return normalized.every(Boolean) ? normalized : null;
+}
+
+function extractSnappedRouteCoordinates(rawCoordinates, snapPayload) {
+    const locations = snapPayload && Array.isArray(snapPayload.locations)
+        ? snapPayload.locations
+        : [];
+
+    if (locations.length !== rawCoordinates.length) return rawCoordinates;
+
+    return rawCoordinates.map((coordinate, index) => {
+        const snappedLocation = locations[index] && locations[index].location;
+        const normalizedSnap = normalizeRouteCoordinatePair(snappedLocation);
+        return normalizedSnap || coordinate;
+    });
+}
+
+async function snapRouteCoordinates(coordinates, apiKey, options = {}) {
+    const post = options.axiosPost || axios.post;
+    const radius = Number.isFinite(Number(options.routeSnapRadiusMeters))
+        ? Number(options.routeSnapRadiusMeters)
+        : ROUTE_SNAP_RADIUS_METERS;
+
+    try {
+        const response = await post(ORS_SNAP_URL, {
+            locations: coordinates,
+            radius
+        }, {
+            headers: {
+                "Authorization": apiKey,
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        });
+        return extractSnappedRouteCoordinates(coordinates, response.data);
+    } catch (error) {
+        console.warn("[routing] ORS snap failed; falling back to original waypoint coordinates.", {
+            message: error && error.message ? error.message : String(error)
+        });
+        return coordinates;
+    }
 }
 
 const LEMONSQUEEZY_API_ORIGIN = "https://api.lemonsqueezy.com";
@@ -564,7 +626,7 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
     await requirePremiumCallable(context, "getPremiumRoute", options);
 
     const payload = getCallablePayload(requestOrData);
-    const coordinates = payload.coordinates;
+    const coordinates = normalizeRouteCoordinates(payload.coordinates);
     const radiuses = payload.radiuses;
 
     if (!Array.isArray(coordinates) || coordinates.length < 2) {
@@ -576,15 +638,15 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
         throw new functions.https.HttpsError("failed-precondition", "Routing service is not configured.");
     }
 
-    const url = "https://api.openrouteservice.org/v2/directions/driving-car/geojson";
-    const body = { coordinates };
+    const snappedCoordinates = await snapRouteCoordinates(coordinates, apiKey, options);
+    const body = { coordinates: snappedCoordinates };
     if (Array.isArray(radiuses) && radiuses.length === coordinates.length) {
         body.radiuses = radiuses;
     }
 
     try {
         const post = options.axiosPost || axios.post;
-        const response = await post(url, body, {
+        const response = await post(ORS_DIRECTIONS_URL, body, {
             headers: {
                 "Authorization": apiKey,
                 "Content-Type": "application/json",
@@ -666,6 +728,8 @@ if (process.env.NODE_ENV === "test") {
         requirePremiumCallable,
         handlePremiumRoute,
         handlePremiumGeocode,
+        normalizeRouteCoordinates,
+        extractSnappedRouteCoordinates,
         getLemonSqueezyConfig,
         buildCheckoutReturnUrl,
         buildLemonSqueezyCheckoutPayload,

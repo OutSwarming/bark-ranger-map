@@ -59,6 +59,24 @@ if (shouldActivate) {
 
     nock(ORS_ORIGIN)
         .persist()
+        .post("/v2/snap/driving-car/json")
+        .reply(function snapReply(uri, requestBody) {
+            appendLog({
+                service: "snap",
+                method: "POST",
+                uri,
+                body: requestBody
+            });
+
+            const locations = Array.isArray(requestBody.locations)
+                ? requestBody.locations.map(location => ({ location, snapped_distance: 0 }))
+                : [];
+
+            return [200, { locations }];
+        });
+
+    nock(ORS_ORIGIN)
+        .persist()
         .post("/v2/directions/driving-car/geojson")
         .reply(function routeReply(uri, requestBody) {
             appendLog({

@@ -9,7 +9,9 @@ const {
         isEffectivePremium,
         requirePremiumCallable,
         handlePremiumRoute,
-        handlePremiumGeocode
+        handlePremiumGeocode,
+        normalizeRouteCoordinates,
+        extractSnappedRouteCoordinates
     }
 } = require("../index.js");
 
@@ -140,6 +142,50 @@ describe("ORS premium callable entitlement helpers", () => {
 });
 
 describe("ORS premium callable handlers", () => {
+    it("normalizes route coordinate pairs and rejects malformed waypoint lists", () => {
+        assert.deepEqual(
+            normalizeRouteCoordinates([["-86.3447388", "46.5482534"], [-86.65, 46.41]]),
+            [[-86.3447388, 46.5482534], [-86.65, 46.41]]
+        );
+        assert.equal(normalizeRouteCoordinates([[-86.3447388], [-86.65, 46.41]]), null);
+        assert.equal(normalizeRouteCoordinates([["nope", 46.5482534], [-86.65, 46.41]]), null);
+    });
+
+    it("uses snapped route-network coordinates when ORS snap resolves off-road pins", () => {
+        const picturedRocksPin = [-86.3447388, 46.5482534];
+        const munisingPin = [-86.647936, 46.411512];
+        const snappedPicturedRocks = [-86.3601, 46.5488];
+        const snappedMunising = [-86.6495, 46.412];
+
+        assert.deepEqual(
+            extractSnappedRouteCoordinates(
+                [picturedRocksPin, munisingPin],
+                {
+                    locations: [
+                        { location: snappedPicturedRocks, snapped_distance: 1240 },
+                        { location: snappedMunising, snapped_distance: 18 }
+                    ]
+                }
+            ),
+            [snappedPicturedRocks, snappedMunising]
+        );
+    });
+
+    it("falls back per waypoint when ORS snap cannot resolve a coordinate", () => {
+        const rawCoordinates = [[-86.3447388, 46.5482534], [-86.647936, 46.411512]];
+        const snappedSecond = [-86.6495, 46.412];
+
+        assert.deepEqual(
+            extractSnappedRouteCoordinates(rawCoordinates, {
+                locations: [
+                    null,
+                    { location: snappedSecond, snapped_distance: 18 }
+                ]
+            }),
+            [rawCoordinates[0], snappedSecond]
+        );
+    });
+
     it("rejects free route requests before ORS is called and ignores client isPremium", async () => {
         let postCalls = 0;
 
@@ -194,12 +240,59 @@ describe("ORS premium callable handlers", () => {
     });
 
     it("allows premium route requests through to the ORS transport path", async () => {
-        let capturedRequest = null;
+        const capturedRequests = [];
+        const picturedRocksPin = [-86.3447388, 46.5482534];
+        const munisingPin = [-86.647936, 46.411512];
+        const snappedPicturedRocks = [-86.3601, 46.5488];
+        const snappedMunising = [-86.6495, 46.412];
 
         const result = await handlePremiumRoute(
             {
                 data: {
-                    coordinates: [[-122.4, 37.8], [-122.5, 37.9]],
+                    coordinates: [picturedRocksPin, munisingPin],
+                    radiuses: [-1, -1]
+                }
+            },
+            authedContext("premium-user"),
+            {
+                firestore: makeFirestore({ entitlement: premiumEntitlement }),
+                getOrsApiKey: () => "test-key",
+                axiosPost: async (url, body, config) => {
+                    capturedRequests.push({ url, body, config });
+                    if (/\/snap\//.test(url)) {
+                        return {
+                            data: {
+                                locations: [
+                                    { location: snappedPicturedRocks, snapped_distance: 1240 },
+                                    { location: snappedMunising, snapped_distance: 18 }
+                                ]
+                            }
+                        };
+                    }
+                    return { data: { type: "FeatureCollection" } };
+                }
+            }
+        );
+
+        assert.deepEqual(result, { type: "FeatureCollection" });
+        assert.equal(capturedRequests.length, 2);
+        assert.match(capturedRequests[0].url, /openrouteservice\.org\/v2\/snap\/driving-car/);
+        assert.deepEqual(capturedRequests[0].body.locations, [picturedRocksPin, munisingPin]);
+        assert.equal(capturedRequests[0].body.radius, 2000);
+        assert.match(capturedRequests[1].url, /openrouteservice\.org\/v2\/directions/);
+        assert.deepEqual(capturedRequests[1].body.coordinates, [snappedPicturedRocks, snappedMunising]);
+        assert.deepEqual(capturedRequests[1].body.radiuses, [-1, -1]);
+        assert.equal(capturedRequests[1].config.headers.Authorization, "test-key");
+    });
+
+    it("falls back to original route coordinates when ORS snap is unavailable", async () => {
+        const rawCoordinates = [[-122.4, 37.8], [-122.5, 37.9]];
+        const capturedRequests = [];
+
+        const result = await handlePremiumRoute(
+            {
+                data: {
+                    coordinates: rawCoordinates,
                     radiuses: [350, 350]
                 }
             },
@@ -208,16 +301,20 @@ describe("ORS premium callable handlers", () => {
                 firestore: makeFirestore({ entitlement: premiumEntitlement }),
                 getOrsApiKey: () => "test-key",
                 axiosPost: async (url, body, config) => {
-                    capturedRequest = { url, body, config };
+                    capturedRequests.push({ url, body, config });
+                    if (/\/snap\//.test(url)) {
+                        throw new Error("snap service temporarily unavailable");
+                    }
                     return { data: { type: "FeatureCollection" } };
                 }
             }
         );
 
         assert.deepEqual(result, { type: "FeatureCollection" });
-        assert.match(capturedRequest.url, /openrouteservice\.org\/v2\/directions/);
-        assert.deepEqual(capturedRequest.body.radiuses, [350, 350]);
-        assert.equal(capturedRequest.config.headers.Authorization, "test-key");
+        assert.equal(capturedRequests.length, 2);
+        assert.match(capturedRequests[0].url, /openrouteservice\.org\/v2\/snap\/driving-car/);
+        assert.match(capturedRequests[1].url, /openrouteservice\.org\/v2\/directions/);
+        assert.deepEqual(capturedRequests[1].body.coordinates, rawCoordinates);
     });
 
     it("allows premium geocode requests through to the ORS transport path", async () => {
