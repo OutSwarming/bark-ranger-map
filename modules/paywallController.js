@@ -596,7 +596,7 @@
         premiumWrap.addEventListener('click', (event) => {
             if (isPremiumActive()) return;
             const target = event.target;
-            if (target && target.closest && target.closest('#premium-login-jump, #premium-upgrade-btn')) return;
+            if (target && target.closest && target.closest('#premium-upgrade-btn')) return;
             event.preventDefault();
             const source = target && target.closest && target.closest('#toggle-virtual-trail, #toggle-completed-trails')
                 ? 'virtual-trails'

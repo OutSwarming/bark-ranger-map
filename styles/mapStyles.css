@@ -171,29 +171,6 @@ body.low-graphics .enamel-pin-wrapper:hover {
     padding: 8px 7px;
 }
 
-.premium-login-notice {
-    background: #f8fafc;
-    border: 1px dashed #cbd5e1;
-    border-radius: 8px;
-    color: #64748b;
-    font-size: 11px;
-    font-weight: 700;
-    line-height: 1.35;
-    padding: 8px 10px;
-    text-align: left;
-}
-
-.premium-login-notice button {
-    background: transparent;
-    border: none;
-    color: #16a34a;
-    cursor: pointer;
-    font: inherit;
-    font-weight: 900;
-    padding: 0;
-    text-decoration: underline;
-}
-
 .premium-select {
     flex: 1;
     padding: 8px;
@@ -230,10 +207,6 @@ body.low-graphics .enamel-pin-wrapper:hover {
 .premium-unlocked #premium-lock-icon {
     display: none;
     /* Hide the lock when logged in */
-}
-
-.premium-unlocked .premium-login-notice {
-    display: none;
 }
 
 /* --- MOBILE RESPONSIVENESS FOR PREMIUM FILTERS --- */
