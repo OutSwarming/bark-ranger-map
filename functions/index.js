@@ -164,7 +164,11 @@ function getCanonicalParkId(value) {
 
 const ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/driving-car/geojson";
 const ORS_SNAP_URL = "https://api.openrouteservice.org/v2/snap/driving-car/json";
+const ORS_GEOCODE_URL = "https://api.openrouteservice.org/geocode/search";
 const ROUTE_SNAP_RADIUS_METERS = 2000;
+const ROUTE_FALLBACK_GEOCODE_RADIUS_KM = 50;
+const ROUTE_FALLBACK_GEOCODE_SIZE = 10;
+const ROUTE_FALLBACK_CANDIDATE_LIMIT = 6;
 
 function getCallablePayload(requestOrData) {
     return requestOrData && requestOrData.data ? requestOrData.data : requestOrData || {};
@@ -192,18 +196,162 @@ function normalizeRouteCoordinates(coordinates) {
     return normalized.every(Boolean) ? normalized : null;
 }
 
-function extractSnappedRouteCoordinates(rawCoordinates, snapPayload) {
+function getSnappedRouteLocations(rawCoordinates, snapPayload) {
     const locations = snapPayload && Array.isArray(snapPayload.locations)
         ? snapPayload.locations
         : [];
 
-    if (locations.length !== rawCoordinates.length) return rawCoordinates;
+    if (locations.length !== rawCoordinates.length) {
+        return rawCoordinates.map(() => null);
+    }
 
-    return rawCoordinates.map((coordinate, index) => {
+    return rawCoordinates.map((_coordinate, index) => {
         const snappedLocation = locations[index] && locations[index].location;
-        const normalizedSnap = normalizeRouteCoordinatePair(snappedLocation);
-        return normalizedSnap || coordinate;
+        return normalizeRouteCoordinatePair(snappedLocation);
     });
+}
+
+function extractSnappedRouteCoordinates(rawCoordinates, snapPayload) {
+    const snapped = getSnappedRouteLocations(rawCoordinates, snapPayload);
+    return rawCoordinates.map((coordinate, index) => snapped[index] || coordinate);
+}
+
+function normalizeRouteWaypoints(waypoints, coordinates) {
+    const normalizedCoordinates = Array.isArray(coordinates) ? coordinates : [];
+    return normalizedCoordinates.map((coordinate, index) => {
+        const waypoint = Array.isArray(waypoints) ? waypoints[index] : null;
+        return {
+            name: cleanOptionalString(waypoint && waypoint.name),
+            state: cleanOptionalString(waypoint && waypoint.state),
+            country: cleanOptionalString(waypoint && waypoint.country) || "US",
+            coordinate
+        };
+    });
+}
+
+function normalizeRouteSearchText(value) {
+    return cleanOptionalString(value)
+        .toLowerCase()
+        .replace(/&/g, " and ")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+}
+
+function getRouteSearchTokens(value) {
+    const normalized = normalizeRouteSearchText(value);
+    if (!normalized) return [];
+    return normalized
+        .split(/\s+/)
+        .filter(token => token.length >= 3);
+}
+
+function calculateCoordinateDistanceMeters(a, b) {
+    const first = normalizeRouteCoordinatePair(a);
+    const second = normalizeRouteCoordinatePair(b);
+    if (!first || !second) return Number.POSITIVE_INFINITY;
+
+    const toRadians = degrees => degrees * Math.PI / 180;
+    const earthRadiusMeters = 6371000;
+    const lon1 = toRadians(first[0]);
+    const lat1 = toRadians(first[1]);
+    const lon2 = toRadians(second[0]);
+    const lat2 = toRadians(second[1]);
+    const deltaLat = lat2 - lat1;
+    const deltaLon = lon2 - lon1;
+    const haversine = Math.sin(deltaLat / 2) ** 2 +
+        Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+
+    return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function getGeocodeFeatureLabel(feature) {
+    const properties = feature && feature.properties ? feature.properties : {};
+    return cleanOptionalString(properties.label) || cleanOptionalString(properties.name);
+}
+
+function scoreRouteFallbackFeature(feature, waypoint, coordinate) {
+    const featureCoordinate = normalizeRouteCoordinatePair(feature && feature.geometry && feature.geometry.coordinates);
+    const label = getGeocodeFeatureLabel(feature);
+    if (!featureCoordinate || !label || !waypoint || !waypoint.name) return null;
+
+    const labelText = normalizeRouteSearchText(label);
+    const waypointText = normalizeRouteSearchText(waypoint.name);
+    const tokens = getRouteSearchTokens(waypoint.name);
+    const matchedTokens = tokens.filter(token => labelText.includes(token));
+    if (matchedTokens.length === 0) return null;
+
+    const distanceMeters = calculateCoordinateDistanceMeters(coordinate, featureCoordinate);
+    const confidence = Number(feature && feature.properties && feature.properties.confidence) || 0;
+    const fullNameBonus = waypointText && labelText.includes(waypointText) ? 100 : 0;
+    const stateBonus = waypoint.state && labelText.includes(normalizeRouteSearchText(waypoint.state)) ? 20 : 0;
+    const score = fullNameBonus +
+        stateBonus +
+        matchedTokens.length * 25 +
+        confidence * 10 -
+        (distanceMeters / 1000);
+
+    return {
+        coordinate: featureCoordinate,
+        label,
+        score,
+        distanceMeters
+    };
+}
+
+async function fetchRouteFallbackCandidates(coordinate, waypoint, apiKey, options = {}) {
+    if (!waypoint || !waypoint.name) return [];
+
+    const get = options.axiosGet || axios.get;
+    const params = new URLSearchParams({
+        api_key: apiKey,
+        text: waypoint.state ? `${waypoint.name} ${waypoint.state}` : waypoint.name,
+        size: String(ROUTE_FALLBACK_GEOCODE_SIZE),
+        "boundary.circle.lat": String(coordinate[1]),
+        "boundary.circle.lon": String(coordinate[0]),
+        "boundary.circle.radius": String(ROUTE_FALLBACK_GEOCODE_RADIUS_KM)
+    });
+    if (waypoint.country) params.set("boundary.country", waypoint.country);
+
+    const response = await get(`${ORS_GEOCODE_URL}?${params.toString()}`);
+    const features = response && response.data && Array.isArray(response.data.features)
+        ? response.data.features
+        : [];
+
+    return features
+        .map(feature => scoreRouteFallbackFeature(feature, waypoint, coordinate))
+        .filter(Boolean)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, ROUTE_FALLBACK_CANDIDATE_LIMIT);
+}
+
+async function resolveRouteFallbackCoordinate(coordinate, waypoint, apiKey, options = {}) {
+    const candidates = await fetchRouteFallbackCandidates(coordinate, waypoint, apiKey, options);
+    if (candidates.length === 0) return null;
+
+    const post = options.axiosPost || axios.post;
+    const response = await post(ORS_SNAP_URL, {
+        locations: candidates.map(candidate => candidate.coordinate),
+        radius: Number.isFinite(Number(options.routeSnapRadiusMeters))
+            ? Number(options.routeSnapRadiusMeters)
+            : ROUTE_SNAP_RADIUS_METERS
+    }, {
+        headers: {
+            "Authorization": apiKey,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+    });
+
+    const snapped = getSnappedRouteLocations(candidates.map(candidate => candidate.coordinate), response.data);
+    const resolvedIndex = snapped.findIndex(Boolean);
+    if (resolvedIndex === -1) return null;
+
+    console.info("[routing] Resolved unsnappable waypoint through local geocode fallback.", {
+        waypoint: waypoint.name,
+        candidate: candidates[resolvedIndex].label,
+        candidateDistanceMeters: Math.round(candidates[resolvedIndex].distanceMeters)
+    });
+    return snapped[resolvedIndex];
 }
 
 async function snapRouteCoordinates(coordinates, apiKey, options = {}) {
@@ -223,7 +371,28 @@ async function snapRouteCoordinates(coordinates, apiKey, options = {}) {
                 "Accept": "application/json"
             }
         });
-        return extractSnappedRouteCoordinates(coordinates, response.data);
+        const snapped = getSnappedRouteLocations(coordinates, response.data);
+        const waypoints = normalizeRouteWaypoints(options.waypoints, coordinates);
+
+        for (let index = 0; index < snapped.length; index += 1) {
+            if (snapped[index]) continue;
+
+            try {
+                snapped[index] = await resolveRouteFallbackCoordinate(
+                    coordinates[index],
+                    waypoints[index],
+                    apiKey,
+                    options
+                );
+            } catch (error) {
+                console.warn("[routing] ORS fallback geocode failed; keeping original waypoint coordinate.", {
+                    waypoint: waypoints[index] && waypoints[index].name,
+                    message: error && error.message ? error.message : String(error)
+                });
+            }
+        }
+
+        return coordinates.map((coordinate, index) => snapped[index] || coordinate);
     } catch (error) {
         console.warn("[routing] ORS snap failed; falling back to original waypoint coordinates.", {
             message: error && error.message ? error.message : String(error)
@@ -638,7 +807,10 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
         throw new functions.https.HttpsError("failed-precondition", "Routing service is not configured.");
     }
 
-    const snappedCoordinates = await snapRouteCoordinates(coordinates, apiKey, options);
+    const snappedCoordinates = await snapRouteCoordinates(coordinates, apiKey, {
+        ...options,
+        waypoints: normalizeRouteWaypoints(payload.waypoints, coordinates)
+    });
     const body = { coordinates: snappedCoordinates };
     if (Array.isArray(radiuses) && radiuses.length === coordinates.length) {
         body.radiuses = radiuses;
@@ -729,6 +901,7 @@ if (process.env.NODE_ENV === "test") {
         handlePremiumRoute,
         handlePremiumGeocode,
         normalizeRouteCoordinates,
+        normalizeRouteWaypoints,
         extractSnappedRouteCoordinates,
         getLemonSqueezyConfig,
         buildCheckoutReturnUrl,

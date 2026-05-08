@@ -43,6 +43,9 @@
             if (Array.isArray(options.radiuses) && options.radiuses.length === coordinates.length) {
                 payload.radiuses = options.radiuses;
             }
+            if (Array.isArray(options.waypoints) && options.waypoints.length === coordinates.length) {
+                payload.waypoints = options.waypoints;
+            }
             const result = await callable(payload);
             return result.data;
         } catch (error) {

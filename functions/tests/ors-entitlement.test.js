@@ -285,6 +285,102 @@ describe("ORS premium callable handlers", () => {
         assert.equal(capturedRequests[1].config.headers.Authorization, "test-key");
     });
 
+    it("uses a local geocode fallback when ORS cannot snap a named park pin", async () => {
+        const capturedPosts = [];
+        const capturedGets = [];
+        const picturedRocksPin = [-86.3186376, 46.5687756];
+        const munisingPin = [-86.623367, 46.423864];
+        const snappedPicturedRocksCandidate = [-86.304249, 46.550672];
+        const snappedMunising = [-86.624276, 46.423711];
+
+        const result = await handlePremiumRoute(
+            {
+                data: {
+                    coordinates: [picturedRocksPin, munisingPin],
+                    radiuses: [-1, -1],
+                    waypoints: [
+                        {
+                            name: "Pictured Rocks National Lakeshore",
+                            state: "Michigan"
+                        },
+                        {
+                            name: "Munising Falls Visitor Center",
+                            state: "Michigan"
+                        }
+                    ]
+                }
+            },
+            authedContext("premium-user"),
+            {
+                firestore: makeFirestore({ entitlement: premiumEntitlement }),
+                getOrsApiKey: () => "test-key",
+                axiosGet: async (url) => {
+                    capturedGets.push(url);
+                    return {
+                        data: {
+                            features: [
+                                {
+                                    type: "Feature",
+                                    properties: {
+                                        label: "Pictured Rocks National Lakeshore, Burt, MI, USA",
+                                        confidence: 0.8
+                                    },
+                                    geometry: {
+                                        type: "Point",
+                                        coordinates: [-86.31647, 46.56424]
+                                    }
+                                },
+                                {
+                                    type: "Feature",
+                                    properties: {
+                                        label: "Unrelated Trailhead, Burt, MI, USA",
+                                        confidence: 1
+                                    },
+                                    geometry: {
+                                        type: "Point",
+                                        coordinates: [-86.4, 46.5]
+                                    }
+                                }
+                            ]
+                        }
+                    };
+                },
+                axiosPost: async (url, body, config) => {
+                    capturedPosts.push({ url, body, config });
+                    if (/\/snap\//.test(url) && body.locations.length === 2) {
+                        return {
+                            data: {
+                                locations: [
+                                    null,
+                                    { location: snappedMunising, snapped_distance: 71.77 }
+                                ]
+                            }
+                        };
+                    }
+                    if (/\/snap\//.test(url)) {
+                        return {
+                            data: {
+                                locations: [
+                                    { location: snappedPicturedRocksCandidate, snapped_distance: 1774.68 }
+                                ]
+                            }
+                        };
+                    }
+                    return { data: { type: "FeatureCollection" } };
+                }
+            }
+        );
+
+        assert.deepEqual(result, { type: "FeatureCollection" });
+        assert.equal(capturedGets.length, 1);
+        assert.match(capturedGets[0], /geocode\/search/);
+        assert.match(capturedGets[0], /Pictured\+Rocks\+National\+Lakeshore/);
+        assert.match(capturedGets[0], /boundary\.circle\.radius=50/);
+        assert.equal(capturedPosts.length, 3);
+        assert.deepEqual(capturedPosts[2].body.coordinates, [snappedPicturedRocksCandidate, snappedMunising]);
+        assert.deepEqual(capturedPosts[2].body.radiuses, [-1, -1]);
+    });
+
     it("falls back to original route coordinates when ORS snap is unavailable", async () => {
         const rawCoordinates = [[-122.4, 37.8], [-122.5, 37.9]];
         const capturedRequests = [];

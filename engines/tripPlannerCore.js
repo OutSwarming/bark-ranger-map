@@ -1136,7 +1136,24 @@ function initTripPlanner() {
 
                 try {
                     const orsCoordinates = dayStops.map(s => [Number(s.lng), Number(s.lat)]);
-                    const geoJSONData = await window.BARK.services.ors.directions(orsCoordinates, { radiuses: new Array(orsCoordinates.length).fill(-1) });
+                    const parkRepo = window.BARK.repos && window.BARK.repos.ParkRepo;
+                    const orsWaypoints = dayStops.map((stop, index) => {
+                        const canonical = stop && stop.id && parkRepo && typeof parkRepo.getById === 'function'
+                            ? parkRepo.getById(stop.id)
+                            : null;
+                        return {
+                            id: stop && stop.id ? stop.id : null,
+                            name: stop && stop.name ? stop.name : '',
+                            state: (stop && stop.state) || (canonical && canonical.state) || '',
+                            lat: orsCoordinates[index][1],
+                            lng: orsCoordinates[index][0],
+                            country: 'US'
+                        };
+                    });
+                    const geoJSONData = await window.BARK.services.ors.directions(orsCoordinates, {
+                        radiuses: new Array(orsCoordinates.length).fill(-1),
+                        waypoints: orsWaypoints
+                    });
                     const stillSignedIn = typeof firebase !== 'undefined' && firebase.auth().currentUser;
                     if (routeRunId !== routeRenderGeneration || !stillSignedIn) break;
                     const layer = L.geoJSON(geoJSONData, { style: () => ({ color: day.color, weight: 5, opacity: 0.85, dashArray: '10, 8' }) }).addTo(map);

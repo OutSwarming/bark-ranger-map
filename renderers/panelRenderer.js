@@ -321,7 +321,7 @@ function renderMarkerClickPanel(context) {
             syncPopupUI();
             btnTrip.onclick = (e) => {
                 e.preventDefault();
-                if (window.addStopToTrip({ id: d.id, name: d.name, lat: d.lat, lng: d.lng })) {
+                if (window.addStopToTrip({ id: d.id, name: d.name, lat: d.lat, lng: d.lng, state: d.state || '' })) {
                     syncPopupUI();
                 }
             };
