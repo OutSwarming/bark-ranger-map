@@ -111,6 +111,42 @@ function createMetaPill(icon, value, fallback) {
     return pill;
 }
 
+function openFreeAccountPrompt(source) {
+    const accountUi = window.BARK && window.BARK.authAccountUi;
+    if (accountUi && typeof accountUi.openAccountPrompt === 'function') {
+        accountUi.openAccountPrompt({ source });
+        return;
+    }
+
+    const profileTab = document.querySelector('.nav-item[data-target="profile-view"]');
+    if (profileTab) profileTab.click();
+}
+
+function setAccountLockedCheckinButton(button, textEl, label, source) {
+    if (!button) return;
+    button.disabled = false;
+    button.classList.remove('visited');
+    button.classList.add('account-locked');
+    button.setAttribute('aria-disabled', 'true');
+    button.title = 'Create a free account to save this to your B.A.R.K. profile.';
+    button.style.cursor = 'pointer';
+    button.style.opacity = '';
+    if (textEl) textEl.textContent = label;
+    button.onmouseenter = null;
+    button.onmouseleave = null;
+    button.onclick = (event) => {
+        event.preventDefault();
+        openFreeAccountPrompt(source);
+    };
+}
+
+function clearAccountLockedCheckinButton(button) {
+    if (!button) return;
+    button.classList.remove('account-locked');
+    button.removeAttribute('aria-disabled');
+    button.removeAttribute('title');
+}
+
 function buildMapSearchUrl(name, lat, lng, provider) {
     const numericLat = Number(lat);
     const numericLng = Number(lng);
@@ -303,6 +339,8 @@ function renderMarkerClickPanel(context) {
     if (visitedSection && markVisitedBtn && markVisitedText && verifyBtn) {
         if (firebaseService && firebaseService.getCurrentUser()) {
             visitedSection.style.display = 'grid';
+            clearAccountLockedCheckinButton(markVisitedBtn);
+            clearAccountLockedCheckinButton(verifyBtn);
 
             const visitedEntry = getPanelVisitEntry(d);
 
@@ -454,7 +492,10 @@ function renderMarkerClickPanel(context) {
                 }
             };
         } else {
-            visitedSection.style.display = 'none';
+            visitedSection.style.display = 'grid';
+            verifyBtn.style.background = '#94a3b8';
+            setAccountLockedCheckinButton(markVisitedBtn, markVisitedText, 'Mark as Visited', 'mark-visited');
+            setAccountLockedCheckinButton(verifyBtn, verifyBtnText, '🐾 Verified Check-In', 'verified-checkin');
         }
     }
 

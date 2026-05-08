@@ -289,50 +289,82 @@ function handleAdminCheck(data, user) {
     }
 }
 
-function handleExpeditionSync(data) {
+function handleExpeditionSync(data = {}) {
     try {
-        if (data.virtual_expedition && data.virtual_expedition.active_trail) {
-            const miles = data.virtual_expedition.miles_logged || 0;
-            const total = data.virtual_expedition.trail_total_miles || 0;
+        const expedition = data.virtual_expedition && typeof data.virtual_expedition === 'object'
+            ? data.virtual_expedition
+            : {};
+        const history = Array.isArray(expedition.history) ? expedition.history : [];
+        const lifetime = Number(data.lifetime_miles) || 0;
+        const activeTrailName = expedition.trail_name || 'Expedition';
+
+        if (expedition.active_trail) {
+            const miles = expedition.miles_logged || 0;
+            const total = expedition.trail_total_miles || 0;
 
             if (typeof window.BARK.renderVirtualTrailOverlay === 'function')
-                window.BARK.renderVirtualTrailOverlay(data.virtual_expedition.active_trail, miles);
+                window.BARK.renderVirtualTrailOverlay(expedition.active_trail, miles);
             if (typeof window.hydrateEducationModal === 'function')
-                window.hydrateEducationModal(data.virtual_expedition.active_trail);
+                window.hydrateEducationModal(expedition.active_trail);
 
             const isComplete = total > 0 && miles >= total;
 
-            document.getElementById('expedition-intro-state').style.display = 'none';
-            document.getElementById('expedition-active-state').style.display = isComplete ? 'none' : 'block';
-            document.getElementById('expedition-complete-state').style.display = isComplete ? 'block' : 'none';
+            const introState = document.getElementById('expedition-intro-state');
+            const activeState = document.getElementById('expedition-active-state');
+            const completeState = document.getElementById('expedition-complete-state');
+            if (introState) introState.style.display = 'none';
+            if (activeState) activeState.style.display = isComplete ? 'none' : 'block';
+            if (completeState) completeState.style.display = isComplete ? 'block' : 'none';
 
             const nameEl = document.getElementById('expedition-name');
             if (nameEl) {
-                nameEl.textContent = isComplete ? "CONQUERED" : data.virtual_expedition.trail_name;
-                nameEl.dataset.trailName = data.virtual_expedition.trail_name;
+                nameEl.textContent = isComplete ? "CONQUERED" : activeTrailName;
+                nameEl.dataset.trailName = activeTrailName;
             }
 
             if (isComplete) {
                 const celebName = document.getElementById('celebration-trail-name');
-                if (celebName) celebName.textContent = data.virtual_expedition.trail_name;
+                if (celebName) celebName.textContent = activeTrailName;
                 const claimBtn = document.getElementById('claim-reward-btn');
                 const trailPts = Math.max(1, Math.round(total / 2));
                 if (claimBtn) claimBtn.textContent = `🎁 Claim +${trailPts} PTS & Reset`;
             }
 
-            const lifetime = data.lifetime_miles || 0;
             if (typeof window.BARK.renderExpeditionProgress === 'function')
                 window.BARK.renderExpeditionProgress(miles, total, lifetime);
             if (typeof window.BARK.renderExpeditionHistory === 'function')
-                window.BARK.renderExpeditionHistory(data.virtual_expedition.history || [], data.virtual_expedition.trail_name);
+                window.BARK.renderExpeditionHistory(history, activeTrailName);
         } else {
-            document.getElementById('expedition-intro-state').style.display = 'block';
-            document.getElementById('expedition-active-state').style.display = 'none';
-            document.getElementById('expedition-complete-state').style.display = 'none';
-            document.getElementById('expedition-name').textContent = '';
+            if (typeof window.BARK.resetActiveExpeditionRuntimeState === 'function') {
+                window.BARK.resetActiveExpeditionRuntimeState();
+            } else {
+                const introState = document.getElementById('expedition-intro-state');
+                const activeState = document.getElementById('expedition-active-state');
+                const completeState = document.getElementById('expedition-complete-state');
+                const nameEl = document.getElementById('expedition-name');
+                if (introState) introState.style.display = 'block';
+                if (activeState) activeState.style.display = 'none';
+                if (completeState) completeState.style.display = 'none';
+                if (nameEl) {
+                    nameEl.textContent = '';
+                    delete nameEl.dataset.trailName;
+                }
+            }
+
+            if (typeof window.BARK.renderExpeditionProgress === 'function') {
+                window.BARK.renderExpeditionProgress(0, 0, lifetime);
+            }
+            if (typeof window.BARK.renderExpeditionHistory === 'function') {
+                window.BARK.renderExpeditionHistory(history, activeTrailName === 'Expedition' ? 'General Walk' : activeTrailName);
+            }
         }
 
-        const cExpeditions = data.completed_expeditions || [];
+        let cExpeditions = [];
+        if (Array.isArray(data.completed_expeditions)) {
+            cExpeditions = data.completed_expeditions;
+        } else if (Array.isArray(data.completedExpeditions)) {
+            cExpeditions = data.completedExpeditions;
+        }
         if (typeof window.BARK.renderCompletedExpeditions === 'function')
             window.BARK.renderCompletedExpeditions(cExpeditions);
         if (typeof window.BARK.renderCompletedTrailsOverlay === 'function')
@@ -703,6 +735,27 @@ function resetLoggedOutRuntimeState() {
     if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
 }
 
+function resetAccountScopedRuntimeState() {
+    window._leaderboardLoadedOnce = false;
+    window._lastKnownRank = null;
+    window._lastLeaderboardDoc = null;
+    window._lastSyncedScore = -1;
+    window.currentWalkPoints = 0;
+    window.isAdmin = false;
+    resetAdminUi();
+    resetVisitedAndPanelState();
+
+    if (typeof window.BARK.resetTripPlannerRuntime === 'function') {
+        window.BARK.resetTripPlannerRuntime();
+    }
+    if (typeof window.BARK.resetExpeditionRuntimeState === 'function') {
+        window.BARK.resetExpeditionRuntimeState();
+    }
+
+    resetSavedRouteLists();
+    if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
+}
+
 function initFirebase() {
     if (typeof firebase === 'undefined') return;
 
@@ -731,6 +784,9 @@ function initFirebase() {
                 const profileName = document.getElementById('user-profile-name');
 
                 if (user) {
+                    const previousAuthenticatedUid = lastAuthenticatedUid;
+                    const isAuthenticatedUserChange = Boolean(previousAuthenticatedUid && previousAuthenticatedUid !== user.uid);
+
                     if (lastAuthenticatedUid !== user.uid) {
                         window._cloudSettingsLoaded = false;
                         resetPremiumEntitlement('auth-user-changed');
@@ -747,6 +803,10 @@ function initFirebase() {
                     if (profileName) profileName.textContent = user.displayName || user.email || 'Bark Ranger';
 
                     stopUserSnapshotSubscription();
+                    if (isAuthenticatedUserChange) {
+                        stopVaultRepoVisitSubscription();
+                        resetAccountScopedRuntimeState();
+                    }
 
                     try {
                         startVaultRepoVisitSubscription(user);
@@ -800,6 +860,9 @@ function initFirebase() {
                                         handleExpeditionSync(data);
                                     } else {
                                         updatePremiumEntitlement(null, user, 'auth-user-snapshot-missing');
+                                        window.currentWalkPoints = 0;
+                                        handleAdminCheck({}, user);
+                                        handleExpeditionSync({});
                                     }
                                     refreshAuthSnapshotUi();
 

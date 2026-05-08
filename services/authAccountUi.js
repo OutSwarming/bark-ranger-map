@@ -14,6 +14,39 @@
     let activeMode = 'signin';
     let unsubscribePremium = null;
 
+    const ACCOUNT_PROMPT_COPY = {
+        'mark-visited': {
+            title: "Create a free account to save where you've been",
+            body: 'Mark parks visited, keep your B.A.R.K. passport backed up, and pick up on any device.',
+            source: 'mark visited'
+        },
+        'verified-checkin': {
+            title: 'Create a free account to save verified check-ins',
+            body: 'Verified visits earn points and stay attached to your profile only after you sign in.',
+            source: 'verified check-in'
+        },
+        'saved-route': {
+            title: 'Create a free account to save this trip',
+            body: 'Save routes, day notes, and B.A.R.K. stops so your planning work is still here later.',
+            source: 'saved route'
+        },
+        expedition: {
+            title: 'Create a free account to track walks',
+            body: 'Walk miles, virtual expeditions, and completed trails are saved to your B.A.R.K. profile.',
+            source: 'expedition'
+        },
+        profile: {
+            title: 'Create a free account to unlock your profile',
+            body: 'Your visited parks, stats, achievements, and saved trips live in your account.',
+            source: 'profile'
+        },
+        default: {
+            title: "Create a free account to save where you've been",
+            body: 'Your B.A.R.K. passport, visited parks, verified check-ins, and saved trips stay with your account.',
+            source: 'map'
+        }
+    };
+
     function getElement(id) {
         return document.getElementById(id);
     }
@@ -56,6 +89,52 @@
         node.textContent = message || '';
         node.dataset.tone = tone;
         node.hidden = !message;
+    }
+
+    function getAccountPromptCopy(source) {
+        return ACCOUNT_PROMPT_COPY[source] || ACCOUNT_PROMPT_COPY.default;
+    }
+
+    function closeAccountPrompt() {
+        const overlay = getElement('account-gate-overlay');
+        if (!overlay) return;
+        overlay.classList.remove('active');
+        overlay.setAttribute('aria-hidden', 'true');
+    }
+
+    function focusAccountForm(mode) {
+        closeAccountPrompt();
+        const profileTab = document.querySelector('.nav-item[data-target="profile-view"]');
+        if (profileTab) profileTab.click();
+
+        setTimeout(() => {
+            showMode(mode || 'create', { focus: false });
+            const loginContainer = getElement('login-container');
+            const target = getElement(mode === 'signin' ? 'account-signin-email' : 'account-create-email');
+            const googleBtn = getElement('google-login-btn');
+            if (loginContainer) loginContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            if (target) target.focus({ preventScroll: true });
+            else if (googleBtn) googleBtn.focus({ preventScroll: true });
+        }, 120);
+    }
+
+    function openAccountPrompt(options = {}) {
+        const overlay = getElement('account-gate-overlay');
+        if (!overlay) {
+            focusAccountForm(options.mode || 'create');
+            return;
+        }
+
+        const copy = getAccountPromptCopy(options.source || 'default');
+        setText('account-gate-eyebrow', 'Free account');
+        setText('account-gate-title', copy.title);
+        setText('account-gate-body', copy.body);
+        setText('account-gate-source', `Opened from ${copy.source}`);
+        overlay.classList.add('active');
+        overlay.setAttribute('aria-hidden', 'false');
+
+        const primary = getElement('account-gate-primary-btn');
+        if (primary) primary.focus({ preventScroll: true });
     }
 
     function cleanEmail(value) {
@@ -310,10 +389,28 @@
         bindClick('account-inline-create-btn', () => showMode('create'));
         bindClick('account-signout-btn', () => signOut());
         bindClick('account-switch-btn', () => signOut({ switchAccount: true }));
+        bindClick('account-gate-close-btn', closeAccountPrompt);
+        bindClick('account-gate-primary-btn', () => focusAccountForm('create'));
+        bindClick('account-gate-secondary-btn', () => focusAccountForm('signin'));
 
         bindSubmit('account-signin-form', signInWithEmail);
         bindSubmit('account-create-form', createAccount);
         bindSubmit('account-reset-form', sendPasswordReset);
+
+        const accountGateOverlay = getElement('account-gate-overlay');
+        if (accountGateOverlay && accountGateOverlay.dataset.accountOverlayBound !== 'true') {
+            accountGateOverlay.dataset.accountOverlayBound = 'true';
+            accountGateOverlay.addEventListener('click', (event) => {
+                if (event.target === accountGateOverlay) closeAccountPrompt();
+            });
+        }
+
+        document.addEventListener('keydown', (event) => {
+            const overlay = getElement('account-gate-overlay');
+            if (event.key === 'Escape' && overlay && overlay.classList.contains('active')) {
+                closeAccountPrompt();
+            }
+        });
 
         showMode('signin', { focus: false });
         subscribePremiumState();
@@ -323,6 +420,8 @@
     window.BARK.authAccountUi = {
         initAuthAccountUi,
         showMode,
+        openAccountPrompt,
+        closeAccountPrompt,
         refreshAccountDisplay,
         signOut
     };

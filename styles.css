@@ -1430,6 +1430,22 @@ body.app-tab-active #slide-panel {
     stroke: white;
 }
 
+#mark-visited-btn.account-locked,
+#verify-checkin-btn.account-locked {
+    opacity: 0.68 !important;
+    filter: grayscale(0.2);
+    cursor: pointer;
+    box-shadow: none !important;
+}
+
+#mark-visited-btn.account-locked {
+    background-color: #94a3b8 !important;
+}
+
+#verify-checkin-btn.account-locked {
+    background-color: #94a3b8 !important;
+}
+
 .swag-link-btn {
     display: inline-block;
     background-color: var(--color-tag, #2196F3);
@@ -1862,6 +1878,165 @@ body.app-tab-active #slide-panel {
 
 .paywall-overlay[data-paywall-state="premium"] .paywall-feature-list {
     display: none;
+}
+
+.account-gate-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10021;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(15, 23, 42, 0.62);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.account-gate-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.account-gate-modal {
+    position: relative;
+    width: min(100%, 420px);
+    max-height: 88vh;
+    overflow-y: auto;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #1e293b;
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.32);
+    padding: 24px;
+}
+
+.account-gate-close-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.account-gate-eyebrow {
+    width: fit-content;
+    max-width: calc(100% - 48px);
+    margin-bottom: 10px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0;
+}
+
+.account-gate-modal h2 {
+    margin: 0 42px 10px 0;
+    color: #0f172a;
+    font-size: 24px;
+    line-height: 1.1;
+    font-weight: 900;
+}
+
+.account-gate-body-copy {
+    margin: 0 0 16px;
+    color: #475569;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.account-gate-feature-list {
+    display: grid;
+    gap: 8px;
+    margin: 0 0 18px;
+    padding: 0;
+    list-style: none;
+}
+
+.account-gate-feature-list li {
+    position: relative;
+    min-height: 24px;
+    padding-left: 26px;
+    color: #334155;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.account-gate-feature-list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #dbeafe;
+    border: 1px solid #93c5fd;
+}
+
+.account-gate-feature-list li::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: 6px;
+    width: 5px;
+    height: 9px;
+    border: solid #2563eb;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.account-gate-actions {
+    display: grid;
+    gap: 10px;
+}
+
+.account-gate-primary-btn,
+.account-gate-secondary-btn {
+    min-height: 44px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.account-gate-primary-btn {
+    border: 0;
+    background: #2563eb;
+    color: white;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
+}
+
+.account-gate-secondary-btn {
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #475569;
+}
+
+.account-gate-support-copy {
+    margin: 14px 0 0;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.account-gate-source {
+    margin-top: 10px;
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0;
 }
 
 /* Virtual Expedition Progress Bar */

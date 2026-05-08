@@ -23,6 +23,11 @@ window.BARK.getTrailsData = getTrailsData;
 let virtualTrailLayerGroup = null;
 let completedTrailsLayerGroup = null;
 
+const EMPTY_WALK_HISTORY_TEXT = 'No miles logged yet.';
+const EMPTY_MANAGE_WALKS_TEXT = 'No walks logged yet.';
+const EMPTY_COMPLETED_EXPEDITIONS_TEXT = 'No expeditions completed yet. Spin the wheel to start!';
+let resetWalkTrackerRuntime = function () {};
+
 function getMapRef() {
     return (typeof window.map !== 'undefined') ? window.map : null;
 }
@@ -51,6 +56,23 @@ function isExpeditionPremiumUnlocked() {
     return isPremiumEntitlementActive();
 }
 
+function getCurrentFirebaseUser() {
+    return typeof firebase !== 'undefined' && firebase.auth
+        ? firebase.auth().currentUser
+        : null;
+}
+
+function openFreeAccountPrompt(source) {
+    const accountUi = window.BARK && window.BARK.authAccountUi;
+    if (accountUi && typeof accountUi.openAccountPrompt === 'function') {
+        accountUi.openAccountPrompt({ source: source || 'expedition' });
+        return;
+    }
+
+    const profileTab = document.querySelector('.nav-item[data-target="profile-view"]');
+    if (profileTab) profileTab.click();
+}
+
 function blockLockedTrailToggle(button) {
     if (button) {
         button.classList.remove('active');
@@ -61,36 +83,96 @@ function blockLockedTrailToggle(button) {
     removeTrailLayerGroup(completedTrailsLayerGroup);
 }
 
-function resetExpeditionRuntimeState() {
-    removeTrailLayerGroup(virtualTrailLayerGroup);
-    removeTrailLayerGroup(completedTrailsLayerGroup);
+function setDisplay(id, value) {
+    const element = document.getElementById(id);
+    if (element) element.style.display = value;
+}
 
-    if (virtualTrailLayerGroup && typeof virtualTrailLayerGroup.clearLayers === 'function') {
-        virtualTrailLayerGroup.clearLayers();
-    }
-    if (completedTrailsLayerGroup && typeof completedTrailsLayerGroup.clearLayers === 'function') {
-        completedTrailsLayerGroup.clearLayers();
-    }
+function resetActiveExpeditionUi() {
+    setDisplay('expedition-intro-state', 'block');
+    setDisplay('expedition-active-state', 'none');
+    setDisplay('expedition-complete-state', 'none');
 
-    const virtualToggle = document.getElementById('toggle-virtual-trail');
-    const completedToggle = document.getElementById('toggle-completed-trails');
-    if (virtualToggle) virtualToggle.classList.remove('active');
-    if (completedToggle) completedToggle.classList.remove('active');
-
-    window.lastActiveTrailId = null;
-    window.lastMilesCompleted = 0;
-
-    const introState = document.getElementById('expedition-intro-state');
-    const activeState = document.getElementById('expedition-active-state');
-    const completeState = document.getElementById('expedition-complete-state');
     const nameEl = document.getElementById('expedition-name');
-    if (introState) introState.style.display = 'block';
-    if (activeState) activeState.style.display = 'none';
-    if (completeState) completeState.style.display = 'none';
     if (nameEl) {
         nameEl.textContent = '';
         delete nameEl.dataset.trailName;
     }
+
+    const celebrationName = document.getElementById('celebration-trail-name');
+    if (celebrationName) celebrationName.textContent = '';
+
+    const fillEl = document.getElementById('expedition-fill');
+    if (fillEl) fillEl.style.width = '0%';
+
+    const progressText = document.getElementById('expedition-progress-text');
+    if (progressText) progressText.textContent = '0.0 / 0.0 Miles (0.0%)';
+
+    const lifetimeEl = document.getElementById('lifetime-miles-display');
+    if (lifetimeEl) lifetimeEl.textContent = '0.0 mi';
+
+    const milesInput = document.getElementById('miles-input');
+    if (milesInput) milesInput.value = '';
+
+    const trainingBtn = document.getElementById('training-action-btn');
+    if (trainingBtn) {
+        trainingBtn.textContent = 'Start Walk';
+        trainingBtn.className = 'glass-btn training-btn';
+    }
+
+    setDisplay('cancel-training-btn', 'none');
+
+    const trainingDesc = document.getElementById('training-desc');
+    if (trainingDesc) {
+        trainingDesc.innerHTML = 'Start walking away from home. Log your turnaround point to calculate total distance and earn <strong style="color: #f59e0b;">+0.5 PTS</strong>.';
+    }
+}
+
+function resetWalkHistorySurfaces() {
+    const historyList = document.getElementById('expedition-history-list');
+    if (historyList) {
+        appendExpeditionEmptyState(historyList, 'li', EMPTY_WALK_HISTORY_TEXT, 'color: #94a3b8; font-size: 11px; text-align: center; padding: 10px 0; font-style: italic;');
+    }
+
+    const masterCount = document.getElementById('manage-walks-count');
+    if (masterCount) masterCount.textContent = '0';
+
+    const masterList = document.getElementById('manage-walks-list');
+    if (masterList) {
+        appendExpeditionEmptyState(masterList, 'div', EMPTY_MANAGE_WALKS_TEXT, 'color: #94a3b8; font-size: 12px; text-align: center; padding: 20px; font-style: italic;');
+    }
+}
+
+function resetActiveExpeditionRuntimeState() {
+    removeTrailLayerGroup(virtualTrailLayerGroup);
+    resetWalkTrackerRuntime();
+
+    if (virtualTrailLayerGroup && typeof virtualTrailLayerGroup.clearLayers === 'function') {
+        virtualTrailLayerGroup.clearLayers();
+    }
+
+    const virtualToggle = document.getElementById('toggle-virtual-trail');
+    if (virtualToggle) virtualToggle.classList.remove('active');
+
+    window.lastActiveTrailId = null;
+    window.lastMilesCompleted = 0;
+
+    resetActiveExpeditionUi();
+}
+
+function resetExpeditionRuntimeState() {
+    resetActiveExpeditionRuntimeState();
+    removeTrailLayerGroup(completedTrailsLayerGroup);
+
+    if (completedTrailsLayerGroup && typeof completedTrailsLayerGroup.clearLayers === 'function') {
+        completedTrailsLayerGroup.clearLayers();
+    }
+
+    const completedToggle = document.getElementById('toggle-completed-trails');
+    if (completedToggle) completedToggle.classList.remove('active');
+
+    resetWalkHistorySurfaces();
+    renderCompletedExpeditions([]);
 }
 
 function ensureTrailLayerGroups() {
@@ -201,6 +283,7 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
 
 window.BARK.renderVirtualTrailOverlay = renderVirtualTrailOverlay;
 window.BARK.renderCompletedTrailsOverlay = renderCompletedTrailsOverlay;
+window.BARK.resetActiveExpeditionRuntimeState = resetActiveExpeditionRuntimeState;
 window.BARK.resetExpeditionRuntimeState = resetExpeditionRuntimeState;
 
 // ====== TRAIL TOGGLE BUTTONS ======
@@ -307,8 +390,8 @@ function initSpinWheel() {
     const spinBtn = document.getElementById('spin-wheel-btn');
     if (spinBtn) {
         spinBtn.addEventListener('click', async () => {
-            const user = firebase.auth().currentUser;
-            if (!user) { alert("Please sign in to start your expedition!"); return; }
+            const user = getCurrentFirebaseUser();
+            if (!user) { openFreeAccountPrompt('expedition'); return; }
 
             spinBtn.textContent = '🎡 Spinning...';
             spinBtn.disabled = true;
@@ -419,8 +502,11 @@ async function processMileageAddition(milesToAdd, typeLabel) {
         return false;
     }
 
-    const user = firebase.auth().currentUser;
-    if (!user) return false;
+    const user = getCurrentFirebaseUser();
+    if (!user) {
+        openFreeAccountPrompt('expedition');
+        return false;
+    }
     const userRef = firebase.firestore().collection('users').doc(user.uid);
     window.BARK.incrementRequestCount();
 
@@ -648,7 +734,7 @@ function renderExpeditionHistory(historyArray, activeTrailName = "Expedition") {
     if (list) {
         const currentTrailLogs = safeHistory.filter(log => log.trailName && log.trailName === activeTrailName);
         if (!currentTrailLogs || currentTrailLogs.length === 0) {
-            appendExpeditionEmptyState(list, 'li', 'No miles logged yet.', 'color: #94a3b8; font-size: 11px; text-align: center; padding: 10px 0; font-style: italic;');
+            appendExpeditionEmptyState(list, 'li', EMPTY_WALK_HISTORY_TEXT, 'color: #94a3b8; font-size: 11px; text-align: center; padding: 10px 0; font-style: italic;');
         } else {
             clearElement(list);
             currentTrailLogs.slice(0, 5).forEach(log => list.appendChild(createRecentWalkLogItem(log)));
@@ -660,7 +746,7 @@ function renderExpeditionHistory(historyArray, activeTrailName = "Expedition") {
     if (masterList) {
         if (masterCount) masterCount.textContent = safeHistory.length;
         if (!safeHistory || safeHistory.length === 0) {
-            appendExpeditionEmptyState(masterList, 'div', 'No walks logged yet.', 'color: #94a3b8; font-size: 12px; text-align: center; padding: 20px; font-style: italic;');
+            appendExpeditionEmptyState(masterList, 'div', EMPTY_MANAGE_WALKS_TEXT, 'color: #94a3b8; font-size: 12px; text-align: center; padding: 20px; font-style: italic;');
             return;
         }
 
@@ -681,8 +767,8 @@ window.BARK.renderExpeditionHistory = renderExpeditionHistory;
 
 // ====== EDIT/DELETE WALKS ======
 window.editWalkMiles = async function (timestamp) {
-    const user = firebase.auth().currentUser;
-    if (!user) return;
+    const user = getCurrentFirebaseUser();
+    if (!user) { openFreeAccountPrompt('expedition'); return; }
     const userRef = firebase.firestore().collection('users').doc(user.uid);
     try {
         const doc = await userRef.get();
@@ -738,8 +824,8 @@ window.editWalkMiles = async function (timestamp) {
 
 window.deleteWalkLog = async function (timestamp) {
     if (!confirm("Are you sure? Removing this walk will subtract these miles from your progress, but you keep your reward points.")) return;
-    const user = firebase.auth().currentUser;
-    if (!user) return;
+    const user = getCurrentFirebaseUser();
+    if (!user) { openFreeAccountPrompt('expedition'); return; }
     const userRef = firebase.firestore().collection('users').doc(user.uid);
     try {
         const doc = await userRef.get();
@@ -770,8 +856,8 @@ window.deleteWalkLog = async function (timestamp) {
 
 // ====== CLAIM REWARD ======
 window.claimRewardAndReset = async function () {
-    const user = firebase.auth().currentUser;
-    if (!user) return;
+    const user = getCurrentFirebaseUser();
+    if (!user) { openFreeAccountPrompt('expedition'); return; }
     const userRef = firebase.firestore().collection('users').doc(user.uid);
     try {
         const docSnap = await userRef.get();
@@ -803,11 +889,17 @@ function renderCompletedExpeditions(expeditionsArray) {
     const grid = document.getElementById('completed-expeditions-grid');
     const caseEl = document.getElementById('expedition-trophy-case');
     if (!grid || !caseEl) return;
-    if (!expeditionsArray || expeditionsArray.length === 0) { caseEl.style.display = 'none'; return; }
+    const safeExpeditions = Array.isArray(expeditionsArray) ? expeditionsArray : [];
+    if (safeExpeditions.length === 0) {
+        caseEl.style.display = 'none';
+        appendExpeditionEmptyState(grid, 'div', EMPTY_COMPLETED_EXPEDITIONS_TEXT, 'font-size: 11px; color: #94a3b8; font-style: italic; width: 100%; text-align: center; padding: 10px 0;');
+        return;
+    }
+
     caseEl.style.display = 'block';
     clearElement(grid);
 
-    expeditionsArray.forEach(exp => {
+    safeExpeditions.forEach(exp => {
         const name = exp.name || exp.trail_name || "Expedition";
         const rawDate = exp.date_completed || exp.ts || Date.now();
         const dateStr = new Date(rawDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
@@ -846,6 +938,10 @@ const WalkTracker = {
     isBlackedOut: false, blackoutStartTime: 0, boundVisibilityHandler: null,
 
     async start() {
+        if (!getCurrentFirebaseUser()) {
+            openFreeAccountPrompt('expedition');
+            return;
+        }
         if (!navigator.geolocation) return alert('GPS not supported');
         this.points = []; this.totalMiles = 0; this.lastValidLocation = null;
         try { if ('wakeLock' in navigator) this.wakeLock = await navigator.wakeLock.request('screen'); } catch (err) { console.warn('Wake Lock failed/denied:', err); }
@@ -936,6 +1032,10 @@ const WalkTracker = {
         const floatDistEl = document.getElementById('floating-distance');
         if (floatDistEl) floatDistEl.textContent = this.totalMiles.toFixed(2);
     }
+};
+
+resetWalkTrackerRuntime = function () {
+    WalkTracker.cleanup();
 };
 
 window.handleTrainingClick = function () {

@@ -131,6 +131,17 @@ function openRoutePremiumPaywall() {
     alert('Premium is required to generate driving routes.');
 }
 
+function openFreeAccountPrompt(source) {
+    const accountUi = window.BARK && window.BARK.authAccountUi;
+    if (accountUi && typeof accountUi.openAccountPrompt === 'function') {
+        accountUi.openAccountPrompt({ source });
+        return;
+    }
+
+    const profileTab = document.querySelector('.nav-item[data-target="profile-view"]');
+    if (profileTab) profileTab.click();
+}
+
 function updateRouteGenerationButtonState() {
     const button = window.BARK.DOM.startRouteBtn();
     if (!button) return;
@@ -726,7 +737,10 @@ function initTripPlanner() {
 
     async function saveCurrentTrip() {
         const user = (typeof firebase !== 'undefined') ? firebase.auth().currentUser : null;
-        if (!user) { alert('Please sign in to save routes.'); return false; }
+        if (!user) {
+            openFreeAccountPrompt('saved-route');
+            return false;
+        }
         window.BARK.incrementRequestCount();
         if (getTotalStops() === 0) { alert('Nothing to save — add some stops first!'); return false; }
         const nameInput = window.BARK.DOM.tripNameInput();
