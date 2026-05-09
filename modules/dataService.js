@@ -26,6 +26,10 @@ const CSV_COLUMNS = {
 
 const SWAG_TYPE_COLUMNS = ['Swag Type', 'Swag', 'Swag Available'];
 const STATIC_FALLBACK_CSV_URL = 'assets/data/bark-fallback.csv';
+const MISSING_COORDINATE_OVERRIDES = {
+    // Official NC State Parks map lists GPS: 35.2354, -77.8932.
+    '38e0a9bb-4365-4d84-87ea-cca3bde06435': { lat: 35.2354, lng: -77.8932 }
+};
 let staticFallbackLoadInFlight = null;
 
 function cleanCSVValue(value) {
@@ -95,11 +99,20 @@ function isCanonicalParkId(id) {
     return Boolean(value && value.toLowerCase() !== 'unknown' && !isLegacyParkId(value));
 }
 
+function getMissingCoordinateOverride(item) {
+    const parkId = getParkId(item);
+    if (!parkId) return null;
+    return MISSING_COORDINATE_OVERRIDES[parkId] || null;
+}
+
 function processParsedResults(results) {
     const newAllPoints = [];
     const seenParkIds = new Set();
     let missingParkIdCount = 0;
     let duplicateParkIdCount = 0;
+    let missingCoordinateCount = 0;
+    let coordinateOverrideCount = 0;
+    const missingCoordinateSamples = [];
 
     results.data.forEach((rawItem, rowIndex) => {
         try {
@@ -114,18 +127,33 @@ function processParsedResults(results) {
             const video = item.video;
             let lat = item.lat;
             let lng = item.lng;
+            const id = getParkId(item);
 
             if (name && name.includes('War in the Pacific')) {
                 lat = 13.402746;
                 lng = 144.6632005;
             }
 
-            if (!lat || !lng) return;
+            if (!lat || !lng) {
+                const coordinateOverride = getMissingCoordinateOverride(item);
+                if (coordinateOverride) {
+                    lat = coordinateOverride.lat;
+                    lng = coordinateOverride.lng;
+                    coordinateOverrideCount++;
+                }
+            }
+
+            if (!lat || !lng) {
+                missingCoordinateCount++;
+                if (missingCoordinateSamples.length < 5) {
+                    missingCoordinateSamples.push({ rowNumber: rowIndex + 2, id, name });
+                }
+                return;
+            }
 
             const swagType = item.swagType;
             const parkCategory = window.BARK.getParkCategory(category);
 
-            const id = getParkId(item);
             if (!id) {
                 missingParkIdCount++;
                 return;
@@ -166,6 +194,14 @@ function processParsedResults(results) {
     }
     if (duplicateParkIdCount > 0) {
         console.warn(`[dataService] Skipped ${duplicateParkIdCount} duplicate Park ID row(s). Check the sheet before publishing.`);
+    }
+    if (missingCoordinateCount > 0) {
+        console.warn(`[dataService] Skipped ${missingCoordinateCount} row(s) without coordinates. Add lat/lng before publishing new parks.`, {
+            sampleRows: missingCoordinateSamples
+        });
+    }
+    if (coordinateOverrideCount > 0 && window.BARK.debugDataRefresh === true) {
+        console.info(`[dataService] Repaired ${coordinateOverrideCount} known row(s) with missing coordinates.`);
     }
 
     const parkRepo = window.BARK.repos && window.BARK.repos.ParkRepo;

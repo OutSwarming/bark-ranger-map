@@ -46,3 +46,11 @@ test('hosted fallback CSV is deployable and contains canonical park ids', () => 
     const lineCount = contents.split(/\r?\n/).filter(Boolean).length;
     assert.ok(lineCount > 300, `${hostedFallbackCsv.path} should contain the official fallback dataset`);
 });
+
+test('hosted fallback CSV keeps coordinates for Cliffs of the Neuse', () => {
+    const contents = fs.readFileSync(hostedFallbackCsv.path, 'utf8');
+    const cliffsLine = contents.split(/\r?\n/).find(line => line.startsWith('Cliffs of the Neuse State Park,'));
+
+    assert.ok(cliffsLine, 'Cliffs of the Neuse State Park must be present in the hosted fallback CSV');
+    assert.match(cliffsLine, /,35\.2354,-77\.8932,/, 'Cliffs of the Neuse State Park must keep its lat/lng populated');
+});

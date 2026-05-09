@@ -3,6 +3,9 @@ class GamificationEngine {
         this.eastCoastStates = ['ME', 'NH', 'MA', 'RI', 'CT', 'NY', 'NJ', 'DE', 'MD', 'VA', 'NC', 'SC', 'GA', 'FL'];
         this.westCoastStates = ['WA', 'OR', 'CA'];
         this.stateCanonicalCounts = config.stateCanonicalCounts || {};
+        this.parkSiteKeyById = new Map();
+        this.totalSystemParks = Number.isFinite(Number(config.totalSystemParks)) ? Number(config.totalSystemParks) : 0;
+        this.totalRawParkRows = 0;
         this.statesMetadata = {
             'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas', 'CA': 'California',
             'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware', 'FL': 'Florida', 'GA': 'Georgia',
@@ -30,7 +33,17 @@ class GamificationEngine {
 
     // Bulletproof lookup: Translates "Florida" -> "FL"
     getNormalizedStateCode(stateStr) {
-        let st = String(stateStr).trim().toUpperCase();
+        let st = String(stateStr || '').trim().toUpperCase().replace(/\s+/g, ' ');
+        const aliases = {
+            'MISSIPPI': 'MS',
+            'D.C.': 'DC',
+            'D.C': 'DC',
+            'DC': 'DC',
+            'DISTRICT OF COLUMBIA': 'DC',
+            'WASHINGTON DC': 'DC',
+            'WASHINGTON D.C.': 'DC'
+        };
+        if (aliases[st]) st = aliases[st];
         if (this.statesMetadata[st]) return st; 
         for (let code in this.statesMetadata) {
             if (this.statesMetadata[code].toUpperCase() === st) return code;
@@ -38,41 +51,151 @@ class GamificationEngine {
         return null; 
     }
 
+    getStateFragments(stateStr) {
+        const stateText = String(stateStr || '').trim();
+        if (!stateText) return [];
+
+        return stateText
+            .replace(/\bWashington\s*,\s*D\.?C\.?\b/gi, 'District of Columbia')
+            .split(/[,/]/)
+            .map(s => s.trim())
+            .filter(Boolean);
+    }
+
+    getNormalizedStateCodes(stateStr) {
+        return this.getStateFragments(stateStr)
+            .map(s => this.getNormalizedStateCode(s))
+            .filter(Boolean);
+    }
+
+    getNormalizedSiteName(value) {
+        return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+    }
+
+    getCoordinateKey(lat, lng) {
+        const parsedLat = Number(lat);
+        const parsedLng = Number(lng);
+        if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return '';
+        return `${parsedLat.toFixed(5)},${parsedLng.toFixed(5)}`;
+    }
+
+    getSiteIdentityKey(place) {
+        if (!place || typeof place !== 'object') return '';
+
+        const nameKey = this.getNormalizedSiteName(place.name);
+        const coordinateKey = this.getCoordinateKey(place.lat, place.lng);
+        if (nameKey && coordinateKey) return `${nameKey}|${coordinateKey}`;
+        if (place.id) return `id:${place.id}`;
+        if (nameKey) return `name:${nameKey}`;
+        if (coordinateKey) return `coords:${coordinateKey}`;
+        return '';
+    }
+
+    getCanonicalPointForVisit(visit) {
+        const parkRepo = window.BARK && window.BARK.repos && window.BARK.repos.ParkRepo;
+        if (!visit || !visit.id || !parkRepo || typeof parkRepo.getById !== 'function') return null;
+        return parkRepo.getById(visit.id);
+    }
+
+    getVisitSiteIdentityKey(visit) {
+        const canonicalPoint = this.getCanonicalPointForVisit(visit);
+        return this.getSiteIdentityKey(canonicalPoint || visit);
+    }
+
+    getVisitStateCodes(visit) {
+        const canonicalPoint = this.getCanonicalPointForVisit(visit);
+        return this.getNormalizedStateCodes((canonicalPoint && canonicalPoint.state) || (visit && visit.state));
+    }
+
+    getVisitProgressMaps(visitedParksArray) {
+        const totalSiteKeys = new Set();
+        const verifiedSiteKeys = new Set();
+        const stateVisitSets = {};
+        const stateVerifiedSets = {};
+
+        visitedParksArray.forEach((park, index) => {
+            if (!park || typeof park !== 'object') return;
+
+            const siteKey = this.getVisitSiteIdentityKey(park) || `visit:${index}`;
+            totalSiteKeys.add(siteKey);
+            if (park.verified) verifiedSiteKeys.add(siteKey);
+
+            this.getVisitStateCodes(park).forEach(stClean => {
+                stateVisitSets[stClean] = stateVisitSets[stClean] || new Set();
+                stateVisitSets[stClean].add(siteKey);
+
+                if (park.verified) {
+                    stateVerifiedSets[stClean] = stateVerifiedSets[stClean] || new Set();
+                    stateVerifiedSets[stClean].add(siteKey);
+                }
+            });
+        });
+
+        const toCountMap = sets => Object.keys(sets).reduce((acc, code) => {
+            acc[code] = sets[code].size;
+            return acc;
+        }, {});
+
+        return {
+            totalVisitedSites: totalSiteKeys.size,
+            verifiedVisitedSites: verifiedSiteKeys.size,
+            stateVisitsTotalMap: toCountMap(stateVisitSets),
+            stateVisitsVerifiedMap: toCountMap(stateVerifiedSets)
+        };
+    }
+
     // Replaces the messy logic in app.js
     updateCanonicalCountsFromPoints(points) {
-        const counts = {};
+        const stateSiteSets = {};
+        const totalSiteKeys = new Set();
+        const nextParkSiteKeyById = new Map();
+
         points.forEach(p => {
-            if (p.state) {
-                const sts = String(p.state).split(/[,/]/);
-                sts.forEach(s => {
-                    const stClean = this.getNormalizedStateCode(s);
-                    if (stClean) counts[stClean] = (counts[stClean] || 0) + 1;
-                });
-            }
+            const siteKey = this.getSiteIdentityKey(p);
+            if (!siteKey) return;
+
+            totalSiteKeys.add(siteKey);
+            if (p.id) nextParkSiteKeyById.set(p.id, siteKey);
+
+            this.getNormalizedStateCodes(p.state).forEach(stClean => {
+                stateSiteSets[stClean] = stateSiteSets[stClean] || new Set();
+                stateSiteSets[stClean].add(siteKey);
+            });
         });
+
+        const counts = {};
+        Object.keys(stateSiteSets).forEach(code => {
+            counts[code] = stateSiteSets[code].size;
+        });
+
+        if (window.BARK && window.BARK.debugDataRefresh === true && totalSiteKeys.size !== points.length) {
+            console.info('[gamification] Collapsed duplicate physical sites for achievement totals.', {
+                rawRows: points.length,
+                uniqueSites: totalSiteKeys.size
+            });
+        }
+
+        this.parkSiteKeyById = nextParkSiteKeyById;
+        this.totalRawParkRows = points.length;
         this.stateCanonicalCounts = counts;
-        this.totalSystemParks = Object.values(counts).reduce((a, b) => a + b, 0);
+        this.totalSystemParks = totalSiteKeys.size;
+    }
+
+    getUniqueVisitCount(visitedParksArray) {
+        return this.getVisitProgressMaps(visitedParksArray).totalVisitedSites;
+    }
+
+    getVerifiedUniqueVisitCount(visitedParksArray) {
+        return this.getVisitProgressMaps(visitedParksArray).verifiedVisitedSites;
     }
 
     evaluate(visitedParksArray, userRank = null, walkPoints = 0) {
         const scoreSummary = window.BARK.calculateVisitScore(visitedParksArray, walkPoints);
+        const visitProgress = this.getVisitProgressMaps(visitedParksArray);
         let totalScore = scoreSummary.totalScore;
-        let verifiedCount = scoreSummary.verifiedCount;
-        let stateVisitsTotalMap = {};
-        let stateVisitsVerifiedMap = {};
-
-        visitedParksArray.forEach(park => {
-            if (park.state) {
-                const stArray = String(park.state).split(/[,/]/);
-                stArray.forEach(s => {
-                    const stClean = this.getNormalizedStateCode(s);
-                    if (stClean) {
-                        stateVisitsTotalMap[stClean] = (stateVisitsTotalMap[stClean] || 0) + 1;
-                        if (park.verified) stateVisitsVerifiedMap[stClean] = (stateVisitsVerifiedMap[stClean] || 0) + 1;
-                    }
-                });
-            }
-        });
+        let verifiedCount = visitProgress.verifiedVisitedSites;
+        let stateVisitsTotalMap = visitProgress.stateVisitsTotalMap;
+        let stateVisitsVerifiedMap = visitProgress.stateVisitsVerifiedMap;
 
         const sortBadges = (arr) => {
             return arr.sort((a, b) => {
@@ -87,17 +210,19 @@ class GamificationEngine {
             .filter(p => p.ts)
             .sort((a, b) => a.ts - b.ts);
 
+        const totalParks = Math.max(this.totalSystemParks || 1, 1);
+
         return {
             totalScore: totalScore,
             title: this.calculateTitle(totalScore),
-            paws: sortBadges(this.calculatePaws(visitedParksArray.length, verifiedCount)),
+            paws: sortBadges(this.calculatePaws(visitProgress.totalVisitedSites, verifiedCount)),
             rareFeats: sortBadges(this.calculateRareFeats(stateVisitsTotalMap, stateVisitsVerifiedMap)),
             stateBadges: sortBadges(this.calculateStateBadges(stateVisitsTotalMap, stateVisitsVerifiedMap)),
-            mysteryFeats: this.calculateMysteryFeats(visitedParksArray, userRank, sortedVisits),
-            nationalProgress: { 
-                totalVisited: visitedParksArray.length, 
-                totalParks: this.totalSystemParks || 1, 
-                percentComplete: Math.floor((visitedParksArray.length / Math.max(this.totalSystemParks || 1, 1)) * 100) 
+            mysteryFeats: this.calculateMysteryFeats(visitedParksArray, userRank, sortedVisits, visitProgress),
+            nationalProgress: {
+                totalVisited: visitProgress.totalVisitedSites,
+                totalParks: this.totalSystemParks || 1,
+                percentComplete: Math.floor((visitProgress.totalVisitedSites / totalParks) * 100)
             }
         };
     }
@@ -243,8 +368,11 @@ class GamificationEngine {
         });
     }
 
-    calculateMysteryFeats(vArray, userRank, sortedVisits = []) {
+    calculateMysteryFeats(vArray, userRank, sortedVisits = [], visitProgress = {}) {
         const check = (cond, vCond) => ({ status: cond ? 'unlocked' : 'locked', tier: vCond ? 'verified' : 'honor' });
+        const uniqueVisitedSites = Number.isFinite(Number(visitProgress.totalVisitedSites))
+            ? Number(visitProgress.totalVisitedSites)
+            : vArray.length;
         
         // Use pre-sorted visits and linear sliding window for marathoner
         let marathoner = false;
@@ -275,10 +403,10 @@ class GamificationEngine {
                 hint: 'Leave no stone unturned. Visit every single official site on the map.', 
                 icon: '🗺️', 
                 criteria: 'Visit 100% of Map',
-                status: (vArray.length >= (this.totalSystemParks || 1) && (this.totalSystemParks || 0) > 0) ? 'unlocked' : 'locked', 
-                tier: (vArray.length >= (this.totalSystemParks || 1)) ? 'verified' : 'honor', 
+                status: (uniqueVisitedSites >= (this.totalSystemParks || 1) && (this.totalSystemParks || 0) > 0) ? 'unlocked' : 'locked',
+                tier: (uniqueVisitedSites >= (this.totalSystemParks || 1)) ? 'verified' : 'honor',
                 isMystery: true, 
-                dateEarnedTs: (vArray.length >= (this.totalSystemParks || 1)) ? this._getStableTimestamp('mapConqueror') : 0 
+                dateEarnedTs: (uniqueVisitedSites >= (this.totalSystemParks || 1)) ? this._getStableTimestamp('mapConqueror') : 0
             }
         ];
     }
