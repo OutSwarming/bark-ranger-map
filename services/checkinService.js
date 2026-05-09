@@ -4,7 +4,7 @@
 window.BARK = window.BARK || {};
 window.BARK.services = window.BARK.services || {};
 
-const FREE_VISIT_LIMIT = 20;
+const FREE_VISIT_LIMIT = 5;
 
 function getLocationCoords(userLocation) {
     const source = userLocation && userLocation.coords ? userLocation.coords : userLocation;

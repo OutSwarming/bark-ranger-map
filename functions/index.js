@@ -1,5 +1,6 @@
 const functions = require('firebase-functions/v1');
 const admin = require("firebase-admin");
+const { FieldValue, Timestamp } = require("firebase-admin/firestore");
 const axios = require("axios");
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { google } = require('googleapis');
@@ -15,6 +16,23 @@ const ADMIN_CALLABLE_OPTIONS = {};
 const ADMIN_RATE_LIMITS = {
     extractParkData: { maxRequests: 20, windowMs: 60 * 1000 },
     syncToSpreadsheet: { maxRequests: 10, windowMs: 60 * 1000 }
+};
+
+const PREMIUM_CALLABLE_RATE_LIMITS = {
+    getPremiumRoute: {
+        maxRequests: 30,
+        windowMs: 60 * 60 * 1000,
+        envMaxKey: "BARK_RATE_LIMIT_PREMIUM_ROUTE_MAX",
+        envWindowKey: "BARK_RATE_LIMIT_PREMIUM_ROUTE_WINDOW_MS",
+        message: "Route generation limit reached. Please try again shortly."
+    },
+    getPremiumGeocode: {
+        maxRequests: 120,
+        windowMs: 60 * 60 * 1000,
+        envMaxKey: "BARK_RATE_LIMIT_PREMIUM_GEOCODE_MAX",
+        envWindowKey: "BARK_RATE_LIMIT_PREMIUM_GEOCODE_WINDOW_MS",
+        message: "Global town search limit reached. Please try again shortly."
+    }
 };
 
 const FUNCTION_FLAG_CONFIG = Object.freeze({
@@ -102,10 +120,10 @@ async function enforceAdminRateLimit(uid, action) {
             uid,
             action,
             count: currentCount + 1,
-            windowStart: admin.firestore.Timestamp.fromMillis(windowStart),
-            windowEndsAt: admin.firestore.Timestamp.fromMillis(windowEndsAt),
-            expiresAt: admin.firestore.Timestamp.fromMillis(windowEndsAt + 24 * 60 * 60 * 1000),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            windowStart: Timestamp.fromMillis(windowStart),
+            windowEndsAt: Timestamp.fromMillis(windowEndsAt),
+            expiresAt: Timestamp.fromMillis(windowEndsAt + 24 * 60 * 60 * 1000),
+            updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
     });
 }
@@ -132,7 +150,81 @@ function requireAuthCallable(context) {
     return uid;
 }
 
-const PREMIUM_ENTITLEMENT_STATUSES = new Set(["active", "manual_active"]);
+function parsePositiveInteger(value, fallback) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getPremiumCallableRateLimit(action, options = {}) {
+    const defaults = PREMIUM_CALLABLE_RATE_LIMITS[action];
+    if (!defaults) return null;
+
+    const optionLimits = options.premiumCallableRateLimits || {};
+    const override = optionLimits && typeof optionLimits[action] === "object" ? optionLimits[action] : {};
+    const env = options.env || process.env;
+
+    return {
+        maxRequests: parsePositiveInteger(
+            override.maxRequests === undefined ? env[defaults.envMaxKey] : override.maxRequests,
+            defaults.maxRequests
+        ),
+        windowMs: parsePositiveInteger(
+            override.windowMs === undefined ? env[defaults.envWindowKey] : override.windowMs,
+            defaults.windowMs
+        ),
+        message: typeof override.message === "string" && override.message.trim()
+            ? override.message.trim()
+            : defaults.message
+    };
+}
+
+function getRateLimitRetrySeconds(windowEndsAt, now) {
+    return Math.max(1, Math.ceil((windowEndsAt - now) / 1000));
+}
+
+async function enforcePremiumCallableRateLimit(uid, action, options = {}) {
+    const limit = getPremiumCallableRateLimit(action, options);
+    if (!limit) return;
+
+    const db = options.firestore || admin.firestore();
+    if (!db || typeof db.runTransaction !== "function") {
+        console.error("[premiumRateLimit] Firestore transaction support is unavailable.", { uid, action });
+        throw new functions.https.HttpsError("internal", "Rate limit could not be verified.");
+    }
+
+    const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
+    const windowStart = Math.floor(now / limit.windowMs) * limit.windowMs;
+    const windowEndsAt = windowStart + limit.windowMs;
+    const safeUid = encodeURIComponent(uid);
+    const safeAction = encodeURIComponent(action);
+    const ref = db.collection("_premiumCallableRateLimits").doc(`${safeAction}_${safeUid}_${windowStart}`);
+
+    await db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(ref);
+        const currentCount = snapshot.exists ? Number(snapshot.data().count || 0) : 0;
+
+        if (currentCount >= limit.maxRequests) {
+            const retrySeconds = getRateLimitRetrySeconds(windowEndsAt, now);
+            throw new functions.https.HttpsError(
+                "resource-exhausted",
+                `${limit.message} Try again in ${retrySeconds} seconds.`
+            );
+        }
+
+        transaction.set(ref, {
+            uid,
+            action,
+            count: currentCount + 1,
+            limit: limit.maxRequests,
+            windowStart: Timestamp.fromMillis(windowStart),
+            windowEndsAt: Timestamp.fromMillis(windowEndsAt),
+            expiresAt: Timestamp.fromMillis(windowEndsAt + 24 * 60 * 60 * 1000),
+            updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+    });
+}
+
+const PREMIUM_ENTITLEMENT_STATUSES = new Set(["active", "manual_active", "past_due", "cancelled_active"]);
 
 function normalizeEntitlement(raw) {
     const value = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
@@ -556,9 +648,24 @@ const LEMONSQUEEZY_SUPPORTED_EVENTS = new Set([
     "subscription_payment_refunded",
     "order_refunded"
 ]);
+const LEMONSQUEEZY_PROCESSED_EVENTS_COLLECTION = "_lemonSqueezyWebhookEvents";
+const LEMONSQUEEZY_EVENT_STATUS_RANK = Object.freeze({
+    active: 100,
+    past_due: 200,
+    cancelled_active: 300,
+    canceled: 400,
+    expired: 500,
+    refunded: 600
+});
 
 function cleanOptionalString(value) {
     return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function cleanOptionalId(value) {
+    if (value === undefined || value === null) return null;
+    const text = String(value).trim();
+    return text || null;
 }
 
 function getLemonSqueezyConfig(options = {}) {
@@ -677,7 +784,7 @@ async function handleCreateCheckoutSession(requestOrData, context, options = {})
     }
 }
 
-function getHeaderValue(req, name) {
+function getRequestHeaderValue(req, name) {
     if (req && typeof req.get === "function") {
         const value = req.get(name);
         if (value) return value;
@@ -731,7 +838,7 @@ function deriveLemonSqueezyEventId(payload, rawBody) {
 
 function getLemonSqueezyEventName(payload, req) {
     const meta = payload && payload.meta && typeof payload.meta === "object" ? payload.meta : {};
-    return cleanOptionalString(meta.event_name) || cleanOptionalString(getHeaderValue(req, "X-Event-Name")) || "unknown";
+    return cleanOptionalString(meta.event_name) || cleanOptionalString(getRequestHeaderValue(req, "X-Event-Name")) || "unknown";
 }
 
 function getLemonSqueezyCustomData(payload) {
@@ -755,6 +862,19 @@ function getLemonSqueezyAttributes(payload) {
         : {};
 }
 
+function getLemonSqueezyVariantId(payload, attributes = getLemonSqueezyAttributes(payload)) {
+    const directVariantId = cleanOptionalId(attributes.variant_id) || cleanOptionalId(attributes.variantId);
+    if (directVariantId) return directVariantId;
+
+    const variantRelationship = payload &&
+        payload.data &&
+        payload.data.relationships &&
+        payload.data.relationships.variant &&
+        payload.data.relationships.variant.data;
+
+    return cleanOptionalId(variantRelationship && variantRelationship.id);
+}
+
 function getCurrentPeriodEnd(attributes) {
     return cleanOptionalString(attributes.ends_at) ||
         cleanOptionalString(attributes.renews_at) ||
@@ -767,6 +887,55 @@ function isFutureDate(value, nowMs = Date.now()) {
     if (!text) return false;
     const time = Date.parse(text);
     return Number.isFinite(time) && time > nowMs;
+}
+
+function parseLemonSqueezyDateMillis(value) {
+    const text = cleanOptionalString(value);
+    if (!text) return null;
+    const millis = Date.parse(text);
+    return Number.isFinite(millis) ? millis : null;
+}
+
+function getLemonSqueezyProviderEventMillis(payload, options = {}) {
+    const meta = payload && payload.meta && typeof payload.meta === "object" ? payload.meta : {};
+    const attributes = getLemonSqueezyAttributes(payload);
+    const candidates = [
+        meta.event_created_at,
+        meta.event_time,
+        meta.created_at,
+        meta.updated_at,
+        attributes.updated_at,
+        attributes.created_at
+    ];
+
+    for (const candidate of candidates) {
+        const millis = parseLemonSqueezyDateMillis(candidate);
+        if (millis !== null) return millis;
+    }
+
+    return Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+}
+
+function getLemonSqueezyEventRank(status) {
+    return LEMONSQUEEZY_EVENT_STATUS_RANK[status] || 0;
+}
+
+function buildLemonSqueezyEventDocId(eventId) {
+    return createHash("sha256").update(String(eventId)).digest("hex");
+}
+
+function isStaleLemonSqueezyEvent(existingEntitlement, mapping) {
+    const existingMillis = Number(existingEntitlement && existingEntitlement.lastProviderEventAtMs);
+    if (!Number.isFinite(existingMillis)) return false;
+
+    const incomingMillis = Number(mapping && mapping.providerEventAtMs);
+    if (!Number.isFinite(incomingMillis)) return false;
+    if (incomingMillis < existingMillis) return true;
+    if (incomingMillis > existingMillis) return false;
+
+    const existingRank = Number(existingEntitlement.lastProviderEventRank || 0);
+    const incomingRank = Number(mapping.providerEventRank || 0);
+    return incomingRank < existingRank;
 }
 
 function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
@@ -783,32 +952,39 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
         return { action: "ignore", reason: "store_mismatch" };
     }
 
+    const variantId = getLemonSqueezyVariantId(payload, attributes);
+    if (variantId && String(variantId) !== DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID) {
+        return { action: "ignore", reason: "variant_mismatch" };
+    }
+
     const providerStatus = cleanOptionalString(attributes.status);
     const normalizedStatus = providerStatus ? providerStatus.toLowerCase() : "";
     const currentPeriodEnd = getCurrentPeriodEnd(attributes);
+    const providerEventAtMs = getLemonSqueezyProviderEventMillis(payload, options);
+    const providerEventAt = new Date(providerEventAtMs).toISOString();
     let entitlement = null;
 
     if (eventName === "subscription_payment_success" || eventName === "subscription_payment_recovered") {
         entitlement = { premium: true, status: "active" };
     } else if (eventName === "subscription_payment_failed") {
-        entitlement = { premium: false, status: "past_due" };
+        entitlement = { premium: true, status: "past_due" };
     } else if (eventName === "subscription_expired") {
         entitlement = { premium: false, status: "expired" };
     } else if (eventName === "subscription_cancelled") {
         entitlement = isFutureDate(attributes.ends_at, options.nowMs)
-            ? { premium: true, status: "active" }
+            ? { premium: true, status: "cancelled_active" }
             : { premium: false, status: "canceled" };
     } else if (eventName === "subscription_payment_refunded" || eventName === "order_refunded") {
-        entitlement = { premium: false, status: "canceled" };
+        entitlement = { premium: false, status: "refunded" };
     } else if (normalizedStatus === "active") {
         entitlement = { premium: true, status: "active" };
     } else if (normalizedStatus === "expired") {
         entitlement = { premium: false, status: "expired" };
     } else if (normalizedStatus === "past_due" || normalizedStatus === "unpaid") {
-        entitlement = { premium: false, status: "past_due" };
+        entitlement = { premium: true, status: "past_due" };
     } else if (normalizedStatus === "cancelled" || normalizedStatus === "canceled") {
         entitlement = isFutureDate(attributes.ends_at, options.nowMs)
-            ? { premium: true, status: "active" }
+            ? { premium: true, status: "cancelled_active" }
             : { premium: false, status: "canceled" };
     }
 
@@ -818,9 +994,13 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
 
     return {
         action: "write",
+        providerEventAt,
+        providerEventAtMs,
+        providerEventRank: getLemonSqueezyEventRank(entitlement.status),
         entitlement: {
             ...entitlement,
             source: "lemon_squeezy",
+            providerStatus,
             providerCustomerId: attributes.customer_id === undefined ? null : String(attributes.customer_id),
             providerSubscriptionId: payload && payload.data && payload.data.type === "subscriptions"
                 ? String(payload.data.id)
@@ -833,10 +1013,97 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
     };
 }
 
+async function processLemonSqueezyWebhookEntitlement({ uid, eventName, eventId, rawBody, mapping, payload }, options = {}) {
+    const db = options.firestore || admin.firestore();
+    if (!db || typeof db.runTransaction !== "function") {
+        console.error("[payments] Firestore transaction support is unavailable for Lemon Squeezy webhook.", {
+            uid,
+            eventName,
+            eventId
+        });
+        throw new Error("webhook_transaction_unavailable");
+    }
+
+    const userRef = db.collection("users").doc(uid);
+    const eventDocId = buildLemonSqueezyEventDocId(eventId);
+    const eventRef = db.collection(LEMONSQUEEZY_PROCESSED_EVENTS_COLLECTION).doc(eventDocId);
+    const eventBase = {
+        provider: "lemon_squeezy",
+        providerEventId: eventId,
+        eventName,
+        uid,
+        eventDocId,
+        payloadType: payload && payload.data ? payload.data.type || null : null,
+        payloadId: payload && payload.data ? payload.data.id || null : null,
+        rawBodyHash: createHash("sha256").update(rawBody).digest("hex"),
+        providerEventAt: mapping.providerEventAt,
+        providerEventAtMs: mapping.providerEventAtMs,
+        providerEventRank: mapping.providerEventRank,
+        receivedAt: getServerTimestamp(options)
+    };
+
+    return db.runTransaction(async (transaction) => {
+        const eventSnapshot = await transaction.get(eventRef);
+        if (eventSnapshot && eventSnapshot.exists) {
+            return { duplicate: true };
+        }
+
+        const userSnapshot = await transaction.get(userRef);
+        const userData = userSnapshot && userSnapshot.exists && typeof userSnapshot.data === "function"
+            ? userSnapshot.data()
+            : {};
+        const existingEntitlement = userData && userData.entitlement && typeof userData.entitlement === "object"
+            ? userData.entitlement
+            : {};
+
+        if (existingEntitlement.status === "manual_active" && existingEntitlement.source !== "lemon_squeezy") {
+            transaction.set(eventRef, {
+                ...eventBase,
+                processingStatus: "ignored",
+                reason: "manual_override",
+                entitlementStatusBefore: existingEntitlement.status || null
+            }, { merge: false });
+            return { ignored: true, reason: "manual_override" };
+        }
+
+        if (isStaleLemonSqueezyEvent(existingEntitlement, mapping)) {
+            transaction.set(eventRef, {
+                ...eventBase,
+                processingStatus: "ignored",
+                reason: "stale_event",
+                entitlementStatusBefore: existingEntitlement.status || null,
+                lastProviderEventIdBefore: existingEntitlement.lastProviderEventId || null,
+                lastProviderEventAtMsBefore: existingEntitlement.lastProviderEventAtMs || null
+            }, { merge: false });
+            return { ignored: true, reason: "stale_event" };
+        }
+
+        const entitlement = {
+            ...mapping.entitlement,
+            updatedAt: getServerTimestamp(options),
+            lastProviderEventId: eventId,
+            lastProviderEventName: eventName,
+            lastProviderEventAt: mapping.providerEventAt,
+            lastProviderEventAtMs: mapping.providerEventAtMs,
+            lastProviderEventRank: mapping.providerEventRank
+        };
+
+        transaction.set(userRef, { entitlement }, { merge: true });
+        transaction.set(eventRef, {
+            ...eventBase,
+            processingStatus: "processed",
+            entitlementStatusAfter: entitlement.status,
+            entitlementPremiumAfter: entitlement.premium
+        }, { merge: false });
+
+        return { processed: true, entitlement };
+    });
+}
+
 function getServerTimestamp(options = {}) {
     return typeof options.serverTimestamp === "function"
         ? options.serverTimestamp()
-        : admin.firestore.FieldValue.serverTimestamp();
+        : FieldValue.serverTimestamp();
 }
 
 function safeResponse(res, status, body) {
@@ -862,7 +1129,7 @@ async function handleLemonSqueezyWebhook(req, res, options = {}) {
         return safeResponse(res, 400, { ok: false, error: "missing_raw_body" });
     }
 
-    const signature = getHeaderValue(req, "X-Signature");
+    const signature = getRequestHeaderValue(req, "X-Signature");
     if (!signature) {
         return safeResponse(res, 401, { ok: false, error: "missing_signature" });
     }
@@ -902,36 +1169,30 @@ async function handleLemonSqueezyWebhook(req, res, options = {}) {
         return safeResponse(res, 200, { ok: true, ignored: true, reason: mapping.reason || "ignored" });
     }
 
-    const db = options.firestore || admin.firestore();
-    const userRef = db.collection("users").doc(uid);
-    const userSnapshot = await userRef.get();
-    const userData = userSnapshot && userSnapshot.exists && typeof userSnapshot.data === "function"
-        ? userSnapshot.data()
-        : {};
-    const existingEntitlement = userData && userData.entitlement && typeof userData.entitlement === "object"
-        ? userData.entitlement
-        : {};
+    const result = await processLemonSqueezyWebhookEntitlement({
+        uid,
+        eventName,
+        eventId,
+        rawBody,
+        mapping,
+        payload
+    }, options);
 
-    if (existingEntitlement.lastProviderEventId === eventId) {
+    if (result.duplicate) {
         return safeResponse(res, 200, { ok: true, duplicate: true });
     }
 
-    if (existingEntitlement.status === "manual_active" && existingEntitlement.source !== "lemon_squeezy") {
-        return safeResponse(res, 200, { ok: true, ignored: true, reason: "manual_override" });
+    if (result.ignored) {
+        return safeResponse(res, 200, { ok: true, ignored: true, reason: result.reason || "ignored" });
     }
 
-    const entitlement = {
-        ...mapping.entitlement,
-        updatedAt: getServerTimestamp(options),
-        lastProviderEventId: eventId
-    };
-
-    await userRef.set({ entitlement }, { merge: true });
     return safeResponse(res, 200, { ok: true });
 }
 
 async function handlePremiumRoute(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("getPremiumRoute", options);
+    const uid = requireAuthCallable(context);
+    await enforcePremiumCallableRateLimit(uid, "getPremiumRoute", options);
     await requirePremiumCallable(context, "getPremiumRoute", options);
 
     const payload = getCallablePayload(requestOrData);
@@ -981,6 +1242,8 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
 
 async function handlePremiumGeocode(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("getPremiumGeocode", options);
+    const uid = requireAuthCallable(context);
+    await enforcePremiumCallableRateLimit(uid, "getPremiumGeocode", options);
     await requirePremiumCallable(context, "getPremiumGeocode", options);
 
     const payload = getCallablePayload(requestOrData);
@@ -1047,6 +1310,8 @@ if (process.env.NODE_ENV === "test") {
         isEffectivePremium,
         isFunctionFlagEnabled,
         requireFunctionFlagEnabled,
+        getPremiumCallableRateLimit,
+        enforcePremiumCallableRateLimit,
         requirePremiumCallable,
         handlePremiumRoute,
         handlePremiumGeocode,
@@ -1060,7 +1325,11 @@ if (process.env.NODE_ENV === "test") {
         handleCreateCheckoutSession,
         verifyLemonSqueezyWebhookSignature,
         deriveLemonSqueezyEventId,
+        buildLemonSqueezyEventDocId,
+        getLemonSqueezyProviderEventMillis,
+        isStaleLemonSqueezyEvent,
         mapLemonSqueezyEntitlement,
+        processLemonSqueezyWebhookEntitlement,
         handleLemonSqueezyWebhook
     };
 }

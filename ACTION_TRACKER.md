@@ -12,18 +12,25 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
   - How to test: flip each switch locally and verify the affected feature is unavailable while the rest of the app still works. Completed: staged function tests passed 71/71; focused Playwright passed 4 runnable tests with 4 expected storage-state skips; browser flag smoke passed.
   - Expected cost/risk reduction: caps route/geocode/leaderboard/checkout incidents quickly; turns launch surprises into reversible settings.
 
-- [ ] **Fix the known product-rules E2E failure**
+- [x] **Fix the known product-rules E2E failure**
   - Files: `tests/playwright/bug017-product-rules-audit-smoke.spec.js`, likely `modules/paywallController.js` or feature-source copy
-  - Exact change: determine whether the failure is intended copy drift or wrong paywall source; update the test or fix the source behavior accordingly.
+  - Exact change: confirmed the failure was intended copy drift after the test clicked trail controls last; updated the assertion to accept the valid `Virtual trail tracking` premium paywall source.
   - Why it matters: this is the one confirmed smoke failure touching premium gating behavior.
-  - How to test: run `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bug017-product-rules-audit-smoke.spec.js --workers=1 --reporter=list`.
+  - How to test: run `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bug017-product-rules-audit-smoke.spec.js --workers=1 --reporter=list`. Completed: targeted smoke passed 2/2 against a local static server with free/premium storage states available.
   - Expected cost/risk reduction: reduces paid-beta UX/regression risk; no direct Firestore cost impact.
 
-- [ ] **Enforce free 20 visited-place limit outside the client**
-  - Files: `services/checkinService.js`, `services/firebaseService.js`, `functions/index.js`, `firestore.rules`, `tests/rules/firestore-entitlement.rules.test.js`
-  - Exact change: move visit mutation behind a callable or rules-enforceable structure; reject non-premium writes that exceed 20 saved visits.
-  - Why it matters: the current limit is client-side only and can be bypassed by direct Firestore writes.
-  - How to test: free user can create 20, cannot create 21st, can delete/unmark, premium can exceed 20, spoofed local premium fails.
+- [x] **Set up full signed-in E2E storage states and run skipped smoke**
+  - Files: ignored local storage states at `playwright/.auth/free-user.json`, `playwright/.auth/premium-user.json`, `playwright/.auth/free-user-b.json`; `tests/playwright/bug016-route-generation-gating-smoke.spec.js`; `HARDENING_PROGRESS.md`
+  - Exact change: validated the three ignored storage-state files and made the premium route-generation smoke explicitly continue past the long-route warning so it reaches the stubbed ORS path deterministically.
+  - Why it matters: auth, account switching, route gating, settings, profile/manage, and premium/free flows now run instead of skipping.
+  - How to test: run the full smoke with `BARK_E2E_BASE_URL`, `BARK_E2E_STORAGE_STATE`, `BARK_E2E_STORAGE_STATE_B`, and `BARK_E2E_PREMIUM_STORAGE_STATE` pointing at the local `.auth` files. Completed: focused route-gating rerun passed 2/2; full signed-in smoke passed 40/40.
+  - Expected cost/risk reduction: no Firestore cost reduction; materially lowers paid-beta regression risk by proving signed-in flows against real Firebase Auth storage states.
+
+- [x] **Enforce free 5 visited-place limit outside the client**
+  - Files: `services/checkinService.js`, `renderers/panelRenderer.js`, `firestore.rules`, `tests/rules/firestore-entitlement.rules.test.js`, `tests/playwright/bug015-free-visited-limit-smoke.spec.js`
+  - Exact change: lowered the free tracked-visit cap to 5 and added Firestore rules constraints that reject non-premium direct `visitedPlaces` writes above 5.
+  - Why it matters: the free limit can no longer be bypassed by direct Firestore writes with a user auth token.
+  - How to test: free user can create 5, cannot create 6, can delete/unmark, premium can exceed 5, spoofed local premium fails. Completed: rules tests passed 21/21.
   - Expected cost/risk reduction: limits worst-case free-user write/storage growth; prevents product-tier bypass.
 
 - [ ] **Stop client-authoritative leaderboard scoring**
@@ -33,12 +40,12 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
   - How to test: malicious client write of `totalPoints: 999999` is denied; legitimate score sync still updates via server.
   - Expected cost/risk reduction: abuse/integrity risk reduced; minor function/read cost added for trusted score updates.
 
-- [ ] **Add durable Lemon Squeezy webhook idempotency and ordering**
-  - Files: `functions/index.js`, `functions/tests/lemonsqueezy-webhook.test.js`, `firestore.rules`
-  - Exact change: write processed provider events to a server-only collection such as `paymentEvents/{eventId}` inside a transaction; store provider event time/status; ignore older events that would regress current entitlement incorrectly.
-  - Why it matters: current `lastProviderEventId` only blocks immediate duplicate last events, not replay/out-of-order different events.
-  - How to test: replay same event twice, replay old cancelled after active renewal, deliver refund after active, deliver duplicate missing event id; assert final entitlement is correct.
-  - Expected cost/risk reduction: tiny extra write/read per webhook; major reduction in entitlement corruption and support incidents.
+- [x] **Add durable Lemon Squeezy webhook idempotency and ordering**
+  - Files: `functions/index.js`, `functions/tests/lemonsqueezy-webhook.test.js`, `HARDENING_PROGRESS.md`
+  - Exact change: process entitlement webhooks in a transaction, write provider receipts to `_lemonSqueezyWebhookEvents/{sha256(providerEventId)}`, and ignore exact duplicates plus stale/out-of-order events.
+  - Why it matters: `lastProviderEventId` alone did not block replay/out-of-order different events.
+  - How tested: `node --test functions/tests/lemonsqueezy-webhook.test.js` passed 47/47; `npm --prefix functions test` passed 81/81.
+  - Expected cost/risk reduction: tiny extra read/write per webhook; major reduction in entitlement corruption and support incidents.
 
 - [ ] **Final pre-RC: set launch budget alerts and monitoring destinations**
   - Files: Firebase/Google Cloud console, launch dashboard notes
@@ -58,11 +65,11 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
 
 ## P1 - Must Fix Before Broader Paid Beta
 
-- [ ] **Align `past_due`, `cancelled`, `expired`, and `refunded` entitlement states with provider lifecycle**
+- [x] **Align `past_due`, `cancelled`, `expired`, and `refunded` entitlement states with provider lifecycle**
   - Files: `functions/index.js`, `services/premiumService.js`, `services/authAccountUi.js`, `modules/paywallController.js`, webhook tests
-  - Exact change: represent cancelled-but-active, past_due grace, expired, refunded, and manual states explicitly; preserve Premium for all Lemon Squeezy statuses except expired/refunded/chargeback policy decisions.
+  - Exact change: represent cancelled-but-active, past_due grace, expired, refunded, and manual states explicitly; preserve Premium for `active`, `manual_active`, `past_due`, and `cancelled_active`.
   - Why it matters: Lemon Squeezy docs recommend access in all statuses apart from expired; current payment-failed mapping removes Premium immediately.
-  - How to test: webhook fixtures for active, cancelled future `ends_at`, expired, payment failed, recovered, refunded.
+  - How tested: webhook fixtures for active, cancelled future `ends_at`, expired, payment failed/past_due/unpaid, recovered, refunded, duplicate, stale, and manual override all passed.
   - Expected cost/risk reduction: major support/user-anger reduction; no material Firestore cost change.
 
 - [ ] **Consolidate duplicate user document listeners or split visited data**
@@ -79,12 +86,12 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
   - How to test: signed-in and/or anonymous feedback succeeds as intended; malicious extra fields/huge text denied.
   - Expected cost/risk reduction: support channel works; low cost, prevents noisy client errors.
 
-- [ ] **Add route/geocode per-user rate limits**
+- [x] **Add route/geocode per-user rate limits**
   - Files: `functions/index.js`, `functions/tests/ors-entitlement.test.js`
-  - Exact change: apply per-user/day or per-minute counters to `getPremiumRoute` and `getPremiumGeocode`; return `resource-exhausted` with retry guidance.
+  - Exact change: added per-user Firestore transaction counters for `getPremiumRoute` and `getPremiumGeocode`; defaults are 30 route generations/hour and 120 geocode searches/hour, configurable through environment variables; over-limit calls return `resource-exhausted` with retry guidance.
   - Why it matters: premium route generation can be spammed and each callable performs entitlement read plus external ORS calls.
-  - How to test: within limit succeeds; over limit fails; counters reset by window.
-  - Expected cost/risk reduction: caps function invocations, Firestore entitlement reads, outbound/API usage under abuse.
+  - How to test: within limit succeeds; over limit fails before entitlement reads or ORS calls; counters reset by window. Completed: function tests passed 75/75.
+  - Expected cost/risk reduction: caps Firestore entitlement reads and outbound/API usage under abuse after the first limit-window counter read.
 
 ## P2 - Can Fix During/After Private Beta
 

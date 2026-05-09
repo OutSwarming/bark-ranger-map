@@ -9,7 +9,7 @@ const PREMIUM_STORAGE_STATE = process.env.BARK_E2E_PREMIUM_STORAGE_STATE;
 const DEFAULT_BASE_URL = 'http://localhost:4173/index.html';
 const DEFAULT_FREE_STORAGE_STATE = 'playwright/.auth/free-user.json';
 const DEFAULT_PREMIUM_STORAGE_STATE = 'playwright/.auth/premium-user.json';
-const FREE_VISIT_LIMIT = 20;
+const FREE_VISIT_LIMIT = 5;
 
 const missingEnv = [
     !BASE_URL ? 'BARK_E2E_BASE_URL' : null,
@@ -206,11 +206,11 @@ async function verifyGpsCheckin(page, park) {
 }
 
 test.describe('BUG-015 free visited limit product rule', () => {
-    test('free signed-in user can add the twentieth visited park', async ({ browser }) => {
+    test('free signed-in user can add the fifth visited park', async ({ browser }) => {
         const errors = [];
         const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
         const page = await context.newPage();
-        collectRelevantErrors(page, 'free add twentieth', errors);
+        collectRelevantErrors(page, 'free add fifth', errors);
 
         try {
             await openVisitReadyApp(page, false);
@@ -230,11 +230,11 @@ test.describe('BUG-015 free visited limit product rule', () => {
         }
     });
 
-    test('free signed-in user cannot add the twenty-first visited park, even with fake localStorage premium', async ({ browser }) => {
+    test('free signed-in user cannot add the sixth visited park, even with fake localStorage premium', async ({ browser }) => {
         const errors = [];
         const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
         const page = await context.newPage();
-        collectRelevantErrors(page, 'free block twenty-first', errors);
+        collectRelevantErrors(page, 'free block sixth', errors);
 
         try {
             await page.addInitScript(() => {

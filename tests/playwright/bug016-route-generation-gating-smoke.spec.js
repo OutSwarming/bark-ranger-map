@@ -167,6 +167,8 @@ async function installRouteSpies(page) {
                 }]
             };
         };
+
+        window.BARK.confirmLongRouteWarning = async () => 'continue';
     });
 }
 

@@ -324,10 +324,10 @@ describe("ORS callable emulator entitlement enforcement", { concurrency: false }
         }
     });
 
-    it("rejects inactive premium statuses", async () => {
+    it("rejects ended premium statuses", async () => {
         const user = await createSignedInUser("inactive");
 
-        for (const status of ["canceled", "expired", "past_due"]) {
+        for (const status of ["canceled", "expired", "refunded"]) {
             resetOrsStubFiles();
             await seedEntitlement(user.uid, {
                 premium: true,

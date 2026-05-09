@@ -237,12 +237,14 @@
         }
 
         const entitlement = premiumService.getEntitlement();
+        if (entitlement.status === 'past_due') return 'Premium past due';
+        if (entitlement.status === 'cancelled_active') return 'Premium active until period end';
         if (premiumService.isPremium && premiumService.isPremium()) {
             return entitlement.status === 'manual_active' ? 'Premium active (manual)' : 'Premium active';
         }
-        if (entitlement.status === 'past_due') return 'Premium past due';
         if (entitlement.status === 'expired') return 'Premium expired';
         if (entitlement.status === 'canceled') return 'Premium canceled';
+        if (entitlement.status === 'refunded') return 'Premium refunded';
         return 'Free';
     }
 
@@ -266,18 +268,23 @@
             ? premiumService.isPremium()
             : false;
         const hasInactiveLemonSubscription = isLemonSqueezyEntitlement(entitlement) &&
-            ['past_due', 'expired', 'canceled'].includes(entitlement.status);
+            ['expired', 'canceled', 'refunded'].includes(entitlement.status);
 
         if (!user || (!isPremium && !hasInactiveLemonSubscription)) {
             return { visible: false };
         }
 
         if (isLemonSqueezyEntitlement(entitlement)) {
-            const statusText = entitlement.status === 'past_due'
-                ? 'Payment attention needed'
-                : entitlement.status === 'canceled' || entitlement.status === 'expired'
-                    ? 'Subscription history'
-                    : 'Manage subscription';
+            let statusText = 'Manage subscription';
+            if (entitlement.status === 'past_due') {
+                statusText = 'Payment attention needed';
+            } else if (entitlement.status === 'cancelled_active') {
+                statusText = 'Premium active until period end';
+            } else if (entitlement.status === 'refunded') {
+                statusText = 'Subscription refunded';
+            } else if (entitlement.status === 'canceled' || entitlement.status === 'expired') {
+                statusText = 'Subscription history';
+            }
             return {
                 visible: true,
                 mode: 'portal',

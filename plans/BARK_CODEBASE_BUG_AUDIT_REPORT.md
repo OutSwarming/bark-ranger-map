@@ -164,7 +164,7 @@ Notes:
 | BUG-AUDIT-002 | Sheet data can inject HTML into marker detail panel | Security/UI | P1 | 95% | `panelRenderer.js` previously wrote sheet fields through `innerHTML` | FIXED / QC PASSED |
 | BUG-AUDIT-003 | CSV data files contain unresolved merge-conflict markers | Data/tooling | P1 | 100% | `data/data.csv` had 216 markers; `data/sheet_data_fetched.csv` had 504 | FIXED / QC PASSED |
 | BUG-AUDIT-004 | Hosted fallback data is excluded, so first-time cold boot can show empty map if Sheet fetch fails | Runtime/data | P1 | 90% | `firebase.json` ignores `data/**`; `loadData()` relied on localStorage or live Sheet | FIXED / QC PASSED |
-| BUG-AUDIT-005 | Free 20-visit limit is client/runtime only | Product/security | P1 | 95% | Rules allow owner `visitedPlaces` writes; no backend quota owner | Known risk |
+| BUG-AUDIT-005 | Free 5-visit limit backend enforcement | Product/security | P1 | 95% | Rules now deny non-premium `visitedPlaces` writes above 5; client/runtime cap also lowered to 5 | FIXED / QC PASSED |
 | BUG-AUDIT-006 | Saved routes do not persist trip start/end bookends | Trip planner | P1 | 95% | `saveCurrentTrip()` saved only `tripDays`; load restored only `tripDays` | FIXED / QC PASSED |
 | BUG-AUDIT-007 | Route generation attaches trip bookends after filtering days | Trip planner | P1 | 100% | Focused sparse-trip smoke proves start/end bookends stay on original first/last days after fix | FIXED / QC PASSED |
 | BUG-AUDIT-008 | Current worktree has uncommitted Functions/payment files | Release safety | P1 | 100% | `git status --short` shows modified function files | Proven |
@@ -334,21 +334,21 @@ Notes:
   - `tests/data-integrity.test.js` verifies the fallback exists, has no conflict markers, includes `Location`, `State`, `lat`, `lng`, and canonical `Park id`, and contains the official dataset scale.
   - `tests/playwright/bug004-static-fallback-data-smoke.spec.js` proves a Sheet-blocked, no-cache cold boot renders more than 300 canonical parks and markers.
 
-### BUG-AUDIT-005: Free 20-visit limit is client/runtime only
+### BUG-AUDIT-005: Free 5-visit limit backend enforcement
 
 - Severity: P1
 - Confidence: 95%
 - Area: product/security
 - Evidence:
-  - `checkinService` enforces the limit in client/runtime paths.
-  - `firestore.rules` allows owner user document updates as long as protected entitlement/admin/payment keys are not changed.
-  - Rules do not count `visitedPlaces` or distinguish free/premium quota.
+  - `checkinService` enforces a 5-visit free limit in client/runtime paths.
+  - `firestore.rules` now denies non-premium `visitedPlaces` writes above 5 and lets active/manual-active premium users exceed 5.
+  - Rules do not use `get()`/`exists()` for this check because entitlement lives on the same user document.
 - Why this matters:
-  - Normal app UI is covered, but a malicious client can write more than 20 visited parks directly to the owner user document.
-- Recommended fix:
-  - Move visit-add mutations behind a callable or a narrow backend owner that checks entitlement and quota.
-  - Keep removals/date edits allowed.
-  - Add backend tests for free 20th/21st, premium 21st, and account-switch downgrade.
+  - Normal app UI and direct Firestore writes now agree on the free tier cap.
+- Fix:
+  - Lowered free tier tracked visits from 20 to 5.
+  - Added rules tests for free 5/6 writes, premium over-limit writes, malformed writes, and legacy free trim-down behavior.
+  - Keep removals/date edits allowed as long as the resulting free `visitedPlaces` array is 5 or fewer.
 
 ### BUG-AUDIT-006: Saved routes do not persist trip start/end bookends
 

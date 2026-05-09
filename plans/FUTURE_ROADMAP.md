@@ -216,16 +216,16 @@ Do not require payment to see the basic official data. That data is the acquisit
 Recommended free account:
 
 - Cloud account.
-- Track up to 20 official visited parks.
+- Track up to 5 official visited parks.
 - Basic visited map.
 - Basic profile/progress.
-- Verified check-ins included within the 20-park limit.
+- Verified check-ins included within the 5-park limit.
 - One dog profile, or dog name/photo if storage is not involved.
 - Maybe 1 to 3 sample journal entries with no photo uploads.
 - Basic saved settings.
 - Limited saved route count, for example 1 to 3 saved routes.
 
-The current "20 parks free" idea is reasonable. It gives casual users a real experience while pushing collectors toward premium. Test 20 vs 25 later, but do not jump to 50 unless conversion data proves it is safe.
+The current 5-parks-free idea is the launch default. It gives casual users a real taste while pushing collectors toward premium. Test 5 vs 10 later, but do not jump to 20+ unless conversion data proves it is safe.
 
 ### Premium Account
 
@@ -679,7 +679,7 @@ Test whether the free/paid line creates anger, confusion, or motivation.
 
 Recommended test:
 
-- Free account can track 20 official parks.
+- Free account can track 5 official parks.
 - Premium test account can track unlimited official parks.
 - Free account can still browse all official park data.
 - Free users see a friendly upgrade prompt after nearing the limit.
@@ -693,10 +693,10 @@ Upgrade message should emphasize:
 
 Do:
 
-- Track how many beta users hit 10, 15, and 20 visited parks.
-- Ask testers if 20 feels fair.
+- Track how many beta users hit 3, 5, and upgrade conversion after the 5-park cap.
+- Ask testers if 5 feels fair.
 - Watch for backlash.
-- Test 20 vs 25 if needed.
+- Test 5 vs 10 if needed.
 
 Exit criteria:
 
@@ -1080,7 +1080,7 @@ Need:
 
 - Number of accounts created.
 - Percent of users who track at least 1 park.
-- Percent who track 5, 10, 15, 20 parks.
+- Percent who track 1, 3, 5, and 6+ parks.
 - Percent who hit the free limit.
 - Upgrade prompt conversion.
 - Return visits after first tracking action.
@@ -1236,7 +1236,7 @@ Paid gets the full personal record, storage, exports, advanced organization, and
 
 Recommended default:
 
-- Free account: 20 official visited parks.
+- Free account: 5 official visited parks.
 - Premium account: unlimited official visited parks plus Passport/journal growth features.
 
 Do not add photo journals, public reviews, or event systems before the entitlement model and data boundaries are cleaned up. Those features are promising, but they will make the codebase and moderation burden much harder if added too early.

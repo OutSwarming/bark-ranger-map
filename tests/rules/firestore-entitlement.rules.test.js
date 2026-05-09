@@ -37,6 +37,14 @@ async function seedDoc(pathSegments, data) {
     });
 }
 
+function makeVisitedPlaces(count) {
+    return Array.from({ length: count }, (_, index) => ({
+        id: `park-${index + 1}`,
+        name: `Park ${index + 1}`,
+        ts: 1710000000000 + index
+    }));
+}
+
 describe('Firestore entitlement and admin field rules', () => {
     before(async () => {
         testEnv = await initializeTestEnvironment({
@@ -136,6 +144,99 @@ describe('Firestore entitlement and admin field rules', () => {
         await assertSucceeds(updateDoc(aliceRef, {
             settings: { mapStyle: 'terrain', visitedFilter: 'visited' },
             visitedPlaces: [{ id: 'zion', name: 'Zion', ts: 1710000000001 }]
+        }));
+    });
+
+    it('enforces the five-visit free limit on owner user document creates', async () => {
+        const aliceDb = authedDb('alice');
+        const bobDb = authedDb('bob');
+
+        await assertSucceeds(setDoc(doc(aliceDb, 'users', 'alice'), {
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(5)
+        }));
+
+        await assertFails(setDoc(doc(bobDb, 'users', 'bob'), {
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(6)
+        }));
+    });
+
+    it('denies direct free-user visitedPlaces updates above five while allowing trim-down writes', async () => {
+        await seedDoc(['users', 'alice'], {
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(5)
+        });
+
+        const aliceDb = authedDb('alice');
+        const aliceRef = doc(aliceDb, 'users', 'alice');
+
+        await assertFails(updateDoc(aliceRef, {
+            visitedPlaces: makeVisitedPlaces(6)
+        }));
+
+        await seedDoc(['users', 'legacy-free'], {
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(8)
+        });
+
+        const legacyDb = authedDb('legacy-free');
+        const legacyRef = doc(legacyDb, 'users', 'legacy-free');
+
+        await assertSucceeds(updateDoc(legacyRef, {
+            settings: { mapStyle: 'terrain' }
+        }));
+
+        await assertSucceeds(updateDoc(legacyRef, {
+            visitedPlaces: makeVisitedPlaces(5)
+        }));
+    });
+
+    it('allows active premium users to write visitedPlaces beyond the free limit', async () => {
+        await seedDoc(['users', 'alice'], {
+            entitlement: {
+                premium: true,
+                status: 'manual_active',
+                source: 'admin_override',
+                manualOverride: true,
+                currentPeriodEnd: null
+            },
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(5)
+        });
+
+        const aliceDb = authedDb('alice');
+        const aliceRef = doc(aliceDb, 'users', 'alice');
+
+        await assertSucceeds(updateDoc(aliceRef, {
+            visitedPlaces: makeVisitedPlaces(6)
+        }));
+    });
+
+    it('denies malformed visitedPlaces writes for free and premium users', async () => {
+        await seedDoc(['users', 'alice'], {
+            settings: { mapStyle: 'default' }
+        });
+        await seedDoc(['users', 'premium-alice'], {
+            entitlement: {
+                premium: true,
+                status: 'manual_active',
+                source: 'admin_override',
+                manualOverride: true,
+                currentPeriodEnd: null
+            },
+            settings: { mapStyle: 'default' }
+        });
+
+        const aliceDb = authedDb('alice');
+        const premiumDb = authedDb('premium-alice');
+
+        await assertFails(updateDoc(doc(aliceDb, 'users', 'alice'), {
+            visitedPlaces: { count: 1 }
+        }));
+
+        await assertFails(updateDoc(doc(premiumDb, 'users', 'premium-alice'), {
+            visitedPlaces: { count: 99 }
         }));
     });
 
@@ -390,6 +491,55 @@ describe('Firestore entitlement and admin field rules', () => {
         await assertFails(setDoc(doc(collection(aliceDb, 'users', 'alice', 'entitlement')), {
             premium: true,
             status: 'manual_active'
+        }));
+    });
+
+    it('denies client access to server-only rate-limit and webhook receipt collections', async () => {
+        await seedDoc(['_premiumCallableRateLimits', 'getPremiumRoute_alice_1700000000000'], {
+            uid: 'alice',
+            action: 'getPremiumRoute',
+            count: 1
+        });
+        await seedDoc(['_lemonSqueezyWebhookEvents', 'receipt-1'], {
+            provider: 'lemon_squeezy',
+            processingStatus: 'processed'
+        });
+
+        const aliceDb = authedDb('alice');
+        const publicDb = unauthDb();
+
+        await assertFails(getDoc(doc(aliceDb, '_premiumCallableRateLimits', 'getPremiumRoute_alice_1700000000000')));
+        await assertFails(setDoc(doc(aliceDb, '_premiumCallableRateLimits', 'getPremiumRoute_alice_1700000000000'), {
+            uid: 'alice',
+            action: 'getPremiumRoute',
+            count: 0
+        }));
+        await assertFails(setDoc(doc(publicDb, '_premiumCallableRateLimits', 'getPremiumGeocode_public_1700000000000'), {
+            uid: 'public',
+            action: 'getPremiumGeocode',
+            count: 99
+        }));
+
+        await assertFails(getDoc(doc(aliceDb, '_lemonSqueezyWebhookEvents', 'receipt-1')));
+        await assertFails(setDoc(doc(aliceDb, '_lemonSqueezyWebhookEvents', 'receipt-2'), {
+            provider: 'lemon_squeezy',
+            processingStatus: 'processed'
+        }));
+    });
+
+    it('denies direct feedback writes while the app-side feedback flag is disabled', async () => {
+        const aliceDb = authedDb('alice');
+        const publicDb = unauthDb();
+
+        await assertFails(setDoc(doc(aliceDb, 'feedback', 'alice-feedback'), {
+            text: 'Please add this park.',
+            sender: 'Alice',
+            timestamp: serverTimestamp()
+        }));
+        await assertFails(setDoc(doc(publicDb, 'feedback', 'public-feedback'), {
+            text: 'Anonymous feedback.',
+            sender: 'Anonymous Guest',
+            timestamp: serverTimestamp()
         }));
     });
 
