@@ -70,7 +70,7 @@ function loadDataServiceHarness() {
     };
 }
 
-test('data service repairs known published rows with missing coordinates before publishing parks', () => {
+test('data service skips source rows with missing coordinates instead of repairing them', () => {
     const harness = loadDataServiceHarness();
 
     harness.sandbox.window.BARK.parseCSVString([
@@ -79,20 +79,17 @@ test('data service repairs known published rows with missing coordinates before 
     ].join('\n'));
 
     const publishedPoints = harness.getPublishedPoints();
-    assert.equal(publishedPoints.length, 1);
-    assert.equal(harness.getGamificationPoints(), publishedPoints);
-    assert.equal(publishedPoints[0].id, '38e0a9bb-4365-4d84-87ea-cca3bde06435');
-    assert.equal(publishedPoints[0].lat, 35.2354);
-    assert.equal(publishedPoints[0].lng, -77.8932);
+    assert.equal(publishedPoints.length, 0);
+    assert.equal(harness.getGamificationPoints(), null);
 });
 
-test('data service separates Fort Caroline and Kingsley Plantation coordinate overrides', () => {
+test('data service publishes Fort Caroline and Kingsley Plantation source coordinates unchanged', () => {
     const harness = loadDataServiceHarness();
 
     harness.sandbox.window.BARK.parseCSVString([
         'Location,State,Swag Cost,Type,Useful/Important/Other Info,Website,lat,lng,Park id',
-        'Fort Caroline/Timucuan Ecological and Historical Preserve,Florida,Free,National,Tag,https://www.nps.gov/places/foca.htm,30.4544578,-81.4498717,b7b26034-7d2c-4c3e-9901-29e1b5751230',
-        'Timucuan Ecological and Historical Preserve Kingsley Plantation,Florida,Free,National,Tag,https://www.nps.gov/timu/learn/historyculture/kp.htm,30.4544578,-81.4498717,f1bf6d46-3919-4c0c-838d-555ca47155d2'
+        'Fort Caroline/Timucuan Ecological and Historical Preserve,Florida,Free,National,Tag,https://www.nps.gov/places/foca.htm,30.385948,-81.497541,b7b26034-7d2c-4c3e-9901-29e1b5751230',
+        'Timucuan Ecological and Historical Preserve Kingsley Plantation,Florida,Free,National,Tag,https://www.nps.gov/timu/learn/historyculture/kp.htm,30.439983,-81.437833,f1bf6d46-3919-4c0c-838d-555ca47155d2'
     ].join('\n'));
 
     const publishedPoints = harness.getPublishedPoints();
@@ -104,4 +101,18 @@ test('data service separates Fort Caroline and Kingsley Plantation coordinate ov
     assert.equal(fortCaroline.lng, -81.497541);
     assert.equal(kingsley.lat, 30.439983);
     assert.equal(kingsley.lng, -81.437833);
+});
+
+test('data service publishes War in the Pacific source coordinates unchanged', () => {
+    const harness = loadDataServiceHarness();
+
+    harness.sandbox.window.BARK.parseCSVString([
+        'Location,State,Swag Cost,Type,Useful/Important/Other Info,Website,lat,lng,Park id',
+        'War in the Pacific National Historical Park,Guam,Free,National,Tag,https://www.nps.gov/wapa/planyourvisit/index.htm,13.4744653,144.7187141,dd646fe7-2eca-459a-9280-8168b17b60f3'
+    ].join('\n'));
+
+    const publishedPoints = harness.getPublishedPoints();
+    assert.equal(publishedPoints.length, 1);
+    assert.equal(publishedPoints[0].lat, 13.4744653);
+    assert.equal(publishedPoints[0].lng, 144.7187141);
 });
