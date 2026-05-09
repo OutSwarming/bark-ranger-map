@@ -324,3 +324,19 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
     - `/plans/LAUNCH_READINESS_FIREBASE_COST_REPORT.md`
 - Tooling note:
   - Firebase deploy warns that Node.js 20 Cloud Functions runtime is deprecated as of 2026-04-30 and decommissions 2026-10-30. This is not blocking today, but runtime upgrade should be added before final public launch.
+
+## Free Visit Limit Paywall Polish
+
+- Date: 2026-05-09.
+- Issue: the free 5-park cap was enforced, but panel actions still showed a browser alert when a free user tried to add a 6th visited park.
+- Fix:
+  - Added a dedicated paywall source for the visited-place limit.
+  - Changed both Mark as Visited and Verified Check-In limit failures to open the existing Premium modal.
+  - Added specific copy: `Adding more than 5 parks is a Premium feature`.
+  - Kept a plain alert fallback only for the unlikely case where the paywall controller is unavailable.
+  - Bumped `index.html` cache query strings for `paywallController.js` and `panelRenderer.js` so Hosting loads the new behavior immediately.
+- QC:
+  - `node --check modules/paywallController.js`: PASS.
+  - `node --check renderers/panelRenderer.js`: PASS.
+  - `node --test tests/render-safety.test.js`: PASS, 6/6.
+  - `BARK_E2E_BASE_URL=http://localhost:4173/index.html BARK_E2E_STORAGE_STATE="$PWD/playwright/.auth/free-user.json" BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json" npx playwright test tests/playwright/bug015-free-visited-limit-smoke.spec.js --workers=1 --reporter=list`: PASS, 5/5.

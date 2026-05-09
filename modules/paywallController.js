@@ -191,6 +191,15 @@
             return 'saved-routes';
         }
 
+        if ([
+            'visited-place-limit',
+            'free-visit-limit',
+            'mark-visited-limit',
+            'verified-checkin-limit'
+        ].includes(normalized)) {
+            return 'visited-place-limit';
+        }
+
         return normalized || 'manual';
     }
 
@@ -229,6 +238,15 @@
                 title: 'Saved routes are a Premium feature',
                 eyebrow: 'Premium trip planning',
                 body: 'Upgrade to save trip plans, reload routes later, and keep multi-day route notes with your account.',
+                primaryText: 'Upgrade Now'
+            };
+        }
+
+        if (normalized === 'visited-place-limit') {
+            return {
+                title: 'Adding more than 5 parks is a Premium feature',
+                eyebrow: 'Premium park tracking',
+                body: 'Free accounts can track up to 5 visited parks. Upgrade to keep adding visited parks, preserve your B.A.R.K. progress, and grow your passport without the free limit.',
                 primaryText: 'Upgrade Now'
             };
         }

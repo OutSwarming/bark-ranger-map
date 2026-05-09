@@ -122,6 +122,18 @@ function openFreeAccountPrompt(source) {
     if (profileTab) profileTab.click();
 }
 
+function openFreeVisitLimitPaywall(result = {}) {
+    const paywall = window.BARK && window.BARK.paywall;
+    if (paywall && typeof paywall.openPaywall === 'function') {
+        paywall.openPaywall({ source: 'visited-place-limit' });
+        return true;
+    }
+
+    const limit = result.limit || 5;
+    alert(`Free plan limit reached. Free users can mark up to ${limit} parks visited. Adding more than ${limit} parks is a Premium feature.`);
+    return false;
+}
+
 function setAccountLockedCheckinButton(button, textEl, label, source) {
     if (!button) return;
     button.disabled = false;
@@ -166,6 +178,7 @@ function buildMapSearchUrl(name, lat, lng, provider) {
 
 window.BARK.panelRendererSafety = {
     getSafeHttpUrls,
+    openFreeVisitLimitPaywall,
     setTextWithLineBreaks
 };
 
@@ -435,8 +448,7 @@ function renderMarkerClickPanel(context) {
                         } else if (checkinResult.error === 'LOCATION_FAILED') {
                             alert("Failed to get location. Try again later.");
                         } else if (checkinResult.error === 'FREE_VISIT_LIMIT') {
-                            const limit = checkinResult.limit || 5;
-                            alert(`Free plan limit reached. Free users can mark up to ${limit} parks visited. Unmark a park or upgrade to keep adding visited parks.`);
+                            openFreeVisitLimitPaywall(checkinResult);
                         } else {
                             alert("Check-in could not be verified. Try again later.");
                         }
@@ -461,8 +473,7 @@ function renderMarkerClickPanel(context) {
                         if (visitResult.error === 'UNCHECK_LOCKED') {
                             alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
                         } else if (visitResult.error === 'FREE_VISIT_LIMIT') {
-                            const limit = visitResult.limit || 5;
-                            alert(`Free plan limit reached. Free users can mark up to ${limit} parks visited. Unmark a park or upgrade to keep adding visited parks.`);
+                            openFreeVisitLimitPaywall(visitResult);
                         } else if (visitResult.error !== 'ALREADY_VERIFIED') {
                             alert("Check-in service is unavailable. Try again later.");
                         }

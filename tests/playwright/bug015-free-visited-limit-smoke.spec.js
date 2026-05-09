@@ -257,6 +257,27 @@ test.describe('BUG-015 free visited limit product rule', () => {
             expect(state.hasVisit).toBe(false);
             expect(state.writes).toEqual([]);
             expect(await page.evaluate(() => window.BARK.services.premium.isPremium())).toBe(false);
+
+            const paywallState = await page.evaluate((limitResult) => {
+                window.alert = (message) => {
+                    window.__barkBug015Alerts = window.__barkBug015Alerts || [];
+                    window.__barkBug015Alerts.push(String(message));
+                };
+                window.BARK.panelRendererSafety.openFreeVisitLimitPaywall(limitResult);
+                return {
+                    alerts: window.__barkBug015Alerts || [],
+                    overlayActive: document.getElementById('paywall-overlay').classList.contains('active'),
+                    title: document.getElementById('paywall-title').textContent,
+                    body: document.getElementById('paywall-body').textContent,
+                    source: document.getElementById('paywall-source').textContent
+                };
+            }, result);
+
+            expect(paywallState.alerts, 'free visit cap should use the Premium paywall modal instead of alert').toEqual([]);
+            expect(paywallState.overlayActive).toBe(true);
+            expect(paywallState.title).toBe('Adding more than 5 parks is a Premium feature');
+            expect(paywallState.body).toContain('Free accounts can track up to 5 visited parks');
+            expect(paywallState.source).toContain('visited place limit');
             expect(errors, errors.join('\n')).toEqual([]);
         } finally {
             await context.close();

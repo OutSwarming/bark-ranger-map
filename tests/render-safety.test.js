@@ -37,20 +37,43 @@ function createFakeElement() {
 }
 
 function loadPanelRendererSafety() {
+    const alertMessages = [];
+    const paywallCalls = [];
     const context = {
         URL,
-        window: { BARK: {} },
+        alert(message) {
+            alertMessages.push(String(message));
+        },
+        window: {
+            BARK: {
+                paywall: {
+                    openPaywall(payload) {
+                        paywallCalls.push(payload);
+                    }
+                }
+            }
+        },
         document: {
             createElement(tagName) {
                 return { tagName: String(tagName).toUpperCase(), textContent: '' };
             },
             createTextNode(text) {
                 return { textContent: String(text) };
+            },
+            querySelector() {
+                return null;
             }
-        }
+        },
+        __alerts: alertMessages,
+        __paywallCalls: paywallCalls
     };
     vm.runInNewContext(fs.readFileSync(path.join(repoRoot, 'renderers', 'panelRenderer.js'), 'utf8'), context);
-    return context.window.BARK.panelRendererSafety;
+    return {
+        ...context.window.BARK.panelRendererSafety,
+        alertMessages,
+        paywallCalls,
+        context
+    };
 }
 
 function loadRenderEngineHelpers() {
@@ -80,6 +103,27 @@ test('marker panel URL extraction accepts only safe http links', () => {
         'https://example.test/path',
         'https://ok.test/a?b=1'
     ]);
+});
+
+test('free visit limit uses premium paywall modal instead of browser alert when available', () => {
+    const safety = loadPanelRendererSafety();
+
+    const opened = safety.openFreeVisitLimitPaywall({ limit: 5 });
+
+    assert.equal(opened, true);
+    assert.deepEqual(safety.paywallCalls, [{ source: 'visited-place-limit' }]);
+    assert.deepEqual(safety.alertMessages, []);
+});
+
+test('free visit limit keeps a readable fallback alert if paywall is unavailable', () => {
+    const safety = loadPanelRendererSafety();
+    safety.context.window.BARK.paywall = null;
+
+    const opened = safety.openFreeVisitLimitPaywall({ limit: 5 });
+
+    assert.equal(opened, false);
+    assert.equal(safety.paywallCalls.length, 0);
+    assert.match(safety.alertMessages[0], /Adding more than 5 parks is a Premium feature/);
 });
 
 test('swag link formatter validates URLs and adds noopener rel', () => {
