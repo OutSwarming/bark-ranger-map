@@ -21,7 +21,7 @@ function parseSimpleCsv(csvString, options) {
     options.complete({ data, errors: [] });
 }
 
-test('data service repairs known published rows with missing coordinates before publishing parks', () => {
+function loadDataServiceHarness() {
     let publishedPoints = null;
     let gamificationPoints = null;
     const sandbox = {
@@ -63,14 +63,45 @@ test('data service repairs known published rows with missing coordinates before 
     vm.createContext(sandbox);
     vm.runInContext(fs.readFileSync(path.join(repoRoot, 'modules', 'dataService.js'), 'utf8'), sandbox);
 
-    sandbox.window.BARK.parseCSVString([
+    return {
+        sandbox,
+        getPublishedPoints: () => publishedPoints,
+        getGamificationPoints: () => gamificationPoints
+    };
+}
+
+test('data service repairs known published rows with missing coordinates before publishing parks', () => {
+    const harness = loadDataServiceHarness();
+
+    harness.sandbox.window.BARK.parseCSVString([
         'Location,State,Swag Cost,Type,Useful/Important/Other Info,Website,lat,lng,Park id',
         'Cliffs of the Neuse State Park,North Carolina,Unknown,State,Tag,https://www.ncparks.gov/state-parks/cliffs-neuse-state-park,,,38e0a9bb-4365-4d84-87ea-cca3bde06435'
     ].join('\n'));
 
+    const publishedPoints = harness.getPublishedPoints();
     assert.equal(publishedPoints.length, 1);
-    assert.equal(gamificationPoints, publishedPoints);
+    assert.equal(harness.getGamificationPoints(), publishedPoints);
     assert.equal(publishedPoints[0].id, '38e0a9bb-4365-4d84-87ea-cca3bde06435');
     assert.equal(publishedPoints[0].lat, 35.2354);
     assert.equal(publishedPoints[0].lng, -77.8932);
+});
+
+test('data service separates Fort Caroline and Kingsley Plantation coordinate overrides', () => {
+    const harness = loadDataServiceHarness();
+
+    harness.sandbox.window.BARK.parseCSVString([
+        'Location,State,Swag Cost,Type,Useful/Important/Other Info,Website,lat,lng,Park id',
+        'Fort Caroline/Timucuan Ecological and Historical Preserve,Florida,Free,National,Tag,https://www.nps.gov/places/foca.htm,30.4544578,-81.4498717,b7b26034-7d2c-4c3e-9901-29e1b5751230',
+        'Timucuan Ecological and Historical Preserve Kingsley Plantation,Florida,Free,National,Tag,https://www.nps.gov/timu/learn/historyculture/kp.htm,30.4544578,-81.4498717,f1bf6d46-3919-4c0c-838d-555ca47155d2'
+    ].join('\n'));
+
+    const publishedPoints = harness.getPublishedPoints();
+    const fortCaroline = publishedPoints.find(point => point.id === 'b7b26034-7d2c-4c3e-9901-29e1b5751230');
+    const kingsley = publishedPoints.find(point => point.id === 'f1bf6d46-3919-4c0c-838d-555ca47155d2');
+
+    assert.equal(publishedPoints.length, 2);
+    assert.equal(fortCaroline.lat, 30.385948);
+    assert.equal(fortCaroline.lng, -81.497541);
+    assert.equal(kingsley.lat, 30.439983);
+    assert.equal(kingsley.lng, -81.437833);
 });

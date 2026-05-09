@@ -106,6 +106,10 @@ function hasVisitedPlaceId(place) {
     return place && typeof place === 'object' && place.id !== undefined && place.id !== null;
 }
 
+function isCanonicalParkId(id) {
+    return CANONICAL_PARK_ID_PATTERN.test(cleanValue(id));
+}
+
 function makeVisitedPlaceMap(placeList) {
     const visitedMap = new Map();
     if (!Array.isArray(placeList)) return visitedMap;
@@ -181,6 +185,10 @@ function getVisitedPlaceEntries(placeOrId) {
 
     if (place && Number.isFinite(Number(place.lat)) && Number.isFinite(Number(place.lng))) {
         for (const [visitedId, visitedRecord] of getVisitedPlaceEntryPairs()) {
+            const storedId = cleanValue((visitedRecord && visitedRecord.id) || visitedId);
+            const requestedId = cleanValue(place.id);
+            const storedIsCanonical = isCanonicalParkId(storedId) || isCanonicalParkId(visitedId);
+            if (storedIsCanonical && storedId !== requestedId && cleanValue(visitedId) !== requestedId) continue;
             if (coordsMatch(place.lat, place.lng, visitedRecord && visitedRecord.lat, visitedRecord && visitedRecord.lng)) {
                 addEntry(visitedId);
             }

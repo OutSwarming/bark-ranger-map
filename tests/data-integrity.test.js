@@ -54,3 +54,18 @@ test('hosted fallback CSV keeps coordinates for Cliffs of the Neuse', () => {
     assert.ok(cliffsLine, 'Cliffs of the Neuse State Park must be present in the hosted fallback CSV');
     assert.match(cliffsLine, /,35\.2354,-77\.8932,/, 'Cliffs of the Neuse State Park must keep its lat/lng populated');
 });
+
+test('hosted fallback CSV separates Fort Caroline and Kingsley Plantation coordinates', () => {
+    const contents = fs.readFileSync(hostedFallbackCsv.path, 'utf8');
+
+    assert.match(
+        contents,
+        /Fort Caroline\/Timucuan Ecological and Historical Preserve[\s\S]*?,30\.385948,-81\.497541,[\s\S]*?b7b26034-7d2c-4c3e-9901-29e1b5751230/,
+        'Fort Caroline must use the NPS Fort Caroline coordinates'
+    );
+    assert.match(
+        contents,
+        /Timucuan Ecological and Historical Preserve Kingsley Plantation[\s\S]*?,30\.439983,-81\.437833,[\s\S]*?f1bf6d46-3919-4c0c-838d-555ca47155d2/,
+        'Kingsley Plantation must use separate Kingsley coordinates'
+    );
+});

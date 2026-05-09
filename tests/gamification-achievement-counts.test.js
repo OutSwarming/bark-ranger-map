@@ -83,3 +83,36 @@ test('duplicate Park IDs for the same physical site count once in national and s
     assert.equal(californiaBadge.tier, 'verified');
     assert.equal(mapConqueror.status, 'unlocked');
 });
+
+test('Fort Caroline and Kingsley Plantation count as separate Florida sites', () => {
+    const points = [
+        {
+            id: 'b7b26034-7d2c-4c3e-9901-29e1b5751230',
+            name: 'Fort Caroline/Timucuan Ecological and Historical Preserve',
+            state: 'Florida',
+            lat: 30.385948,
+            lng: -81.497541
+        },
+        {
+            id: 'f1bf6d46-3919-4c0c-838d-555ca47155d2',
+            name: 'Timucuan Ecological and Historical Preserve Kingsley Plantation',
+            state: 'Florida',
+            lat: 30.439983,
+            lng: -81.437833
+        }
+    ];
+    const Engine = loadGamificationEngine(points);
+    const engine = new Engine();
+    engine.updateCanonicalCountsFromPoints(points);
+
+    const progress = engine.getVisitProgressMaps([
+        { id: 'b7b26034-7d2c-4c3e-9901-29e1b5751230', verified: false },
+        { id: 'f1bf6d46-3919-4c0c-838d-555ca47155d2', verified: true }
+    ]);
+
+    assert.equal(engine.totalSystemParks, 2);
+    assert.equal(engine.stateCanonicalCounts.FL, 2);
+    assert.equal(progress.totalVisitedSites, 2);
+    assert.equal(progress.verifiedVisitedSites, 1);
+    assert.equal(progress.stateVisitsTotalMap.FL, 2);
+});

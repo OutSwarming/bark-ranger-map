@@ -26,9 +26,13 @@ const CSV_COLUMNS = {
 
 const SWAG_TYPE_COLUMNS = ['Swag Type', 'Swag', 'Swag Available'];
 const STATIC_FALLBACK_CSV_URL = 'assets/data/bark-fallback.csv';
-const MISSING_COORDINATE_OVERRIDES = {
+const PARK_COORDINATE_OVERRIDES = {
     // Official NC State Parks map lists GPS: 35.2354, -77.8932.
-    '38e0a9bb-4365-4d84-87ea-cca3bde06435': { lat: 35.2354, lng: -77.8932 }
+    '38e0a9bb-4365-4d84-87ea-cca3bde06435': { lat: 35.2354, lng: -77.8932 },
+    // NPS place page for Fort Caroline lists Location: 30.385948, -81.497541.
+    'b7b26034-7d2c-4c3e-9901-29e1b5751230': { lat: 30.385948, lng: -81.497541 },
+    // NPS Kingsley Plantation event location lists Latitude and Longitude 30.439983, -81.437833.
+    'f1bf6d46-3919-4c0c-838d-555ca47155d2': { lat: 30.439983, lng: -81.437833 }
 };
 let staticFallbackLoadInFlight = null;
 
@@ -99,10 +103,22 @@ function isCanonicalParkId(id) {
     return Boolean(value && value.toLowerCase() !== 'unknown' && !isLegacyParkId(value));
 }
 
-function getMissingCoordinateOverride(item) {
+function getParkCoordinateOverride(item) {
     const parkId = getParkId(item);
     if (!parkId) return null;
-    return MISSING_COORDINATE_OVERRIDES[parkId] || null;
+    return PARK_COORDINATE_OVERRIDES[parkId] || null;
+}
+
+function coordinatesNeedOverride(lat, lng, override) {
+    if (!override) return false;
+    const parsedLat = Number(lat);
+    const parsedLng = Number(lng);
+    return (
+        !Number.isFinite(parsedLat) ||
+        !Number.isFinite(parsedLng) ||
+        parsedLat !== Number(override.lat) ||
+        parsedLng !== Number(override.lng)
+    );
 }
 
 function processParsedResults(results) {
@@ -134,13 +150,11 @@ function processParsedResults(results) {
                 lng = 144.6632005;
             }
 
-            if (!lat || !lng) {
-                const coordinateOverride = getMissingCoordinateOverride(item);
-                if (coordinateOverride) {
-                    lat = coordinateOverride.lat;
-                    lng = coordinateOverride.lng;
-                    coordinateOverrideCount++;
-                }
+            const coordinateOverride = getParkCoordinateOverride(item);
+            if (coordinatesNeedOverride(lat, lng, coordinateOverride)) {
+                lat = coordinateOverride.lat;
+                lng = coordinateOverride.lng;
+                coordinateOverrideCount++;
             }
 
             if (!lat || !lng) {
@@ -201,7 +215,7 @@ function processParsedResults(results) {
         });
     }
     if (coordinateOverrideCount > 0 && window.BARK.debugDataRefresh === true) {
-        console.info(`[dataService] Repaired ${coordinateOverrideCount} known row(s) with missing coordinates.`);
+        console.info(`[dataService] Repaired ${coordinateOverrideCount} known row(s) with coordinate overrides.`);
     }
 
     const parkRepo = window.BARK.repos && window.BARK.repos.ParkRepo;
