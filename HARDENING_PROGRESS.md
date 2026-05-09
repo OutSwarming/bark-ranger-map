@@ -426,3 +426,44 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
 - Notes:
   - Firebase emulator still warns that Java 21 will be required by firebase-tools v15; current tests pass on Java 18.
   - Functions deploy tooling still warns that Node.js 20 runtime is deprecated and should be upgraded before final public launch.
+
+## Promo / Access Code Premium System
+
+- Date: 2026-05-09.
+- Scope: unified user-facing `Promo / Access Code` field for free BARK Premium grants and Lemon coupon checkout passthrough.
+- Lemon Squeezy status: unchanged and still locked in test mode. Checkout live mode was not enabled and the Carter approval lock remains required.
+- Data model:
+  - `accessCodes/{codeHash}` stores Carter-controlled code definitions.
+  - `accessCodeRedemptions/{redemptionId}` stores server-written redemption receipts.
+  - Clients cannot read or write either collection.
+  - Raw codes are normalized and hashed server-side; raw code values are not stored in Firestore.
+- Free access behavior:
+  - `redeemAccessOrPromoCode` grants `users/{uid}.entitlement.source = access_code`.
+  - Free-code Premium uses `status: access_code_active`, `autoRenew: false`, `paymentMethodAttached: false`, and an `expiresAt` timestamp.
+  - Free-code users do not get a Lemon subscription, do not attach a card, and do not see Manage Billing.
+  - Expired free-code entitlement evaluates non-premium in `premiumService` and prompts the user to enter a new code or subscribe.
+- Lemon coupon behavior:
+  - `lemon_coupon_passthrough` access-code docs route to Lemon checkout.
+  - `createCheckoutSession` accepts a safe optional `discountCode` and passes it as `checkout_data.discount_code`.
+  - Coupon checkout still uses `attributes.test_mode: true`.
+  - Coupon codes do not grant Premium until Lemon webhook entitlement confirms payment/subscription state.
+- Webhook compatibility:
+  - Active access-code grants are not downgraded by Lemon expired/refunded/canceled events.
+  - If a paid Lemon subscription starts while a free access code is active, the Lemon entitlement can win billing display while preserving an access-code fallback.
+  - If the Lemon subscription later expires while the fallback is still active, Premium is restored from the access-code fallback.
+- UI:
+  - Added the single `Promo / Access Code` box to the Premium modal.
+  - Free-code success copy shows access end date, `Auto-renew: No`, and `No payment method attached`.
+  - Account and profile UI show `Free Premium Access` for active access-code grants and hide Manage Billing.
+  - Expired access-code UI says `Free Premium access ended` and offers subscribe/new-code path.
+- Docs:
+  - Added `plans/PROMO_ACCESS_CODE_RUNBOOK.md` with code creation, redemption, free-code renewal policy, and Lemon coupon passthrough policy.
+- QC:
+  - `PATH="${BARK_NODE20_BIN:-$HOME/.nvm/versions/node/v20.20.2/bin}:$PATH" npm --prefix functions test`: PASS, 99/99.
+  - `PATH="${BARK_NODE20_BIN:-$HOME/.nvm/versions/node/v20.20.2/bin}:$PATH" node --test tests/auth-account-ui.test.js`: PASS, 5/5.
+  - `PATH="${BARK_NODE20_BIN:-$HOME/.nvm/versions/node/v20.20.2/bin}:$PATH" npm run test:rules`: PASS, 26/26.
+  - `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/promo-access-code-smoke.spec.js --reporter=list`: PASS, 5/5.
+- Remaining risks:
+  - Carter still needs to create actual `accessCodes/{codeHash}` docs in Firebase Console or admin tooling before real users can redeem codes.
+  - There is no client-accessible access-code admin UI, intentionally.
+  - Lemon live mode remains a later final-RC task only after Carter explicitly approves it.

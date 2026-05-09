@@ -130,7 +130,9 @@ describe("ORS premium callable entitlement helpers", () => {
             status: "free",
             source: "none",
             manualOverride: false,
-            currentPeriodEnd: null
+            currentPeriodEnd: null,
+            expiresAt: null,
+            expiresAtMs: null
         });
         assert.equal(isEffectivePremium("premium"), false);
         assert.equal(isEffectivePremium({ premium: true, status: "free" }), false);
@@ -145,6 +147,23 @@ describe("ORS premium callable entitlement helpers", () => {
         for (const status of ["canceled", "expired", "refunded", "trialing", "free"]) {
             assert.equal(isEffectivePremium({ premium: true, status }), false, status);
         }
+    });
+
+    it("allows non-expired access_code entitlement and rejects expired access_code entitlement", () => {
+        const nowMs = Date.parse("2026-05-09T12:00:00.000Z");
+        assert.equal(isEffectivePremium({
+            premium: true,
+            status: "access_code_active",
+            source: "access_code",
+            expiresAt: "2026-05-10T12:00:00.000Z"
+        }, { nowMs }), true);
+
+        assert.equal(isEffectivePremium({
+            premium: true,
+            status: "access_code_active",
+            source: "access_code",
+            expiresAt: "2026-05-08T12:00:00.000Z"
+        }, { nowMs }), false);
     });
 
     it("rejects unauthenticated premium callable requests", async () => {

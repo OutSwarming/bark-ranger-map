@@ -11,8 +11,15 @@ window.BARK.services = window.BARK.services || {};
         source: 'none',
         manualOverride: false,
         currentPeriodEnd: null,
+        expiresAt: null,
+        autoRenew: null,
+        paymentMethodAttached: null,
+        accessCodeType: null,
+        accessCodeAudience: null,
+        reason: null,
         providerCustomerId: null,
-        providerSubscriptionId: null
+        providerSubscriptionId: null,
+        lemonSqueezySubscriptionId: null
     });
 
     const PREMIUM_STATUSES = new Set(['active', 'manual_active', 'past_due', 'cancelled_active']);
@@ -72,9 +79,22 @@ window.BARK.services = window.BARK.services || {};
             return { ...DEFAULT_ENTITLEMENT };
         }
 
-        const status = normalizeString(raw.status, DEFAULT_ENTITLEMENT.status);
+        let status = normalizeString(raw.status, DEFAULT_ENTITLEMENT.status);
         const source = normalizeString(raw.source, DEFAULT_ENTITLEMENT.source);
-        const premium = raw.premium === true && PREMIUM_STATUSES.has(status);
+        const expiresAt = normalizePeriodEnd(raw.expiresAt);
+        const expiresAtMs = typeof expiresAt === 'number'
+            ? expiresAt
+            : typeof expiresAt === 'string'
+                ? Date.parse(expiresAt)
+                : null;
+        const accessCodeActive = source === 'access_code' &&
+            status === 'access_code_active' &&
+            Number.isFinite(expiresAtMs) &&
+            expiresAtMs > Date.now();
+        if (source === 'access_code' && status === 'access_code_active' && !accessCodeActive) {
+            status = 'access_code_expired';
+        }
+        const premium = raw.premium === true && (PREMIUM_STATUSES.has(status) || accessCodeActive);
 
         return {
             premium,
@@ -82,8 +102,15 @@ window.BARK.services = window.BARK.services || {};
             source,
             manualOverride: raw.manualOverride === true,
             currentPeriodEnd: normalizePeriodEnd(raw.currentPeriodEnd),
+            expiresAt,
+            autoRenew: raw.autoRenew === true ? true : raw.autoRenew === false ? false : null,
+            paymentMethodAttached: raw.paymentMethodAttached === true ? true : raw.paymentMethodAttached === false ? false : null,
+            accessCodeType: normalizeString(raw.accessCodeType, null),
+            accessCodeAudience: normalizeString(raw.accessCodeAudience, null),
+            reason: normalizeString(raw.reason, null),
             providerCustomerId: normalizeString(raw.providerCustomerId, null),
-            providerSubscriptionId: normalizeString(raw.providerSubscriptionId, null)
+            providerSubscriptionId: normalizeString(raw.providerSubscriptionId, null),
+            lemonSqueezySubscriptionId: normalizeString(raw.lemonSqueezySubscriptionId, null)
         };
     }
 

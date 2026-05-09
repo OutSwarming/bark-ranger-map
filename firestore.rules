@@ -57,7 +57,16 @@ service cloud.firestore {
         && data.entitlement is map
         && data.entitlement.keys().hasAll(['premium', 'status'])
         && data.entitlement.premium == true
-        && data.entitlement.status in ['active', 'manual_active', 'past_due', 'cancelled_active'];
+        && (
+          data.entitlement.status in ['active', 'manual_active', 'past_due', 'cancelled_active']
+          || (
+            data.entitlement.status == 'access_code_active'
+            && data.entitlement.source == 'access_code'
+            && data.entitlement.keys().hasAny(['expiresAt'])
+            && data.entitlement.expiresAt is timestamp
+            && data.entitlement.expiresAt > request.time
+          )
+        );
     }
 
     function hasValidVisitedPlacesShape(data) {
@@ -147,6 +156,14 @@ service cloud.firestore {
     match /leaderboard/{uid} {
       allow read: if true;
       allow create, update, delete: if false;
+    }
+
+    match /accessCodes/{codeHash} {
+      allow read, write: if false;
+    }
+
+    match /accessCodeRedemptions/{redemptionId} {
+      allow read, write: if false;
     }
 
     match /system/{docId} {

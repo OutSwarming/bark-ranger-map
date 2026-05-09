@@ -237,6 +237,10 @@
         }
 
         const entitlement = premiumService.getEntitlement();
+        if (entitlement.status === 'access_code_active' && entitlement.source === 'access_code' && premiumService.isPremium && premiumService.isPremium()) {
+            return 'Free Premium Access';
+        }
+        if (entitlement.status === 'access_code_expired') return 'Free Premium access ended';
         if (entitlement.status === 'past_due') return 'Premium past due';
         if (entitlement.status === 'cancelled_active') return 'Premium active until period end';
         if (premiumService.isPremium && premiumService.isPremium()) {
@@ -259,6 +263,30 @@
         );
     }
 
+    function formatEntitlementDate(value) {
+        if (!value) return 'not set';
+        let date = null;
+        if (typeof value === 'number') date = new Date(value);
+        else if (typeof value === 'string') date = new Date(value);
+        else if (value instanceof Date) date = value;
+        else if (typeof value.toMillis === 'function') date = new Date(value.toMillis());
+        else if (Number.isFinite(Number(value.seconds))) {
+            date = new Date((Number(value.seconds) * 1000) + Math.floor(Number(value.nanoseconds || 0) / 1000000));
+        }
+        if (!date || Number.isNaN(date.getTime())) return 'not set';
+        return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function getAccessCodeAudienceLabel(value) {
+        switch (value) {
+            case 'admin_mod': return 'Admin/mod complimentary access';
+            case 'vip': return 'VIP access';
+            case 'support': return 'Support access';
+            case 'tester': return 'Tester access';
+            default: return 'Complimentary access';
+        }
+    }
+
     function getBillingPanelState(user) {
         const premiumService = getPremiumService();
         const entitlement = premiumService && typeof premiumService.getEntitlement === 'function'
@@ -272,6 +300,30 @@
 
         if (!user || (!isPremium && !hasInactiveLemonSubscription)) {
             return { visible: false };
+        }
+
+        if (entitlement && entitlement.source === 'access_code') {
+            if (isPremium && entitlement.status === 'access_code_active') {
+                return {
+                    visible: true,
+                    mode: 'access-code',
+                    eyebrow: 'Free Premium Access',
+                    title: getAccessCodeAudienceLabel(entitlement.accessCodeAudience),
+                    copy: `Access ends: ${formatEntitlementDate(entitlement.expiresAt)}. Auto-renew: No. Payment method: None.`,
+                    hideButton: true
+                };
+            }
+
+            if (entitlement.status === 'access_code_expired') {
+                return {
+                    visible: true,
+                    mode: 'access-code-expired',
+                    eyebrow: 'Premium inactive',
+                    title: 'Free Premium access ended',
+                    copy: 'Enter a new access code or subscribe to continue Premium.',
+                    hideButton: true
+                };
+            }
         }
 
         if (isLemonSqueezyEntitlement(entitlement)) {
@@ -319,12 +371,20 @@
         if (!state.visible) {
             delete button.dataset.billingUrl;
             delete button.dataset.mode;
+            button.hidden = false;
             return;
         }
 
         setText('account-billing-eyebrow', state.eyebrow);
         setText('account-billing-title', state.title);
         setText('account-billing-copy', state.copy);
+        button.hidden = false;
+        button.hidden = state.hideButton === true;
+        if (state.hideButton === true) {
+            delete button.dataset.billingUrl;
+            delete button.dataset.mode;
+            return;
+        }
         button.textContent = state.buttonText;
         button.dataset.mode = state.buttonMode;
         button.dataset.billingUrl = state.url;

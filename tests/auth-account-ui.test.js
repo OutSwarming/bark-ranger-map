@@ -344,3 +344,34 @@ test('manual premium account shows support-managed billing instead of fake porta
     assert.equal(harness.element('account-manage-subscription-btn').textContent, 'Contact support');
     assert.equal(harness.element('account-manage-subscription-btn').dataset.mode, 'support');
 });
+
+test('access-code premium account hides manage billing and shows no auto-renew/payment method', () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'access_code_active',
+            source: 'access_code',
+            accessCodeAudience: 'admin_mod',
+            expiresAt: '2027-05-09T12:00:00.000Z',
+            autoRenew: false,
+            paymentMethodAttached: false
+        }
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'access-code-user',
+        email: 'access@example.com',
+        displayName: 'Access Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+    assert.equal(harness.element('account-display-premium').textContent, 'Free Premium Access');
+    assert.equal(harness.element('account-billing-panel').hidden, false);
+    assert.equal(harness.element('account-billing-title').textContent, 'Admin/mod complimentary access');
+    assert.match(harness.element('account-billing-copy').textContent, /Auto-renew: No/);
+    assert.match(harness.element('account-billing-copy').textContent, /Payment method: None/);
+    assert.equal(harness.element('account-manage-subscription-btn').hidden, true);
+});
