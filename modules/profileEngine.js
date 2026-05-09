@@ -44,6 +44,55 @@ function hasProfileVerifiedVisit(visitedPlacesArray) {
     return getProfileVisitedPlacesArray(visitedPlacesArray).some(place => place && place.verified);
 }
 
+function getProfileVisitProgress(visitedPlacesArray) {
+    const visits = getProfileVisitedPlacesArray(visitedPlacesArray);
+    if (!window.gamificationEngine || typeof window.gamificationEngine.getVisitProgressMaps !== 'function') {
+        return null;
+    }
+
+    try {
+        return window.gamificationEngine.getVisitProgressMaps(visits);
+    } catch (error) {
+        console.warn('[profileEngine] Unique visit progress unavailable; using fallback counters.', error);
+        return null;
+    }
+}
+
+function getProfileTotalVisitedCount(visitedPlacesArray, scoreSummary = null) {
+    const parsedScoreCount = Number(scoreSummary && scoreSummary.totalVisitedCount);
+    if (Number.isFinite(parsedScoreCount)) return parsedScoreCount;
+
+    const progress = getProfileVisitProgress(visitedPlacesArray);
+    const parsedProgressCount = Number(progress && progress.totalVisitedSites);
+    if (Number.isFinite(parsedProgressCount)) return parsedProgressCount;
+
+    return getProfileVisitedPlacesArray(visitedPlacesArray).length;
+}
+
+function getProfileStateCount(visitedPlacesArray) {
+    const progress = getProfileVisitProgress(visitedPlacesArray);
+    if (progress && progress.stateVisitsTotalMap) {
+        return Object.keys(progress.stateVisitsTotalMap).length;
+    }
+
+    const statesSet = new Set();
+    const visits = getProfileVisitedPlacesArray(visitedPlacesArray);
+    visits.forEach(visit => {
+        const parkRepo = getParkRepo();
+        const mapPoint = visit && visit.id && parkRepo && typeof parkRepo.getById === 'function'
+            ? parkRepo.getById(visit.id)
+            : null;
+        const stateText = (mapPoint && mapPoint.state) || (visit && visit.state);
+        const codes = window.gamificationEngine && typeof window.gamificationEngine.getNormalizedStateCodes === 'function'
+            ? window.gamificationEngine.getNormalizedStateCodes(stateText)
+            : String(stateText || '').split(/[,/]/).map(s => s.trim().toUpperCase()).filter(Boolean);
+
+        codes.forEach(code => statesSet.add(code));
+    });
+
+    return statesSet.size;
+}
+
 // ====== MANAGE PORTAL ======
 function padDatePart(value) {
     return String(value).padStart(2, '0');
@@ -180,6 +229,7 @@ async function syncScoreToLeaderboard() {
     const visitedPlaces = getProfileVisitedPlacesArray();
     const scoreSummary = window.BARK.calculateVisitScore(visitedPlaces, window.currentWalkPoints);
     const totalScore = scoreSummary.totalScore;
+    const totalVisitedCount = getProfileTotalVisitedCount(visitedPlaces, scoreSummary);
 
     if (totalScore === window._lastSyncedScore) return;
 
@@ -194,7 +244,7 @@ async function syncScoreToLeaderboard() {
 
         await db.collection('users').doc(user.uid).set({
             totalPoints: totalScore,
-            totalVisited: visitedPlaces.length,
+            totalVisited: totalVisitedCount,
             displayName: user.displayName || 'Bark Ranger',
             hasVerified: hasProfileVerifiedVisit(visitedPlaces)
         }, { merge: true });
@@ -203,7 +253,7 @@ async function syncScoreToLeaderboard() {
             displayName: user.displayName || 'Bark Ranger',
             photoURL: user.photoURL || '',
             totalPoints: totalScore,
-            totalVisited: visitedPlaces.length,
+            totalVisited: totalVisitedCount,
             hasVerified: hasProfileVerifiedVisit(visitedPlaces)
         };
         const serverTimestamp = getLeaderboardServerTimestamp();
@@ -217,13 +267,13 @@ async function syncScoreToLeaderboard() {
             const me = cachedLeaderboardData.find(u => u.uid === user.uid);
             if (me) {
                 me.totalPoints = totalScore;
-                me.totalVisited = visitedPlaces.length;
+                me.totalVisited = totalVisitedCount;
             } else {
                 cachedLeaderboardData.push({
                     uid: user.uid,
                     displayName: user.displayName || 'Bark Ranger',
                     totalPoints: totalScore,
-                    totalVisited: visitedPlaces.length,
+                    totalVisited: totalVisitedCount,
                     hasVerified: hasProfileVerifiedVisit(visitedPlaces)
                 });
             }
@@ -485,35 +535,20 @@ function updateStatsUI() {
     const verifiedEl = document.getElementById('stat-verified');
     const regularEl = document.getElementById('stat-regular');
     const statesEl = document.getElementById('stat-states');
-    const parkRepo = getParkRepo();
-    const allPoints = parkRepo ? parkRepo.getAll() : [];
     const visitedPlaces = getProfileVisitedPlacesArray();
 
     if (!scoreEl || !verifiedEl || !regularEl || !statesEl) return;
 
-    const statesSet = new Set();
-    allPoints.forEach(p => {
-        const isVisited = typeof window.BARK.isParkVisited === 'function'
-            ? window.BARK.isParkVisited(p)
-            : hasProfileVisitedPlace(p);
-        if (isVisited && p.state) {
-            const st = p.state.toString().split(/[,/]/);
-            st.forEach(s => {
-                const trimmed = s.trim().toUpperCase();
-                if (trimmed) statesSet.add(trimmed);
-            });
-        }
-    });
-
     const scoreSummary = window.BARK.calculateVisitScore(visitedPlaces, window.currentWalkPoints);
     const totalScore = scoreSummary.totalScore;
     const verifiedCount = scoreSummary.verifiedCount;
-    const regularCount = scoreSummary.regularCount;
+    const totalVisitedCount = getProfileTotalVisitedCount(visitedPlaces, scoreSummary);
+    const stateCount = getProfileStateCount(visitedPlaces);
 
     scoreEl.textContent = totalScore;
     verifiedEl.textContent = verifiedCount;
-    regularEl.textContent = regularCount;
-    statesEl.textContent = statesSet.size;
+    regularEl.textContent = totalVisitedCount;
+    statesEl.textContent = stateCount;
 
     let level = 1;
     let max = 10;
@@ -564,11 +599,12 @@ function parseLeaderboardRankCount(countData) {
 
 function buildPersonalLeaderboardFallback(user, visitedPlaces, localScore, exactRank = null) {
     const visitedPlacesArray = getProfileVisitedPlacesArray(visitedPlaces);
+    const scoreSummary = window.BARK.calculateVisitScore(visitedPlacesArray, window.currentWalkPoints);
     return {
         uid: user.uid,
         displayName: user.displayName || 'Bark Ranger',
         totalPoints: localScore,
-        totalVisited: visitedPlacesArray.length,
+        totalVisited: getProfileTotalVisitedCount(visitedPlacesArray, scoreSummary),
         hasVerified: hasProfileVerifiedVisit(visitedPlacesArray),
         isPersonalFallback: true,
         exactRank: getLeaderboardRenderer().getSafeLeaderboardRank(exactRank)

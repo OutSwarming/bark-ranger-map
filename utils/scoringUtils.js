@@ -11,25 +11,60 @@ function toVisitArray(visitedPlaces) {
     return Array.from(visitedPlaces);
 }
 
+function getUniqueVisitProgress(visitedPlaces) {
+    const engine = window.gamificationEngine;
+    if (!engine || typeof engine.getVisitProgressMaps !== 'function') return null;
+
+    try {
+        const progress = engine.getVisitProgressMaps(visitedPlaces);
+        const totalVisitedSites = Number(progress && progress.totalVisitedSites);
+        const verifiedVisitedSites = Number(progress && progress.verifiedVisitedSites);
+        if (!Number.isFinite(totalVisitedSites) || !Number.isFinite(verifiedVisitedSites)) return null;
+
+        return {
+            totalVisitedSites,
+            verifiedVisitedSites
+        };
+    } catch (error) {
+        console.warn('[scoringUtils] Falling back to raw visit scoring.', error);
+        return null;
+    }
+}
+
 function countVerifiedAndRegular(visitedPlaces) {
+    const visits = toVisitArray(visitedPlaces);
+    const uniqueProgress = getUniqueVisitProgress(visits);
+    if (uniqueProgress) {
+        const verifiedCount = uniqueProgress.verifiedVisitedSites;
+        const totalVisitedCount = uniqueProgress.totalVisitedSites;
+        return {
+            verifiedCount,
+            regularCount: Math.max(totalVisitedCount - verifiedCount, 0),
+            totalVisitedCount
+        };
+    }
+
     let verifiedCount = 0;
     let regularCount = 0;
 
-    toVisitArray(visitedPlaces).forEach(p => {
+    visits.forEach(p => {
         if (p.verified) verifiedCount++;
         else regularCount++;
     });
 
-    return { verifiedCount, regularCount };
+    return { verifiedCount, regularCount, totalVisitedCount: verifiedCount + regularCount };
 }
 
 function calculateVisitScore(visitedPlaces, walkPoints) {
     const counts = countVerifiedAndRegular(visitedPlaces);
+    const sanitizedWalkPoints = window.BARK.sanitizeWalkPoints(walkPoints);
 
     return {
         verifiedCount: counts.verifiedCount,
         regularCount: counts.regularCount,
-        totalScore: (counts.verifiedCount * 2) + counts.regularCount + window.BARK.sanitizeWalkPoints(walkPoints)
+        totalVisitedCount: counts.totalVisitedCount,
+        walkPoints: sanitizedWalkPoints,
+        totalScore: counts.totalVisitedCount + counts.verifiedCount + sanitizedWalkPoints
     };
 }
 
