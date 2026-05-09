@@ -126,10 +126,12 @@ function isPremiumRoutingUnlocked() {
     );
 }
 
-function setPlannerActionButtonLabel(button, label, icon = '') {
+function setPlannerActionButtonLabel(button, label, icon = '', detail = '') {
     if (!button) return;
     const iconMarkup = icon ? `<span class="planner-action-icon">${icon}</span>` : '';
-    button.innerHTML = `${iconMarkup}<span>${label}</span>`;
+    const detailMarkup = detail ? `<span class="planner-action-detail">${detail}</span>` : '';
+    button.classList.toggle('planner-action-has-detail', Boolean(detail));
+    button.innerHTML = `${iconMarkup}<span class="planner-action-label-wrap"><span class="planner-action-label">${label}</span>${detailMarkup}</span>`;
 }
 
 function openRoutePremiumPaywall() {
@@ -241,6 +243,10 @@ function updateRouteGenerationButtonState() {
     const button = window.BARK.DOM.startRouteBtn();
     if (!button) return;
 
+    button.classList.remove('planner-action-route-generating', 'planner-action-route-slow', 'planner-action-route-notice');
+    delete button.dataset.routeStatus;
+    delete button.dataset.routeNoticeId;
+
     const isPremium = isPremiumRoutingUnlocked();
     button.classList.toggle('planner-action-premium-locked', !isPremium);
     button.dataset.premiumRequired = isPremium ? 'false' : 'true';
@@ -256,6 +262,38 @@ function updateRouteGenerationButtonState() {
     button.disabled = false;
     button.title = '';
     setPlannerActionButtonLabel(button, 'Generate Route');
+}
+
+function setRouteGenerationButtonProgress(button, currentDay, totalDays, options = {}) {
+    if (!button) return;
+    const total = Math.max(1, Number(totalDays) || 1);
+    const current = Math.max(1, Math.min(total, Number(currentDay) || 1));
+    const isSlow = options.status === 'slow';
+    const detail = isSlow
+        ? `${current} / ${total} | A few min`
+        : `${current} / ${total}`;
+
+    button.classList.remove('planner-action-route-notice');
+    button.classList.toggle('planner-action-route-generating', !isSlow);
+    button.classList.toggle('planner-action-route-slow', isSlow);
+    button.dataset.routeStatus = isSlow ? 'slow' : 'working';
+    delete button.dataset.routeNoticeId;
+    setPlannerActionButtonLabel(button, isSlow ? 'Still Generating' : 'Generating Route', '', detail);
+}
+
+function showRouteButtonNotice(button, label, detail = '', status = 'complete', durationMs = 2400) {
+    if (!button) return;
+    const noticeId = `${Date.now()}-${Math.random()}`;
+    button.classList.remove('planner-action-route-generating', 'planner-action-route-slow');
+    button.classList.add('planner-action-route-notice');
+    button.dataset.routeStatus = status;
+    button.dataset.routeNoticeId = noticeId;
+    setPlannerActionButtonLabel(button, label, '', detail);
+
+    setTimeout(() => {
+        if (button.dataset.routeNoticeId !== noticeId) return;
+        updateRouteGenerationButtonState();
+    }, durationMs);
 }
 
 function getTripStopKey(stop) {
@@ -1242,6 +1280,7 @@ function initTripPlanner() {
             .filter(routeDay => routeDay.dayStops.length >= 2);
         if (routableDays.length === 0) { alert("Each day needs at least 2 stops, including trip start/end."); return; }
 
+        clearRouteTelemetryStatus();
         const longRouteWarnings = getLongRouteDayWarnings(routableDays);
         if (longRouteWarnings.length > 0) {
             const warningPrompt = typeof window.BARK.confirmLongRouteWarning === 'function'
@@ -1252,11 +1291,7 @@ function initTripPlanner() {
             if (warningChoice === 'optimize') {
                 const optimizerModal = window.BARK.DOM.optimizerModal();
                 if (optimizerModal) optimizerModal.style.display = 'flex';
-                setRouteTelemetryStatus(
-                    'slow',
-                    'Day too long.',
-                    'Optimize the trip or split that day before generating. Routes over 1,000 miles may not draw correctly.'
-                );
+                showRouteButtonNotice(startRouteBtn, 'Day Too Long', 'Optimize first', 'warning');
                 return;
             }
 
@@ -1274,14 +1309,17 @@ function initTripPlanner() {
         }
 
         if (startRouteBtn) {
-            setPlannerActionButtonLabel(startRouteBtn, 'Generating...');
+            setRouteGenerationButtonProgress(startRouteBtn, 1, routableDays.length);
             startRouteBtn.disabled = true;
         }
 
-        setRouteTelemetryStatus('working', 'Generating route...', `Building drive lines for ${routableDays.length} day${routableDays.length === 1 ? '' : 's'}.`);
+        let routeButtonDayNumber = 1;
+        let routeButtonIsSlow = false;
+        let finalRouteButtonNotice = null;
         const slowRouteTimer = setTimeout(() => {
             if (routeRunId !== routeRenderGeneration) return;
-            setRouteTelemetryStatus('slow', 'Still generating route...', 'This might take a few minutes for bigger trips.');
+            routeButtonIsSlow = true;
+            setRouteGenerationButtonProgress(startRouteBtn, routeButtonDayNumber, routableDays.length, { status: 'slow' });
         }, 1800);
 
         const allBounds = [];
@@ -1291,17 +1329,15 @@ function initTripPlanner() {
             for (let routeDayIndex = 0; routeDayIndex < routableDays.length; routeDayIndex += 1) {
                 const routeDay = routableDays[routeDayIndex];
                 const { day, dayStops } = routeDay;
+                routeButtonDayNumber = routeDayIndex + 1;
+                setRouteGenerationButtonProgress(
+                    startRouteBtn,
+                    routeButtonDayNumber,
+                    routableDays.length,
+                    { status: routeButtonIsSlow ? 'slow' : 'working' }
+                );
 
                 try {
-                    const currentStatus = window.BARK.DOM.routeTelemetry()?.dataset.routeStatus;
-                    if (routableDays.length > 1) {
-                        setRouteTelemetryStatus(
-                            currentStatus === 'slow' ? 'slow' : 'working',
-                            currentStatus === 'slow' ? 'Still generating route...' : 'Generating route...',
-                            `Building drive line ${routeDayIndex + 1} of ${routableDays.length}.`
-                        );
-                    }
-
                     const orsCoordinates = dayStops.map(s => [Number(s.lng), Number(s.lat)]);
                     const parkRepo = window.BARK.repos && window.BARK.repos.ParkRepo;
                     const orsWaypoints = dayStops.map((stop, index) => {
@@ -1343,9 +1379,19 @@ function initTripPlanner() {
                     const miles = (totalDistMeters * 0.000621371).toFixed(1);
                     const hrs = Math.floor(totalDurSeconds / 3600);
                     const mins = Math.floor((totalDurSeconds % 3600) / 60);
-                    setRouteTelemetrySummary(miles, hrs, mins);
+                    clearRouteTelemetryStatus();
+                    finalRouteButtonNotice = {
+                        label: 'Route Ready',
+                        detail: `${miles} mi | ${hrs}h ${mins}m`,
+                        status: 'complete'
+                    };
                 } else {
-                    setRouteTelemetryStatus('error', 'Route was not generated.', 'Try again or use fewer stops per day.');
+                    clearRouteTelemetryStatus();
+                    finalRouteButtonNotice = {
+                        label: 'Route Failed',
+                        detail: 'Try fewer stops/day',
+                        status: 'error'
+                    };
                 }
             }
 
@@ -1353,8 +1399,17 @@ function initTripPlanner() {
         } finally {
             clearTimeout(slowRouteTimer);
             if (routeRunId === routeRenderGeneration && startRouteBtn) {
-                setPlannerActionButtonLabel(startRouteBtn, 'Generate Route');
                 startRouteBtn.disabled = false;
+                if (finalRouteButtonNotice) {
+                    showRouteButtonNotice(
+                        startRouteBtn,
+                        finalRouteButtonNotice.label,
+                        finalRouteButtonNotice.detail,
+                        finalRouteButtonNotice.status
+                    );
+                } else {
+                    updateRouteGenerationButtonState();
+                }
             }
         }
     }

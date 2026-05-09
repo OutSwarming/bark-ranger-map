@@ -365,7 +365,7 @@ test('add stop action opens map tab and focuses the search input for the active 
     assert.match(searchInput.placeholder, /Day 10/);
 });
 
-test('route generation shows working and slow status messages before completion', async () => {
+test('route generation shows progress on the route button before completion', async () => {
     const harness = loadTripPlanner({ timerMode: 'manual' });
     harness.window.BARK.tripDays = [{
         color: '#1976D2',
@@ -382,21 +382,23 @@ test('route generation shows working and slow status messages before completion'
     harness.element('start-route-btn').onclick();
     await Promise.resolve();
 
-    assert.equal(harness.element('route-telemetry').dataset.routeStatus, 'working');
-    assert.match(harness.getTextContent(harness.element('route-telemetry')), /Generating route/);
+    assert.equal(harness.element('route-telemetry').style.display, 'none');
+    assert.equal(harness.element('start-route-btn').dataset.routeStatus, 'working');
+    assert.match(harness.getTextContent(harness.element('start-route-btn')), /Generating Route/);
+    assert.match(harness.getTextContent(harness.element('start-route-btn')), /1 \/ 1/);
 
     harness.runTimers();
-    assert.equal(harness.element('route-telemetry').dataset.routeStatus, 'slow');
-    assert.match(harness.getTextContent(harness.element('route-telemetry')), /might take a few minutes/);
+    assert.equal(harness.element('start-route-btn').dataset.routeStatus, 'slow');
+    assert.match(harness.getTextContent(harness.element('start-route-btn')), /Still Generating/);
+    assert.match(harness.getTextContent(harness.element('start-route-btn')), /A few min/);
 
     harness.resolveDirections();
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushPromises();
 
-    assert.equal(harness.element('route-telemetry').dataset.routeStatus, 'complete');
-    assert.match(harness.getTextContent(harness.element('route-telemetry')), /Total Drive/);
-    assert.match(harness.element('start-route-btn').innerHTML, /Generate Route/);
+    assert.equal(harness.element('route-telemetry').style.display, 'none');
+    assert.equal(harness.element('start-route-btn').dataset.routeStatus, 'complete');
+    assert.match(harness.getTextContent(harness.element('start-route-btn')), /Route Ready/);
+    assert.match(harness.getTextContent(harness.element('start-route-btn')), /1.0 mi/);
 });
 
 test('trip planner estimates long route days before calling directions', () => {
@@ -416,7 +418,7 @@ test('trip planner estimates long route days before calling directions', () => {
 });
 
 test('route generation opens optimizer and skips ORS when a day is too long', async () => {
-    const harness = loadTripPlanner({ haversineDistance: () => 2000 });
+    const harness = loadTripPlanner({ haversineDistance: () => 2000, timerMode: 'manual' });
     const warningsSeen = [];
     harness.window.BARK.confirmLongRouteWarning = async (warnings) => {
         warningsSeen.push(...warnings);
@@ -439,8 +441,10 @@ test('route generation opens optimizer and skips ORS when a day is too long', as
     assert.equal(warningsSeen.length, 1);
     assert.equal(harness.directionsCalls.length, 0);
     assert.equal(harness.element('optimizer-modal').style.display, 'flex');
-    assert.equal(harness.element('route-telemetry').dataset.routeStatus, 'slow');
-    assert.match(harness.getTextContent(harness.element('route-telemetry')), /Day too long/);
+    assert.equal(harness.element('route-telemetry').style.display, 'none');
+    assert.equal(harness.element('start-route-btn').dataset.routeStatus, 'warning');
+    assert.match(harness.getTextContent(harness.element('start-route-btn')), /Day Too Long/);
+    assert.match(harness.getTextContent(harness.element('start-route-btn')), /Optimize first/);
 });
 
 test('route generation can continue after long day warning', async () => {

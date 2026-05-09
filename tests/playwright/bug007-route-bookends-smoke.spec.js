@@ -184,7 +184,8 @@ test.describe('BUG-007 sparse trip bookend routing', () => {
             const result = await page.evaluate(() => ({
                 alerts: window.__barkBug007Alerts.slice(),
                 calls: window.__barkBug007DirectionsCalls.slice(),
-                telemetry: document.getElementById('route-telemetry')?.textContent.trim() || ''
+                telemetryDisplay: document.getElementById('route-telemetry')?.style.display || '',
+                buttonText: document.getElementById('start-route-btn')?.textContent.trim() || ''
             }));
 
             expect(result.alerts).toEqual([]);
@@ -197,7 +198,8 @@ test.describe('BUG-007 sparse trip bookend routing', () => {
                 [seed.lastStop.lng, seed.lastStop.lat],
                 [seed.endNode.lng, seed.endNode.lat]
             ]);
-            expect(result.telemetry).toContain('Total Drive');
+            expect(result.telemetryDisplay).toBe('none');
+            expect(result.buttonText).toMatch(/Route Ready|Generate Route/);
             expect(errors, errors.join('\n')).toEqual([]);
         } finally {
             await context.close();

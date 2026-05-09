@@ -282,7 +282,8 @@ test.describe('BUG-016 route generation premium product rule', () => {
             const routedState = await readRouteState(page);
             expect(routedState.directionsCalls).toHaveLength(1);
             expect(routedState.paywalls).toEqual([]);
-            expect(routedState.telemetry.text).toContain('Total Drive');
+            expect(routedState.telemetry.display).toBe('none');
+            expect(routedState.button.text).toMatch(/Route Ready|Generate Route/);
             expect(errors, errors.join('\n')).toEqual([]);
         } finally {
             await context.close();
