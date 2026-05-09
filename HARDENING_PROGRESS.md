@@ -287,3 +287,40 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
   - `npm run test:rules` passed 24/24.
   - `BARK_E2E_BASE_URL=http://localhost:4173/index.html BARK_E2E_STORAGE_STATE="$PWD/playwright/.auth/free-user.json" BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json" npx playwright test tests/playwright/bug026-trip-save-custom-stop-smoke.spec.js --workers=1 --reporter=list` passed 2/2.
 - Deployment note: this requires hosting plus Firestore rules deployment before the hosted test app will enforce the new saved-route premium gate.
+
+## Firebase Deployment Milestone
+
+- Date: 2026-05-09.
+- Deployed project: `barkrangermap-auth`.
+- Deployed URL: `https://barkrangermap-auth.web.app`.
+- GitHub commit deployed: `710529e harden Firebase Hosting deploy ignores`.
+- Deployment scope:
+  - Firebase Hosting.
+  - Firestore rules.
+  - Cloud Functions.
+- Pre-deploy code state:
+  - `main` was up to date with `origin/main`.
+  - Pre-deploy tests already passed:
+    - `npm run test:rules`: PASS, 24/24.
+    - `npm --prefix functions test`: PASS, 82/82.
+- Important deploy safety correction:
+  - First deploy attempt was stopped after Firebase Hosting tried to package repo-root development files because `public` is `.`.
+  - `firebase.json` now explicitly excludes `.git/**`, `.firebase/**`, `playwright/**`, tests, logs, Functions source, plans/docs, and other dev-only files from Hosting.
+  - `.gitignore` now ignores Firebase deploy/emulator artifacts.
+  - Local Hosting package check now reports 55 files and confirms `.git`, Playwright auth storage states, Functions source, plans, tests, and logs are excluded.
+- Final deploy result:
+  - Firestore rules compiled and released.
+  - Functions deployed successfully.
+  - Hosting finalized and released successfully.
+  - Lemon Squeezy remains locked in test mode; live checkout was not enabled.
+- Post-deploy checks:
+  - `https://barkrangermap-auth.web.app/`: HTTP 200.
+  - Private/dev paths returned HTTP 404:
+    - `/.git/config`
+    - `/playwright/.auth/free-user.json`
+    - `/firebase-debug.log`
+    - `/firestore-debug.log`
+    - `/functions/index.js`
+    - `/plans/LAUNCH_READINESS_FIREBASE_COST_REPORT.md`
+- Tooling note:
+  - Firebase deploy warns that Node.js 20 Cloud Functions runtime is deprecated as of 2026-04-30 and decommissions 2026-10-30. This is not blocking today, but runtime upgrade should be added before final public launch.
