@@ -62,3 +62,9 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
 - Budget alerts still need to be configured in Google Cloud before expanding beta beyond the current 10 testers.
 - Feedback is paused instead of fixed with a new Firestore rule/callable; this avoids denied writes during Stage 0 without expanding scope.
 - Lemon Squeezy live mode was not changed.
+
+## P1 Follow-Up Progress
+
+- Fixed `tests/playwright/bug017-product-rules-audit-smoke.spec.js` by aligning the free-account forced-control assertion with the app's valid `Virtual trail tracking` paywall source.
+- This was a test expectation drift, not a product-gating bug: the test clicked trail controls last, and the app correctly showed the trail-specific premium paywall.
+- Targeted QC: `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bug017-product-rules-audit-smoke.spec.js --workers=1 --reporter=list` passed 2/2 with a local static server.

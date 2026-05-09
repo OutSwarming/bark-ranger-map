@@ -12,11 +12,11 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
   - How to test: flip each switch locally and verify the affected feature is unavailable while the rest of the app still works. Completed: staged function tests passed 71/71; focused Playwright passed 4 runnable tests with 4 expected storage-state skips; browser flag smoke passed.
   - Expected cost/risk reduction: caps route/geocode/leaderboard/checkout incidents quickly; turns launch surprises into reversible settings.
 
-- [ ] **Fix the known product-rules E2E failure**
+- [x] **Fix the known product-rules E2E failure**
   - Files: `tests/playwright/bug017-product-rules-audit-smoke.spec.js`, likely `modules/paywallController.js` or feature-source copy
-  - Exact change: determine whether the failure is intended copy drift or wrong paywall source; update the test or fix the source behavior accordingly.
+  - Exact change: confirmed the failure was intended copy drift after the test clicked trail controls last; updated the assertion to accept the valid `Virtual trail tracking` premium paywall source.
   - Why it matters: this is the one confirmed smoke failure touching premium gating behavior.
-  - How to test: run `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bug017-product-rules-audit-smoke.spec.js --workers=1 --reporter=list`.
+  - How to test: run `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bug017-product-rules-audit-smoke.spec.js --workers=1 --reporter=list`. Completed: targeted smoke passed 2/2 against a local static server with free/premium storage states available.
   - Expected cost/risk reduction: reduces paid-beta UX/regression risk; no direct Firestore cost impact.
 
 - [ ] **Enforce free 20 visited-place limit outside the client**

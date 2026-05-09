@@ -217,7 +217,7 @@ test.describe('BUG-017 premium product rules audit', () => {
             expect(lockedSearchState.paywallBody).toMatch(/add any city or town to your trip/);
             expect(lockedSearchState.paywallSource).toContain('global town search');
             expect(forcedState.geocodeCalls, 'free premium controls must not call ORS geocode').toEqual([]);
-            expect(forcedState.paywallTitle).toMatch(/Premium map filters|Premium map tools|Global towns and cities/);
+            expect(forcedState.paywallTitle).toMatch(/Premium map filters|Premium map tools|Global towns and cities|Virtual trail tracking/);
             expect(forcedState.premiumLoggedIn).toBe('true');
             expect(forcedState.visitedFilterValue).toBe('all');
             expect(forcedState.visitedFilterState).toBe('all');
