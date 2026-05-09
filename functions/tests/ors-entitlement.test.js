@@ -136,11 +136,13 @@ describe("ORS premium callable entitlement helpers", () => {
         assert.equal(isEffectivePremium({ premium: true, status: "free" }), false);
     });
 
-    it("allows only active and manual_active premium entitlements", () => {
+    it("allows active, manual, past-due grace, and cancelled-but-active entitlements", () => {
         assert.equal(isEffectivePremium({ premium: true, status: "active" }), true);
         assert.equal(isEffectivePremium({ premium: true, status: "manual_active" }), true);
+        assert.equal(isEffectivePremium({ premium: true, status: "past_due" }), true);
+        assert.equal(isEffectivePremium({ premium: true, status: "cancelled_active" }), true);
 
-        for (const status of ["canceled", "expired", "past_due", "trialing", "free"]) {
+        for (const status of ["canceled", "expired", "refunded", "trialing", "free"]) {
             assert.equal(isEffectivePremium({ premium: true, status }), false, status);
         }
     });
@@ -175,7 +177,7 @@ describe("ORS premium callable entitlement helpers", () => {
             { premium: true },
             { premium: true, status: "canceled" },
             { premium: true, status: "expired" },
-            { premium: true, status: "past_due" }
+            { premium: true, status: "refunded" }
         ]) {
             await assertRejectsCode(
                 requirePremiumCallable(authedContext("inactive-user"), "getPremiumGeocode", {
@@ -194,6 +196,22 @@ describe("ORS premium callable entitlement helpers", () => {
         assert.equal(result.uid, "premium-user");
         assert.equal(result.entitlement.premium, true);
         assert.equal(result.entitlement.status, "manual_active");
+    });
+
+    it("allows Lemon Squeezy past_due grace users", async () => {
+        const result = await requirePremiumCallable(authedContext("past-due-user"), "getPremiumRoute", {
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: true,
+                    status: "past_due",
+                    source: "lemon_squeezy"
+                }
+            })
+        });
+
+        assert.equal(result.uid, "past-due-user");
+        assert.equal(result.entitlement.premium, true);
+        assert.equal(result.entitlement.status, "past_due");
     });
 });
 

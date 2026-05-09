@@ -40,12 +40,12 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
   - How to test: malicious client write of `totalPoints: 999999` is denied; legitimate score sync still updates via server.
   - Expected cost/risk reduction: abuse/integrity risk reduced; minor function/read cost added for trusted score updates.
 
-- [ ] **Add durable Lemon Squeezy webhook idempotency and ordering**
-  - Files: `functions/index.js`, `functions/tests/lemonsqueezy-webhook.test.js`, `firestore.rules`
-  - Exact change: write processed provider events to a server-only collection such as `paymentEvents/{eventId}` inside a transaction; store provider event time/status; ignore older events that would regress current entitlement incorrectly.
-  - Why it matters: current `lastProviderEventId` only blocks immediate duplicate last events, not replay/out-of-order different events.
-  - How to test: replay same event twice, replay old cancelled after active renewal, deliver refund after active, deliver duplicate missing event id; assert final entitlement is correct.
-  - Expected cost/risk reduction: tiny extra write/read per webhook; major reduction in entitlement corruption and support incidents.
+- [x] **Add durable Lemon Squeezy webhook idempotency and ordering**
+  - Files: `functions/index.js`, `functions/tests/lemonsqueezy-webhook.test.js`, `HARDENING_PROGRESS.md`
+  - Exact change: process entitlement webhooks in a transaction, write provider receipts to `_lemonSqueezyWebhookEvents/{sha256(providerEventId)}`, and ignore exact duplicates plus stale/out-of-order events.
+  - Why it matters: `lastProviderEventId` alone did not block replay/out-of-order different events.
+  - How tested: `node --test functions/tests/lemonsqueezy-webhook.test.js` passed 47/47; `npm --prefix functions test` passed 81/81.
+  - Expected cost/risk reduction: tiny extra read/write per webhook; major reduction in entitlement corruption and support incidents.
 
 - [ ] **Final pre-RC: set launch budget alerts and monitoring destinations**
   - Files: Firebase/Google Cloud console, launch dashboard notes
@@ -65,11 +65,11 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
 
 ## P1 - Must Fix Before Broader Paid Beta
 
-- [ ] **Align `past_due`, `cancelled`, `expired`, and `refunded` entitlement states with provider lifecycle**
+- [x] **Align `past_due`, `cancelled`, `expired`, and `refunded` entitlement states with provider lifecycle**
   - Files: `functions/index.js`, `services/premiumService.js`, `services/authAccountUi.js`, `modules/paywallController.js`, webhook tests
-  - Exact change: represent cancelled-but-active, past_due grace, expired, refunded, and manual states explicitly; preserve Premium for all Lemon Squeezy statuses except expired/refunded/chargeback policy decisions.
+  - Exact change: represent cancelled-but-active, past_due grace, expired, refunded, and manual states explicitly; preserve Premium for `active`, `manual_active`, `past_due`, and `cancelled_active`.
   - Why it matters: Lemon Squeezy docs recommend access in all statuses apart from expired; current payment-failed mapping removes Premium immediately.
-  - How to test: webhook fixtures for active, cancelled future `ends_at`, expired, payment failed, recovered, refunded.
+  - How tested: webhook fixtures for active, cancelled future `ends_at`, expired, payment failed/past_due/unpaid, recovered, refunded, duplicate, stale, and manual override all passed.
   - Expected cost/risk reduction: major support/user-anger reduction; no material Firestore cost change.
 
 - [ ] **Consolidate duplicate user document listeners or split visited data**

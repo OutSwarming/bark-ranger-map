@@ -105,3 +105,48 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
 - Rules preserve cleanup behavior: legacy over-limit free users can update unrelated settings and can trim visits back to 5 or fewer.
 - QC: `npm run test:rules` passed 21/21.
 - QC: `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bug015-free-visited-limit-smoke.spec.js --workers=1 --reporter=list` passed 5/5.
+
+## Payment Webhook Hardening Progress
+
+- Lemon Squeezy remains hard-locked in test mode. The checkout payload still sends `attributes.test_mode: true`, and live-mode webhooks are still ignored until Carter explicitly approves the final RC switch.
+- Added durable webhook receipt storage at `_lemonSqueezyWebhookEvents/{sha256(providerEventId)}`.
+- Webhook processing now runs in a Firestore transaction:
+  - reads the processed-event receipt first,
+  - ignores exact duplicate deliveries without rereading or rewriting the user doc,
+  - reads the user entitlement,
+  - writes either the entitlement update plus processed receipt, or an ignored receipt for manual overrides/stale events.
+- Added ordering protection with provider event timestamps and status ranks:
+  - older events cannot downgrade or reactivate a newer entitlement,
+  - same-time lower-priority events cannot override higher-priority states such as `refunded`,
+  - newer refunds still remove Premium,
+  - newer recovered-payment events can restore `active`.
+- Improved Lemon Squeezy entitlement states:
+  - `past_due` and `unpaid` keep Premium active during billing retry/grace.
+  - cancelled subscriptions with a future `ends_at` become `cancelled_active` and keep Premium until the paid period ends.
+  - refund events become `refunded` and remove Premium immediately.
+  - `expired` and ended `canceled` remain non-premium.
+- Updated app entitlement/UI handling so `past_due` and `cancelled_active` are premium-active states with clear account/paywall copy.
+- Fixed a callable-emulator crash found during QC by using `Timestamp`/`FieldValue` from `firebase-admin/firestore` for rate-limit documents.
+
+### Payment QC Run
+
+- `$HOME/.nvm/versions/node/v20.20.2/bin/node --test functions/tests/lemonsqueezy-webhook.test.js`
+  - Result: PASS, 47/47.
+  - Covered: signature/raw-body verification, test-mode lock, durable duplicate receipts, derived event IDs, stale/out-of-order events, same-time rank ordering, past-due grace, cancelled-but-active, refunds, manual overrides, and recovered payments.
+- `PATH=$HOME/.nvm/versions/node/v20.20.2/bin:$PATH npm --prefix functions test`
+  - Result: PASS, 81/81.
+  - Covered: checkout remains test-mode-only, webhook hardening, ORS entitlement/rate-limit policy, and kill switches.
+- `PATH=$HOME/.nvm/versions/node/v20.20.2/bin:$PATH npm run test:functions:emulator`
+  - Result: PASS, 9/9.
+  - Covered: emulator-backed route/geocode entitlement enforcement after the `past_due` policy change and rate-limit timestamp fix.
+  - Note: firebase-tools emitted the existing Java 21 future-requirement warning; current run passed on Java 18.
+- `$HOME/.nvm/versions/node/v20.20.2/bin/node --test tests/auth-account-ui.test.js`
+  - Result: PASS, 4/4.
+  - Covered: billing portal/account UI basics still render after entitlement state copy changes.
+
+### Remaining Payment Risks
+
+- Live Lemon Squeezy mode is intentionally still blocked and remains the absolute final RC switch.
+- The processed-event collection is server-only by default because there is no client rule match for `_lemonSqueezyWebhookEvents`; no client path was added.
+- Chargeback/dispute-specific provider event handling still needs a confirmed Lemon Squeezy event design before paid/public launch.
+- A real Lemon Squeezy test-mode delivery re-skim is still useful after deploy to confirm provider timestamp paths match the fixtures.

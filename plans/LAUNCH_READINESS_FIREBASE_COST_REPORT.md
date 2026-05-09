@@ -42,7 +42,7 @@ If launched tomorrow to a small private beta, the map, CSV-backed public park da
 If launched tomorrow to a Facebook group or paid public launch, the biggest problems would be:
 
 - **Payment readiness:** checkout and webhooks are currently hard-coded for Lemon Squeezy test mode in `functions/index.js`. This is known and intentional for pre-release testing; it should be the last owner-approved release-candidate switch, not the first thing to change while the rest of the safety work is still moving.
-- **Entitlement state correctness:** webhook signature verification exists, but idempotency only compares the last event id on the user document; old/different duplicate or out-of-order events can still be applied.
+- **Entitlement state correctness:** webhook signature verification, durable processed-event receipts, and provider timestamp/rank ordering now exist in test mode. The remaining paid-launch gap is final live-mode verification plus chargeback/dispute policy.
 - **Security/data integrity:** clients cannot self-grant `entitlement`, which is good, and the free tracked-visit cap is now rules-enforced at 5. Clients can still write their own leaderboard totals and achievement documents.
 - **Cost/scalability:** normal use is likely cheap. Pathological use can produce the observed 9,000 reads and 3,000 writes per user/day. The leaderboard itself uses cursor pagination, not full reads, but repeated exact-rank aggregation can still add hidden cost and latency.
 - **QA readiness:** functions/rules/function-emulator tests pass. Post-Stage-0 QA now has local ignored free, premium/test-entitlement, and second-account storage states; the full signed-in Playwright smoke passed 40/40 against a local static server.
@@ -56,8 +56,8 @@ Launch readiness score: **54 / 100**
 | Product readiness | 62 | Core app exists, but mobile/payment/support launch polish is not proved. |
 | Firebase cost readiness | 70 | Normal Firestore usage should be cheap; budgets/alerts/kill switches are not confirmed. |
 | Firestore efficiency | 66 | Public park data is outside Firestore and leaderboard pages are cursor-based, but duplicate user-doc listeners and repeated rank aggregation remain. |
-| Payment reliability | 42 | Good signature tests and known intentional test-mode state; still needs event ordering/idempotency hardening before the final live-mode RC switch. |
-| Entitlement correctness | 45 | Server writes entitlement and client reads it read-only, but state machine is too coarse. |
+| Payment reliability | 58 | Signature, idempotency, ordering, and state-machine tests are stronger; live mode is still intentionally locked until final RC approval. |
+| Entitlement correctness | 62 | Server writes entitlement and client reads it read-only; past-due, cancelled-active, and refunded states are now explicit. |
 | Security rules | 64 | Entitlement protected and free visit cap is rules-enforced; leaderboard/achievements remain abusable. |
 | Bug risk | 52 | Many smoke tests exist; launch-critical E2E is not yet green in this environment. |
 | Mobile readiness | 45 | Not deeply verified in this pass yet; known Android/search/zoom concerns remain. |
@@ -99,6 +99,7 @@ Confirmed paths from code and rules:
 - `system/leaderboardData`: hourly top-100 aggregate written by a scheduled function but not currently used by the frontend leaderboard.
 - `_adminRateLimits/{action_uid_window}`: admin callable rate limits.
 - `_premiumCallableRateLimits/{action_uid_window}`: server-written per-user rate limits for premium route/geocode callables.
+- `_lemonSqueezyWebhookEvents/{sha256(providerEventId)}`: server-written durable Lemon Squeezy webhook receipts for duplicate/out-of-order protection.
 - `feedback/{autoId}` is written by `modules/uiController.js`, but no matching allow rule exists in `firestore.rules`; likely denied in production rules.
 
 ### Cloud Functions
@@ -155,6 +156,7 @@ Confirmed:
 - Checkout creation is server-side callable and uses Lemon Squeezy `/v1/checkouts`.
 - Webhook signature verification uses raw-body HMAC SHA256 and timing-safe compare.
 - Entitlement is written server-side into `users/{uid}.entitlement`.
+- Webhook processing now writes durable processed-event receipts in `_lemonSqueezyWebhookEvents` and ignores duplicate or stale/out-of-order events in a Firestore transaction.
 - Client premium checks are read-only through `services/premiumService.js`.
 
 Release-candidate switch:
@@ -282,7 +284,7 @@ Initial confirmed rankings:
 | Route generation | `services/orsService.js`; `functions/index.js` `getPremiumRoute` | Function checks per-user rate limit, then reads `users/{uid}` entitlement | Premium route request | 1 rate-limit read/write within limit, 1 entitlement read, function/network; over-limit stops before entitlement/ORS | Per generation | Lower after rate limit; App Check still needed | Keep 30/hour default; add App Check before public scale. |
 | Global geocode | `searchEngine.fetchGlobalGeocode`; `functions/index.js` `getPremiumGeocode` | Function checks per-user rate limit, then reads `users/{uid}` entitlement | Premium global search | 1 rate-limit read/write within limit, 1 entitlement read, function/network; over-limit stops before entitlement/ORS | Per uncached query | Lower after rate limit; App Check still needed | Keep 120/hour default; keep client cache. |
 | Checkout start | `paywallController.startCheckout`; `functions/index.js` `createCheckoutSession` | No Firestore write | User clicks checkout | Function invocation only | Per click | Test-mode blocker | Live/test config and anti-double-click exists client-side. |
-| Webhook entitlement | `functions/index.js` `handleLemonSqueezyWebhook` | `users/{uid}.get()`, `set({entitlement})` | Lemon Squeezy webhook | 1 read + 1 write | Provider events | Event ordering risk | Processed-event transaction. |
+| Webhook entitlement | `functions/index.js` `handleLemonSqueezyWebhook` | Transaction reads processed-event receipt and user doc, then writes entitlement plus receipt | Lemon Squeezy webhook | Usually 2 reads + 2 writes; duplicate events read 1 receipt and write nothing | Provider events | Live-mode still locked; chargeback event design pending | Keep test mode until RC; confirm real provider payload timestamps before public paid launch. |
 | Subscription display | `services/authAccountUi.js` | Reads local `premiumService` state from listener | Profile render | No extra read | UI refresh | Good | Portal URL should be verified. |
 | Feedback | `modules/uiController.js` | `feedback.add()` | Submit feedback | 1 write attempted | User action | Broken by rules | Callable or rules allow with validation/rate-limit. |
 
@@ -386,18 +388,19 @@ Confirmed strengths:
 - Checkout is server-created.
 - Client cannot choose arbitrary UID or entitlement.
 - Webhook signature verification uses raw body, `X-Signature`, HMAC SHA256, and timing-safe compare.
+- Webhook idempotency now stores provider event receipts in `_lemonSqueezyWebhookEvents/{sha256(providerEventId)}`.
+- Out-of-order protection compares provider event timestamps plus status ranks before changing entitlement.
 - Cancelled subscriptions keep access until a future `ends_at`.
-- Refund events immediately remove premium by setting `premium:false`.
+- Cancelled-but-active subscriptions are stored as `status:'cancelled_active'`.
+- Past-due/unpaid subscriptions keep Premium active during billing retry/grace.
+- Refund events immediately remove Premium by setting `premium:false,status:'refunded'`.
 - Manual admin overrides are not downgraded by Lemon Squeezy webhook events.
 
 Confirmed paid-launch gates:
 
 - Test-mode-only checkout and webhook mapping. This is known and should stay test-only until the final release-candidate switch.
-- Idempotency stores only `lastProviderEventId`; replay or late delivery of an older different event can overwrite newer entitlement.
-- No separate processed-events collection or provider timestamp ordering check.
-- `past_due` currently removes premium immediately, but Lemon Squeezy docs say users should retain access in all statuses apart from expired; recovery/dunning docs say past-due remains active during retry.
-- Refund status is stored as `canceled`, losing support/debug clarity.
 - No chargeback/dispute-specific webhook handling was found; Lemon Squeezy docs describe chargebacks/refunds but event support needs a provider-confirmed design.
+- Live-mode readiness still needs one real low-risk/refunded transaction after Carter approves the final RC switch.
 
 Subscription state machine:
 
@@ -407,14 +410,14 @@ Subscription state machine:
 | `checkout_started` | No until webhook | Maybe show verifying | Optional pending checkout metadata | Checkout callable return only | Checkout success redirect before webhook can show delayed verification. |
 | `active` | Yes | Yes | `premium:true,status:'active',source:'lemon_squeezy',providerSubscriptionId,currentPeriodEnd` | `subscription_created`, `subscription_updated`, payment success/recovered | Live-mode currently ignored. |
 | `on_trial` | Yes if trial is product policy | Yes | `premium:true,status:'active'` plus `trialEndsAt` or `providerStatus:'on_trial'` | Provider status/trial fields | Current code collapses trial into active if status active; no explicit trial UI. |
-| `past_due` | Recommended yes during dunning/grace unless provider expired | Yes, show payment attention | `premium:true,status:'past_due'` or `premium:false` only after hard failure policy | `subscription_payment_failed`, `subscription_updated` past_due/unpaid | Current code removes Premium immediately. |
-| `cancelled_but_access_until_period_end` | Yes until `ends_at` | Yes/history | `premium:true,status:'cancelled_active'`, `currentPeriodEnd:ends_at` | `subscription_cancelled` with future `ends_at` | Current code stores status `active`, hiding cancellation context. |
+| `past_due` | Yes during dunning/grace unless provider expired | Yes, show payment attention | `premium:true,status:'past_due'` | `subscription_payment_failed`, `subscription_updated` past_due/unpaid | Fixed in Stage 2 hardening. |
+| `cancelled_but_access_until_period_end` | Yes until `ends_at` | Yes/history | `premium:true,status:'cancelled_active'`, `currentPeriodEnd:ends_at` | `subscription_cancelled` with future `ends_at` | Fixed in Stage 2 hardening. |
 | `expired` | No | Yes/history/support | `premium:false,status:'expired'` | `subscription_expired` or cancelled with past `ends_at` | Correct enough. |
-| `refunded` | No immediately | Support/history | `premium:false,status:'refunded'`, provider invoice/order id | `subscription_payment_refunded`, `order_refunded` | Current code stores `canceled`; support loses reason. |
+| `refunded` | No immediately | Support/history | `premium:false,status:'refunded'`, provider invoice/order id | `subscription_payment_refunded`, `order_refunded` | Fixed in Stage 2 hardening. |
 | `chargeback/disputed` | Usually no or manual review | Support only | `premium:false,status:'disputed'` | Provider-supported dispute/chargeback event, if available | No specific handling found. |
 | `paused` | Product decision; usually no if service paused | Yes | `premium:false,status:'paused'` | Subscription paused/resumed events if configured | No paused handling found. |
 
-Payment readiness score: **42/100** for public paid launch, **65/100** for internal test-mode beta. Score is low for public launch because event ordering/state handling still needs hardening; the test-mode-only state is intentionally deferred to the final RC step.
+Payment readiness score: **58/100** for public paid launch, **78/100** for internal test-mode beta. Score is still not public-launch green because live mode is intentionally locked, chargeback/dispute handling is not provider-confirmed, and the final low-risk live transaction has not been approved or run.
 
 ## 8. Security Rules and Data Integrity Audit
 
@@ -476,8 +479,8 @@ Release blockers:
 | Done | Emergency kill switches missing | App config/UI feature paths | Risky beta features could not be disabled quickly | Added feature flags for route/geocode, checkout, leaderboard load-more, feedback, and risky premium tools | Stage 0 branch merged; function tests and browser flag smoke passed |
 | Done | Free visited limit bypassable | `services/checkinService.js`, `firestore.rules` | Product tier bypass; possible write growth | Lowered free cap to 5 and added rules enforcement | Rules tests passed 21/21 for 5/6 visits and premium bypass |
 | P1 | Leaderboard score spoofing | `firestore.rules`, `modules/profileEngine.js` | Leaderboard trust collapse | Server-derived scores | Malicious write denied; server sync succeeds |
-| P1 | Webhook event ordering/idempotency weak | `functions/index.js` | Wrong access after delayed/replayed events | Processed event transaction + provider timestamp | Out-of-order webhook tests |
-| P1 | Past-due removes access immediately | `functions/index.js` | Angry users during billing retry | Explicit state machine/grace | Payment-failed/recovered tests |
+| Done | Webhook event ordering/idempotency weak | `functions/index.js` | Wrong access after delayed/replayed events | Added processed-event transaction + provider timestamp/rank ordering | Webhook tests passed 47/47; functions tests passed 81/81 |
+| Done | Past-due removes access immediately | `functions/index.js`, `premiumService`, account/paywall UI | Angry users during billing retry | Added `past_due` grace, `cancelled_active`, and `refunded` states | Webhook tests passed 47/47; auth-account UI tests passed 4/4 |
 | Done | Product-rules E2E failure | `tests/playwright/bug017...` | Premium gating/copy drift | Fixed test expectation for valid trail-specific paywall | Targeted smoke passed 2/2 |
 | Done | Signed-in E2E not run | Playwright env | Account switch/mobile/checkout not proved | Created/validated storage states and ran full suite | Full signed-in smoke passed 40/40 |
 | P2 | Feedback likely denied | `modules/uiController.js`, `firestore.rules` | Support channel broken | Add safe write path | Rules/function test |
@@ -508,7 +511,7 @@ Scenario notes:
 - A user scripts the app: current client request counter is not security. App Check, rules/callables, and function rate limits are needed.
 - User saves every pin: free UI stops at 20, but direct Firestore write can bypass. Premium whole-array storage may hit Firestore document size eventually.
 - User repeatedly logs in/out: causes listener setup, leaderboard loads, and account reset work. Not catastrophic but noisy.
-- Webhook replay: same last event id is ignored, but older different event ids are not durably blocked.
+- Webhook replay: exact duplicate event receipts are now durably ignored, and older provider-timestamp events cannot regress entitlement.
 - Quota/budget exceeded: no confirmed kill switch exists for leaderboard/route/checkout. Add flags before public launch.
 
 Recommended abuse controls:
@@ -550,7 +553,7 @@ Leaderboard note: the main leaderboard pagination is already good. Exact-rank ca
 |---|---|---|---|---|---|
 | Stage 0: emergency launch safety | `modules/barkState.js`, `modules/profileEngine.js`, `services/orsService.js`, `modules/paywallController.js` | Low/Medium | Keep beta controllable while Lemon Squeezy remains test-only | Unit tests and manual flag tests | Risky features can be stopped without code surgery; live/test mode switch remains locked until Carter approves. |
 | Stage 1: cost fixes | `modules/profileEngine.js`, `functions/index.js`, `repos/VaultRepo.js`, `services/authService.js` | Medium | Reduce user-doc read amplification and watch leaderboard metrics | Instrument read paths; E2E leaderboard tests | One clear user-doc ownership plan; exact-rank caching only if monitoring shows repeated rank lookup cost or latency. |
-| Stage 2: payment correctness | `functions/index.js`, `premiumService.js`, `authAccountUi.js`, webhook tests | Medium | Correct entitlements after cancel/refund/retry | Webhook state machine tests | Out-of-order/replay safe; live webhook verified. |
+| Stage 2: payment correctness | `functions/index.js`, `premiumService.js`, `authAccountUi.js`, webhook tests | Medium | Correct entitlements after cancel/refund/retry while still in test mode | Webhook state machine tests | Done for test-mode hardening; final live webhook verification remains an RC-only task after Carter approval. |
 | Stage 3: free/premium enforcement | `checkinService.js`, `firebaseService.js`, `functions/index.js`, `firestore.rules` | Medium/High | Enforce remaining product tiers | Rules/callable tests + E2E free/premium storage states | Free direct writes cannot bypass 5 visits; remaining work focuses on leaderboard/achievements. |
 | Stage 4: QA hardening | Playwright tests, test fixtures, docs | Low | Prove mobile/account/checkout flows | Full smoke suite with free/premium users | No skipped launch-critical tests. |
 | Stage 5: scale polish | App Check, analytics, dashboards, admin tools | Medium | Operational maturity | Dashboard/fire-drill | Admin can diagnose entitlement, cost, webhook, and abuse issues quickly. |
@@ -617,17 +620,16 @@ Emergency cost playbook:
 | Rank | Risk | Severity | Likelihood | Evidence | Cost impact | User impact | Fix | Owner | Launch blocker? |
 |---:|---|---|---|---|---|---|---|---|---|
 | 1 | Leaderboard spoofing | P1 | Medium | Rules allow owner totals | Low/Medium | Trust collapse | Server-derived scores | Firebase | Yes public |
-| 2 | Webhook replay/out-of-order | P1 | Medium | Last event id only | Low | Wrong access after cancel/refund/renew | Processed events + ordering | Payments | Yes paid |
-| 3 | Past-due removes access too early | P1 | Medium | `subscription_payment_failed` maps non-premium | Low | Angry paying users | Grace/state machine | Payments/Product | Yes paid |
-| 4 | Lemon Squeezy final RC live-mode switch | P0 | Certain before launch | `functions/index.js` | Low direct, high revenue/support | Users pay or cannot pay correctly if not switched | Keep test mode until Carter approves RC, then configurable mode + live webhook test | Payments | Yes public |
-| 5 | Route/geocode spam beyond server limits | P2 | Low/Medium | Premium callables now have per-user hourly limits; App Check not yet enforced | Medium | Slow/expensive external calls are capped per user but scripted account creation remains possible | Add App Check and monitoring | Functions/Ops | No for private beta |
-| 6 | Free visit limit regression | P2 | Low | Rules now enforce 5 free visits; runtime smoke must stay current | Low/Medium | Free users could regain premium value if rules regress | Keep rules + BUG-015 smoke in release suite | Firebase/QA | No if tests run |
-| 7 | Exact rank aggregation repeated | P2 | Medium | `fetchExactLeaderboardRankForScore` on load-more | Low/Medium | Slow leaderboard | TTL/cache only if monitoring shows a problem | Frontend | No |
-| 8 | Duplicate user-doc listeners | P2 | High | `authService` + `VaultRepo` | Low/Medium | More reads; state complexity | Consolidate/split | Frontend | No |
-| 9 | Feedback denied | P2 | High | `feedback.add`, default deny rules | Low | Users cannot contact support in app | Safe feedback path | Full-stack | No |
-| 10 | Signed-in E2E can go stale | P2 | Medium | Storage states are local ignored files; full smoke passed 40/40 on 2026-05-09 | Unknown when stale | Account/checkout regressions could slip if not rerun before RC | Refresh storage states and rerun full smoke before each paid beta/RC | QA | No, if rerun before launch |
-| 11 | No confirmed kill switches or final budget alerts | P1 | High | No config found | High during incident | Outage/cost anxiety | Kill switches next; budget alerts in final pre-RC checklist | Ops | Yes public |
-| 12 | Achievement spoofing | P2 | Medium | Client achievement writes | Low | Badge trust issue | Server derive/cosmetic | Firebase | No |
+| 2 | Lemon Squeezy final RC live-mode switch | P0 | Certain before launch | `functions/index.js` still intentionally test-mode-only | Low direct, high revenue/support | Users pay or cannot pay correctly if switched casually | Keep test mode until Carter approves RC, then configurable mode + live webhook test | Payments | Yes public |
+| 3 | Chargeback/dispute state handling unconfirmed | P1 | Medium | No provider-confirmed chargeback/dispute event mapping yet | Low | Disputed/refunded edge cases may need manual support | Confirm Lemon event support and add fixtures | Payments/Product | Yes paid |
+| 4 | Route/geocode spam beyond server limits | P2 | Low/Medium | Premium callables now have per-user hourly limits; App Check not yet enforced | Medium | Slow/expensive external calls are capped per user but scripted account creation remains possible | Add App Check and monitoring | Functions/Ops | No for private beta |
+| 5 | Free visit limit regression | P2 | Low | Rules now enforce 5 free visits; runtime smoke must stay current | Low/Medium | Free users could regain premium value if rules regress | Keep rules + BUG-015 smoke in release suite | Firebase/QA | No if tests run |
+| 6 | Exact rank aggregation repeated | P2 | Medium | `fetchExactLeaderboardRankForScore` on load-more | Low/Medium | Slow leaderboard | TTL/cache only if monitoring shows a problem | Frontend | No |
+| 7 | Duplicate user-doc listeners | P2 | High | `authService` + `VaultRepo` | Low/Medium | More reads; state complexity | Consolidate/split | Frontend | No |
+| 8 | Feedback denied | P2 | High | `feedback.add`, default deny rules | Low | Users cannot contact support in app | Safe feedback path | Full-stack | No |
+| 9 | Signed-in E2E can go stale | P2 | Medium | Storage states are local ignored files; full smoke passed 40/40 on 2026-05-09 | Unknown when stale | Account/checkout regressions could slip if not rerun before RC | Refresh storage states and rerun full smoke before each paid beta/RC | QA | No, if rerun before launch |
+| 10 | No final budget alerts | P1 | High | Cloud console/config not confirmed | High during incident | Cost anxiety during promotion | Budget alerts in final pre-RC checklist | Ops | Yes public |
+| 11 | Achievement spoofing | P2 | Medium | Client achievement writes | Low | Badge trust issue | Server derive/cosmetic | Firebase | No |
 
 ## 15. Final Recommendation
 
@@ -636,10 +638,10 @@ Current recommendation: **do not launch paid/public tomorrow. Launch only a cons
 Top fixes before asking Facebook admins to promote:
 
 1. Stop client-authoritative leaderboard totals before any public leaderboard matters.
-2. Add durable webhook processed-event storage and event ordering rules while staying in Lemon Squeezy test mode.
-3. Align subscription grace/past-due/refund states before live payment.
-4. Add App Check/monitoring around function abuse before broader launch.
-5. Keep the free 5-visit rules tests and signed-in E2E in the release suite.
+2. Confirm chargeback/dispute handling and support policy before live payment.
+3. Add App Check/monitoring around function abuse before broader launch.
+4. Keep the free 5-visit rules tests and signed-in E2E in the release suite.
+5. Run one final Lemon Squeezy test-mode delivery re-skim before Carter approves the live-mode RC switch.
 
 Final RC steps after those fixes: add budget alerts/monitoring, then make the Lemon Squeezy live/test switch only after Carter explicitly approves and test one real low-risk transaction.
 
@@ -660,4 +662,4 @@ Realistic Firebase cost:
 
 Single code issue most likely to make costs explode: any remaining unbounded action that bypasses server controls, especially leaderboard/client-authored writes or scripted account creation without App Check. Route/geocode now have kill switches and per-user server limits.
 
-Single payment issue most likely to cause user anger: a user pays in live mode but entitlement is wrong because a webhook arrives late/out of order or the final test-to-live switch was not verified. The test-mode-only state itself is known and should be changed last.
+Single payment issue most likely to cause user anger: a user pays in live mode but the final test-to-live switch or real provider delivery is not verified. Test-mode webhook ordering/idempotency is now hardened, and the test-mode-only state itself is known and should be changed last.

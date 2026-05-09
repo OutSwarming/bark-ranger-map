@@ -15,7 +15,7 @@ window.BARK.services = window.BARK.services || {};
         providerSubscriptionId: null
     });
 
-    const PREMIUM_STATUSES = new Set(['active', 'manual_active']);
+    const PREMIUM_STATUSES = new Set(['active', 'manual_active', 'past_due', 'cancelled_active']);
 
     let entitlement = { ...DEFAULT_ENTITLEMENT };
     let debugMeta = {

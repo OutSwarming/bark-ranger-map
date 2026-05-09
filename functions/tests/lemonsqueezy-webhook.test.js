@@ -6,12 +6,15 @@ process.env.NODE_ENV = "test";
 
 const {
     __test: {
+        buildLemonSqueezyEventDocId,
         handleLemonSqueezyWebhook
     }
 } = require("../index.js");
 
 const webhookSecret = "test-webhook-secret";
 const serverTimestampValue = "SERVER_TIMESTAMP";
+const defaultProviderEventAt = "2026-01-01T00:00:00.000Z";
+const defaultProviderEventAtMs = Date.parse(defaultProviderEventAt);
 
 function makePayload({
     eventName = "subscription_created",
@@ -91,35 +94,104 @@ function makeRes() {
     };
 }
 
-function makeFirestore({ entitlement = null, exists = true } = {}) {
+function makeFirestore({ entitlement = null, exists = true, data = null, processedEvents = {} } = {}) {
+    let userData = data || { entitlement };
+    const eventDocs = new Map(
+        Object.entries(processedEvents).map(([docId, value]) => [
+            docId,
+            value === true ? { processingStatus: "processed" } : value
+        ])
+    );
     const state = {
         reads: 0,
+        userReads: 0,
+        eventReads: 0,
         writes: [],
+        eventWrites: [],
         requestedCollection: null,
-        requestedDoc: null
+        requestedDoc: null,
+        lastEventDoc: null,
+        transactions: 0
     };
+
+    function makeSnapshot(collectionName, docId) {
+        if (collectionName === "users") {
+            return {
+                exists,
+                data: () => userData
+            };
+        }
+
+        if (collectionName === "_lemonSqueezyWebhookEvents") {
+            const stored = eventDocs.get(docId);
+            return {
+                exists: stored !== undefined,
+                data: () => stored || {}
+            };
+        }
+
+        return {
+            exists: false,
+            data: () => ({})
+        };
+    }
+
+    function makeDocRef(collectionName, docId) {
+        return {
+            collectionName,
+            docId,
+            async get() {
+                state.reads += 1;
+                if (collectionName === "users") {
+                    state.userReads += 1;
+                    state.requestedCollection = collectionName;
+                    state.requestedDoc = docId;
+                } else if (collectionName === "_lemonSqueezyWebhookEvents") {
+                    state.eventReads += 1;
+                    state.lastEventDoc = docId;
+                }
+
+                return makeSnapshot(collectionName, docId);
+            },
+            async set(value, options = {}) {
+                if (collectionName === "users") {
+                    userData = options.merge ? { ...userData, ...value } : { ...value };
+                    state.requestedCollection = collectionName;
+                    state.requestedDoc = docId;
+                    state.writes.push({ docId, data: value, options });
+                    return;
+                }
+
+                if (collectionName === "_lemonSqueezyWebhookEvents") {
+                    const previous = eventDocs.get(docId) || {};
+                    const next = options.merge ? { ...previous, ...value } : { ...value };
+                    eventDocs.set(docId, next);
+                    state.lastEventDoc = docId;
+                    state.eventWrites.push({ docId, data: value, options });
+                }
+            }
+        };
+    }
 
     return {
         state,
         collection(collectionName) {
-            state.requestedCollection = collectionName;
             return {
                 doc(docId) {
-                    state.requestedDoc = docId;
-                    return {
-                        async get() {
-                            state.reads += 1;
-                            return {
-                                exists,
-                                data: () => ({ entitlement })
-                            };
-                        },
-                        async set(data, options) {
-                            state.writes.push({ docId, data, options });
-                        }
-                    };
+                    return makeDocRef(collectionName, docId);
                 }
             };
+        },
+        async runTransaction(callback) {
+            state.transactions += 1;
+            return callback({
+                get(ref) {
+                    return ref.get();
+                },
+                set(ref, value, options) {
+                    return ref.set(value, options);
+                }
+            });
         }
     };
 }
@@ -138,6 +210,13 @@ async function invoke({ req, firestore = makeFirestore(), nowMs = Date.parse("20
 function signedReq(payload) {
     const rawBody = raw(payload);
     return makeReq({ payload, rawBody, signature: sign(rawBody) });
+}
+
+function processedEventMap(...eventIds) {
+    return Object.fromEntries(eventIds.map(eventId => [
+        buildLemonSqueezyEventDocId(eventId),
+        { processingStatus: "processed", providerEventId: eventId }
+    ]));
 }
 
 describe("Lemon Squeezy webhook HTTP and signature verification", () => {
@@ -292,14 +371,22 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
             premium: true,
             status: "active",
             source: "lemon_squeezy",
+            providerStatus: "active",
             providerCustomerId: "7022381",
             providerSubscriptionId: "sub_123",
             providerOrderId: null,
             currentPeriodEnd: "2099-01-01T00:00:00.000Z",
             updatedAt: serverTimestampValue,
-            lastProviderEventId: "evt_active_created"
+            lastProviderEventId: "evt_active_created",
+            lastProviderEventName: "subscription_created",
+            lastProviderEventAt: defaultProviderEventAt,
+            lastProviderEventAtMs: defaultProviderEventAtMs,
+            lastProviderEventRank: 100
         });
         assert.deepEqual(firestore.state.writes[0].options, { merge: true });
+        assert.equal(firestore.state.eventWrites.length, 1);
+        assert.equal(firestore.state.eventWrites[0].data.processingStatus, "processed");
+        assert.equal(firestore.state.eventWrites[0].data.providerEventId, "evt_active_created");
     });
 
     it("writes premium active for active subscription_updated", async () => {
@@ -406,7 +493,7 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
         assert.equal(firestore.state.writes[0].data.entitlement.status, "expired");
     });
 
-    it("writes non-premium past_due for subscription_payment_failed", async () => {
+    it("keeps premium active in past_due grace for subscription_payment_failed", async () => {
         const payload = makePayload({
             eventName: "subscription_payment_failed",
             uid: "past-due-user",
@@ -419,11 +506,12 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
 
         assert.equal(res.statusCode, 200);
         assert.equal(firestore.state.writes.length, 1);
-        assert.equal(firestore.state.writes[0].data.entitlement.premium, false);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
         assert.equal(firestore.state.writes[0].data.entitlement.status, "past_due");
+        assert.equal(firestore.state.writes[0].data.entitlement.lastProviderEventRank, 200);
     });
 
-    it("writes non-premium past_due for subscription_updated past_due", async () => {
+    it("keeps premium active in past_due grace for subscription_updated past_due", async () => {
         const payload = makePayload({
             eventName: "subscription_updated",
             uid: "updated-past-due-user",
@@ -434,11 +522,11 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
 
         assert.equal(res.statusCode, 200);
         assert.equal(firestore.state.writes.length, 1);
-        assert.equal(firestore.state.writes[0].data.entitlement.premium, false);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
         assert.equal(firestore.state.writes[0].data.entitlement.status, "past_due");
     });
 
-    it("writes non-premium past_due for subscription_updated unpaid", async () => {
+    it("keeps premium active in past_due grace for subscription_updated unpaid", async () => {
         const payload = makePayload({
             eventName: "subscription_updated",
             uid: "updated-unpaid-user",
@@ -449,7 +537,7 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
 
         assert.equal(res.statusCode, 200);
         assert.equal(firestore.state.writes.length, 1);
-        assert.equal(firestore.state.writes[0].data.entitlement.premium, false);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
         assert.equal(firestore.state.writes[0].data.entitlement.status, "past_due");
     });
 
@@ -469,8 +557,9 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
         assert.equal(res.statusCode, 200);
         assert.equal(firestore.state.writes.length, 1);
         assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
-        assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "cancelled_active");
         assert.equal(firestore.state.writes[0].data.entitlement.currentPeriodEnd, "2099-02-01T00:00:00.000Z");
+        assert.equal(firestore.state.writes[0].data.entitlement.lastProviderEventRank, 300);
     });
 
     it("maps canceled subscriptions without a future period to non-premium canceled", async () => {
@@ -492,7 +581,7 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
         assert.equal(firestore.state.writes[0].data.entitlement.status, "canceled");
     });
 
-    it("maps refunded subscription payments to an existing non-premium status", async () => {
+    it("maps refunded subscription payments to refunded non-premium status", async () => {
         const payload = makePayload({
             eventName: "subscription_payment_refunded",
             uid: "refunded-user",
@@ -506,10 +595,11 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
         assert.equal(res.statusCode, 200);
         assert.equal(firestore.state.writes.length, 1);
         assert.equal(firestore.state.writes[0].data.entitlement.premium, false);
-        assert.equal(firestore.state.writes[0].data.entitlement.status, "canceled");
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "refunded");
+        assert.equal(firestore.state.writes[0].data.entitlement.lastProviderEventRank, 600);
     });
 
-    it("maps refunded orders to an existing non-premium status", async () => {
+    it("maps refunded orders to refunded non-premium status", async () => {
         const payload = makePayload({
             eventName: "order_refunded",
             uid: "order-refunded-user",
@@ -523,7 +613,7 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
         assert.equal(res.statusCode, 200);
         assert.equal(firestore.state.writes.length, 1);
         assert.equal(firestore.state.writes[0].data.entitlement.premium, false);
-        assert.equal(firestore.state.writes[0].data.entitlement.status, "canceled");
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "refunded");
         assert.equal(firestore.state.writes[0].data.entitlement.providerOrderId, "order_1");
     });
 });
@@ -707,12 +797,18 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
         };
         const { res, firestore } = await invoke({
             req: signedReq(payload),
-            firestore: makeFirestore({ entitlement: existing })
+            firestore: makeFirestore({
+                entitlement: existing,
+                processedEvents: processedEventMap("evt_duplicate")
+            })
         });
 
         assert.equal(res.statusCode, 200);
         assert.equal(res.body.duplicate, true);
+        assert.equal(firestore.state.eventReads, 1);
+        assert.equal(firestore.state.userReads, 0);
         assert.equal(firestore.state.writes.length, 0);
+        assert.equal(firestore.state.eventWrites.length, 0);
     });
 
     it("ignores repeated expired events with the same event ID", async () => {
@@ -730,11 +826,15 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
         };
         const { res, firestore } = await invoke({
             req: signedReq(payload),
-            firestore: makeFirestore({ entitlement: existing })
+            firestore: makeFirestore({
+                entitlement: existing,
+                processedEvents: processedEventMap("evt_duplicate_expired")
+            })
         });
 
         assert.equal(res.statusCode, 200);
         assert.equal(res.body.duplicate, true);
+        assert.equal(firestore.state.userReads, 0);
         assert.equal(firestore.state.writes.length, 0);
     });
 
@@ -746,18 +846,22 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
             attributes: { status: "failed" }
         });
         const existing = {
-            premium: false,
+            premium: true,
             status: "past_due",
             source: "lemon_squeezy",
             lastProviderEventId: "evt_duplicate_past_due"
         };
         const { res, firestore } = await invoke({
             req: signedReq(payload),
-            firestore: makeFirestore({ entitlement: existing })
+            firestore: makeFirestore({
+                entitlement: existing,
+                processedEvents: processedEventMap("evt_duplicate_past_due")
+            })
         });
 
         assert.equal(res.statusCode, 200);
         assert.equal(res.body.duplicate, true);
+        assert.equal(firestore.state.userReads, 0);
         assert.equal(firestore.state.writes.length, 0);
     });
 
@@ -772,6 +876,7 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
         const firstReq = makeReq({ rawBody: firstRawBody, signature: sign(firstRawBody) });
         const firstResult = await invoke({ req: firstReq });
         const writtenId = firstResult.firestore.state.writes[0].data.entitlement.lastProviderEventId;
+        const writtenEventDocId = firstResult.firestore.state.eventWrites[0].docId;
 
         const secondRawBody = raw(payload);
         const secondReq = makeReq({ rawBody: secondRawBody, signature: sign(secondRawBody) });
@@ -783,6 +888,9 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
                     status: "active",
                     source: "lemon_squeezy",
                     lastProviderEventId: writtenId
+                },
+                processedEvents: {
+                    [writtenEventDocId]: { processingStatus: "processed", providerEventId: writtenId }
                 }
             })
         });
@@ -790,6 +898,161 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
         assert.match(writtenId, /^derived_[0-9a-f]{64}$/);
         assert.equal(secondResult.res.body.duplicate, true);
         assert.equal(secondResult.firestore.state.writes.length, 0);
+    });
+
+    it("ignores older provider events that would downgrade a newer active entitlement", async () => {
+        const payload = makePayload({
+            eventName: "subscription_expired",
+            uid: "stale-expired-user",
+            eventId: "evt_stale_expired",
+            attributes: { status: "expired", ends_at: "2026-01-05T00:00:00.000Z" }
+        });
+        payload.meta.event_created_at = "2026-01-05T00:00:00.000Z";
+
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: true,
+                    status: "active",
+                    source: "lemon_squeezy",
+                    lastProviderEventId: "evt_newer_active",
+                    lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                    lastProviderEventRank: 100
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.ignored, true);
+        assert.equal(res.body.reason, "stale_event");
+        assert.equal(firestore.state.writes.length, 0);
+        assert.equal(firestore.state.eventWrites.length, 1);
+        assert.equal(firestore.state.eventWrites[0].data.processingStatus, "ignored");
+        assert.equal(firestore.state.eventWrites[0].data.reason, "stale_event");
+    });
+
+    it("allows a newer refund to override an active entitlement", async () => {
+        const payload = makePayload({
+            eventName: "subscription_payment_refunded",
+            uid: "newer-refund-user",
+            eventId: "evt_newer_refund",
+            dataType: "subscription-invoices",
+            dataId: "invoice_newer_refund",
+            attributes: { status: "refunded", subscription_id: "sub_refund_newer" }
+        });
+        payload.meta.event_created_at = "2026-01-10T00:00:00.000Z";
+
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: true,
+                    status: "active",
+                    source: "lemon_squeezy",
+                    lastProviderEventId: "evt_old_active",
+                    lastProviderEventAtMs: Date.parse("2026-01-05T00:00:00.000Z"),
+                    lastProviderEventRank: 100
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, false);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "refunded");
+        assert.equal(firestore.state.writes[0].data.entitlement.lastProviderEventAtMs, Date.parse("2026-01-10T00:00:00.000Z"));
+        assert.equal(firestore.state.eventWrites[0].data.processingStatus, "processed");
+    });
+
+    it("does not reactivate a refunded account from an older active event", async () => {
+        const payload = makePayload({
+            eventName: "subscription_updated",
+            uid: "late-active-after-refund-user",
+            eventId: "evt_late_active_after_refund",
+            attributes: { status: "active" }
+        });
+        payload.meta.event_created_at = "2026-01-05T00:00:00.000Z";
+
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: false,
+                    status: "refunded",
+                    source: "lemon_squeezy",
+                    lastProviderEventId: "evt_refund_current",
+                    lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                    lastProviderEventRank: 600
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.reason, "stale_event");
+        assert.equal(firestore.state.writes.length, 0);
+        assert.equal(firestore.state.eventWrites[0].data.reason, "stale_event");
+    });
+
+    it("uses status rank to reject lower-priority same-time events", async () => {
+        const payload = makePayload({
+            eventName: "subscription_updated",
+            uid: "same-time-rank-user",
+            eventId: "evt_same_time_active",
+            attributes: { status: "active" }
+        });
+        payload.meta.event_created_at = "2026-01-10T00:00:00.000Z";
+
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: false,
+                    status: "refunded",
+                    source: "lemon_squeezy",
+                    lastProviderEventId: "evt_same_time_refund",
+                    lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                    lastProviderEventRank: 600
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.reason, "stale_event");
+        assert.equal(firestore.state.writes.length, 0);
+        assert.equal(firestore.state.eventWrites[0].data.reason, "stale_event");
+    });
+
+    it("allows newer recovered payments to restore active access from past_due", async () => {
+        const payload = makePayload({
+            eventName: "subscription_payment_recovered",
+            uid: "payment-recovered-after-past-due-user",
+            eventId: "evt_recovered_after_past_due",
+            dataType: "subscription-invoices",
+            dataId: "invoice_recovered_after_past_due",
+            attributes: { status: "paid", subscription_id: "sub_recovered_after_past_due" }
+        });
+        payload.meta.event_created_at = "2026-01-11T00:00:00.000Z";
+
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: true,
+                    status: "past_due",
+                    source: "lemon_squeezy",
+                    lastProviderEventId: "evt_past_due_current",
+                    lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                    lastProviderEventRank: 200
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
+        assert.equal(firestore.state.writes[0].data.entitlement.lastProviderEventName, "subscription_payment_recovered");
     });
 
     it("does not downgrade manual_active admin overrides", async () => {

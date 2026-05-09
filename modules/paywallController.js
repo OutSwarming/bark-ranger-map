@@ -137,14 +137,14 @@
     }
 
     function getInactiveCopy(status) {
-        if (status === 'past_due') {
-            return 'Premium is past due on this account. You can upgrade again when ready.';
-        }
         if (status === 'expired') {
             return 'Premium has expired on this account. You can upgrade again when ready.';
         }
         if (status === 'canceled') {
             return 'Premium is not active on this account. You can upgrade again when ready.';
+        }
+        if (status === 'refunded') {
+            return 'Premium was removed after a refund. You can upgrade again when ready.';
         }
         return 'Premium is not active on this account.';
     }
@@ -384,13 +384,23 @@
         }
 
         if (isPremiumActive()) {
-            const activeCopy = entitlement.status === 'manual_active'
-                ? 'Premium is active through a manual account grant.'
-                : 'Premium is active on this account.';
+            let activeCopy = 'Premium is active on this account.';
+            let eyebrow = 'Unlocked';
+
+            if (entitlement.status === 'manual_active') {
+                activeCopy = 'Premium is active through a manual account grant.';
+            } else if (entitlement.status === 'past_due') {
+                eyebrow = 'Payment attention';
+                activeCopy = 'Premium remains active while Lemon Squeezy retries your payment. Manage billing to keep access uninterrupted.';
+            } else if (entitlement.status === 'cancelled_active') {
+                eyebrow = 'Cancels later';
+                activeCopy = 'Premium remains active until the paid period ends.';
+            }
+
             return {
                 mode: 'premium',
                 title: 'Premium active',
-                eyebrow: 'Unlocked',
+                eyebrow,
                 body: activeCopy,
                 primaryText: 'Premium is active',
                 primaryDisabled: true,
@@ -399,11 +409,11 @@
             };
         }
 
-        if (['past_due', 'expired', 'canceled'].includes(entitlement.status)) {
+        if (['expired', 'canceled', 'refunded'].includes(entitlement.status)) {
             return {
                 mode: 'inactive',
                 title: 'Premium inactive',
-                eyebrow: entitlement.status.replace('_', ' '),
+                eyebrow: entitlement.status.replace(/_/g, ' '),
                 body: getInactiveCopy(entitlement.status),
                 primaryText: 'Continue to secure checkout',
                 secondaryVisible: true,
