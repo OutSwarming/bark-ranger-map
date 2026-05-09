@@ -139,7 +139,7 @@ async function showGlobalSearchSuggestion(page) {
             suggestions.style.display === 'block' &&
             suggestions.textContent &&
             suggestions.textContent.includes(query) &&
-            /Search (global towns|towns & cities)/.test(suggestions.textContent)
+            /(Search (global towns|towns & cities)|Searching towns & cities|SELECT FOR ADD STOP|Stubbed global result)/.test(suggestions.textContent)
         );
     }, { query: GLOBAL_SEARCH_QUERY }, { timeout: 30000 });
 }
@@ -215,7 +215,7 @@ test.describe('Phase 4C global search entitlement smoke', () => {
         }
     });
 
-    test('premium manual override global search reaches stubbed geocode path', async ({ browser }) => {
+    test('premium global search auto-runs and reaches stubbed geocode path', async ({ browser }) => {
         const errors = [];
         const context = await newBarkContext(browser, { storageState: premiumStorageStatePath });
         const page = await context.newPage();
@@ -226,8 +226,6 @@ test.describe('Phase 4C global search entitlement smoke', () => {
             await installGeocodeSpy(page);
             await showGlobalSearchSuggestion(page);
 
-            await expect(globalSearchButton(page)).toContainText('Query global database');
-            await globalSearchButton(page).click();
             await page.waitForFunction(() => {
                 return Array.isArray(window.__barkE2eGeocodeCalls) && window.__barkE2eGeocodeCalls.length === 1;
             }, { timeout: 15000 });

@@ -108,7 +108,7 @@ async function showGlobalSearchSuggestion(page) {
             suggestions.style.display === 'block' &&
             suggestions.textContent &&
             suggestions.textContent.includes(query) &&
-            /Search (global towns|towns & cities)/.test(suggestions.textContent)
+            /(Search (global towns|towns & cities)|Searching towns & cities|SELECT FOR ADD STOP|Stubbed global result)/.test(suggestions.textContent)
         );
     }, GLOBAL_SEARCH_QUERY, { timeout: 30000 });
 }
@@ -254,8 +254,6 @@ test.describe('BUG-017 premium product rules audit', () => {
             await openSignedInApp(page, true);
             await installGeocodeSpy(page);
             await showGlobalSearchSuggestion(page);
-            await expect(globalSearchButton(page)).toContainText('Query global database');
-            await globalSearchButton(page).click();
             await expect(page.locator('#search-suggestions')).toContainText('Stubbed global result', { timeout: 15000 });
 
             const premiumState = await page.evaluate(() => {

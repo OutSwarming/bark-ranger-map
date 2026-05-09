@@ -8,9 +8,12 @@ const TRIP_DAY_LIMIT = 50;
 const TRIP_DAY_PAGE_SIZE = 9;
 const ROUTE_DAY_THROTTLE_THRESHOLD = 8;
 const ROUTE_DAY_THROTTLE_MS = 3000;
+const LONG_ROUTE_DAY_LIMIT_MILES = 1000;
+const ROUTE_DISTANCE_ESTIMATE_FACTOR = 1.25;
 
 window.BARK.TRIP_DAY_LIMIT = TRIP_DAY_LIMIT;
 window.BARK.TRIP_DAY_PAGE_SIZE = TRIP_DAY_PAGE_SIZE;
+window.BARK.LONG_ROUTE_DAY_LIMIT_MILES = LONG_ROUTE_DAY_LIMIT_MILES;
 
 function removeTripMapLayer(layer) {
     const mapRef = window.map || (typeof map !== 'undefined' ? map : null);
@@ -265,6 +268,123 @@ function getFiniteCoordinate(value) {
     return Number.isFinite(numberValue) ? numberValue : null;
 }
 
+function getRouteStopCoordinates(stop) {
+    if (!stop || typeof stop !== 'object') return null;
+    const lat = getFiniteCoordinate(stop.lat);
+    const lng = getFiniteCoordinate(stop.lng);
+    if (lat === null || lng === null) return null;
+    return { lat, lng };
+}
+
+function estimateTripRouteDayMiles(dayStops) {
+    if (!Array.isArray(dayStops) || dayStops.length < 2) return 0;
+    if (!window.BARK || typeof window.BARK.haversineDistance !== 'function') return 0;
+
+    let totalMiles = 0;
+    for (let index = 1; index < dayStops.length; index += 1) {
+        const previous = getRouteStopCoordinates(dayStops[index - 1]);
+        const current = getRouteStopCoordinates(dayStops[index]);
+        if (!previous || !current) continue;
+
+        const segmentKm = window.BARK.haversineDistance(previous.lat, previous.lng, current.lat, current.lng);
+        if (!Number.isFinite(segmentKm) || segmentKm <= 0) continue;
+        totalMiles += segmentKm * 0.621371 * ROUTE_DISTANCE_ESTIMATE_FACTOR;
+    }
+
+    return totalMiles;
+}
+
+function getLongRouteDayWarnings(routableDays) {
+    if (!Array.isArray(routableDays)) return [];
+
+    return routableDays
+        .map(routeDay => {
+            const estimatedMiles = estimateTripRouteDayMiles(routeDay.dayStops);
+            return {
+                originalIndex: routeDay.originalIndex,
+                dayNumber: Number.isFinite(routeDay.originalIndex) ? routeDay.originalIndex + 1 : null,
+                estimatedMiles
+            };
+        })
+        .filter(warning => warning.estimatedMiles > LONG_ROUTE_DAY_LIMIT_MILES);
+}
+
+function formatLongRouteDayWarning(warnings) {
+    const routeWarnings = Array.isArray(warnings) ? warnings : [];
+    if (routeWarnings.length === 0) return '';
+
+    const sample = routeWarnings.slice(0, 3).map(warning => {
+        const label = warning.dayNumber ? `Day ${warning.dayNumber}` : 'A day';
+        return `${label} is about ${Math.round(warning.estimatedMiles).toLocaleString()} miles`;
+    });
+    const extraCount = routeWarnings.length - sample.length;
+    return `${sample.join(', ')}${extraCount > 0 ? `, plus ${extraCount} more` : ''}.`;
+}
+
+function ensureLongRouteWarningModal() {
+    let modal = document.getElementById('long-route-warning-modal');
+    if (modal) return modal;
+
+    modal = document.createElement('div');
+    modal.id = 'long-route-warning-modal';
+    modal.className = 'scoring-modal-overlay long-route-warning-modal';
+    modal.innerHTML = `
+        <div class="scoring-modal-card long-route-warning-card" role="dialog" aria-modal="true" aria-labelledby="long-route-warning-title">
+            <div class="modal-header">
+                <h3 id="long-route-warning-title">DAY TOO LONG</h3>
+                <button type="button" id="long-route-warning-cancel-btn" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-section long-route-warning-body">
+                <p id="long-route-warning-summary" class="long-route-warning-summary"></p>
+                <p class="long-route-warning-note">Routes over 1,000 miles in one day can fail to draw correctly. Optimize will rebalance stops across days before you generate the route.</p>
+                <div class="long-route-warning-actions">
+                    <button type="button" id="long-route-optimize-btn" class="long-route-warning-primary">Optimize Trip</button>
+                    <button type="button" id="long-route-continue-btn" class="long-route-warning-secondary">Generate Anyway</button>
+                </div>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+    return modal;
+}
+
+function promptForLongRouteOptimization(warnings) {
+    if (typeof document === 'undefined' || !document.body || typeof document.createElement !== 'function') {
+        const message = `${formatLongRouteDayWarning(warnings)} Route might not draw correctly. Optimize first?`;
+        return Promise.resolve(typeof confirm === 'function' && confirm(message) ? 'optimize' : 'continue');
+    }
+
+    const modal = ensureLongRouteWarningModal();
+    const summary = document.getElementById('long-route-warning-summary');
+    const cancelBtn = document.getElementById('long-route-warning-cancel-btn');
+    const optimizeBtn = document.getElementById('long-route-optimize-btn');
+    const continueBtn = document.getElementById('long-route-continue-btn');
+
+    if (summary) {
+        summary.textContent = `${formatLongRouteDayWarning(warnings)} Want to optimize before routing?`;
+    }
+
+    return new Promise(resolve => {
+        const close = (choice) => {
+            modal.style.display = 'none';
+            modal.onclick = null;
+            if (cancelBtn) cancelBtn.onclick = null;
+            if (optimizeBtn) optimizeBtn.onclick = null;
+            if (continueBtn) continueBtn.onclick = null;
+            resolve(choice);
+        };
+
+        modal.onclick = event => {
+            if (event.target === modal) close('cancel');
+        };
+        if (cancelBtn) cancelBtn.onclick = () => close('cancel');
+        if (optimizeBtn) optimizeBtn.onclick = () => close('optimize');
+        if (continueBtn) continueBtn.onclick = () => close('continue');
+
+        modal.style.display = 'flex';
+        if (optimizeBtn && typeof optimizeBtn.focus === 'function') optimizeBtn.focus();
+    });
+}
+
 function getCleanString(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
@@ -407,6 +527,11 @@ function buildSavedRouteData(tripName, tripDays) {
 window.BARK.serializeTripNodeForSave = serializeTripNodeForSave;
 window.BARK.buildSavedRouteData = buildSavedRouteData;
 window.BARK.normalizeTripDaysForPlanner = normalizeTripDaysForPlanner;
+window.BARK.estimateTripRouteDayMiles = estimateTripRouteDayMiles;
+window.BARK.getLongRouteDayWarnings = getLongRouteDayWarnings;
+if (typeof window.BARK.confirmLongRouteWarning !== 'function') {
+    window.BARK.confirmLongRouteWarning = promptForLongRouteOptimization;
+}
 
 function removeTripDay(dayIdx) {
     const tripDays = window.BARK.tripDays;
@@ -1106,8 +1231,6 @@ function initTripPlanner() {
             updateRouteGenerationButtonState();
             return;
         }
-        const routeRunId = ++routeRenderGeneration;
-        window.BARK.incrementRequestCount();
         const tripDays = window.BARK.tripDays;
         const routableDays = tripDays
             .map((day, originalIndex) => {
@@ -1118,6 +1241,30 @@ function initTripPlanner() {
             })
             .filter(routeDay => routeDay.dayStops.length >= 2);
         if (routableDays.length === 0) { alert("Each day needs at least 2 stops, including trip start/end."); return; }
+
+        const longRouteWarnings = getLongRouteDayWarnings(routableDays);
+        if (longRouteWarnings.length > 0) {
+            const warningPrompt = typeof window.BARK.confirmLongRouteWarning === 'function'
+                ? window.BARK.confirmLongRouteWarning
+                : promptForLongRouteOptimization;
+            const warningChoice = await warningPrompt(longRouteWarnings);
+
+            if (warningChoice === 'optimize') {
+                const optimizerModal = window.BARK.DOM.optimizerModal();
+                if (optimizerModal) optimizerModal.style.display = 'flex';
+                setRouteTelemetryStatus(
+                    'slow',
+                    'Day too long.',
+                    'Optimize the trip or split that day before generating. Routes over 1,000 miles may not draw correctly.'
+                );
+                return;
+            }
+
+            if (warningChoice !== 'continue') return;
+        }
+
+        const routeRunId = ++routeRenderGeneration;
+        window.BARK.incrementRequestCount();
 
         currentRouteLayers.forEach(removeTripMapLayer); currentRouteLayers = [];
         // Hide the dashed day lines while the generated driving route is on the map.

@@ -11,8 +11,16 @@ const SEARCH_CONTINUATION_DELAY_MS = 0;
 const SEARCH_SUGGESTION_LIMIT = 8;
 const SEARCH_SCORE_THRESHOLD = 2;
 const SEARCH_GLOBAL_MIN_LENGTH = 3;
+const GLOBAL_GEOCODE_CACHE_LIMIT = 50;
 const INLINE_PLANNER_SEARCH_TYPES = ['start', 'end'];
 let suppressInlinePlannerSuggestionsUntil = 0;
+const globalGeocodeCache = new Map();
+const globalGeocodeInFlight = new Map();
+const autoGlobalSearchRunIds = {
+    stop: 0,
+    start: 0,
+    end: 0
+};
 
 function getParkRepo() {
     return window.BARK.repos && window.BARK.repos.ParkRepo;
@@ -139,6 +147,69 @@ function openGlobalSearchPaywall() {
 
 function alertGlobalSearchLocked() {
     openGlobalSearchPaywall();
+}
+
+function normalizeGlobalGeocodeQuery(query) {
+    return String(query || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function getGlobalGeocodeCacheKey(query, options = {}) {
+    const normalized = normalizeGlobalGeocodeQuery(query);
+    const country = options.country || 'US';
+    const size = options.size || 5;
+    return `${country}|${size}|${normalized}`;
+}
+
+function rememberGlobalGeocodeResult(cacheKey, data) {
+    if (!cacheKey) return;
+    if (globalGeocodeCache.has(cacheKey)) globalGeocodeCache.delete(cacheKey);
+    globalGeocodeCache.set(cacheKey, data);
+
+    while (globalGeocodeCache.size > GLOBAL_GEOCODE_CACHE_LIMIT) {
+        const oldestKey = globalGeocodeCache.keys().next().value;
+        globalGeocodeCache.delete(oldestKey);
+    }
+}
+
+function bumpAutoGlobalSearchRun(targetType) {
+    if (!Object.prototype.hasOwnProperty.call(autoGlobalSearchRunIds, targetType)) {
+        autoGlobalSearchRunIds[targetType] = 0;
+    }
+    autoGlobalSearchRunIds[targetType] += 1;
+    return autoGlobalSearchRunIds[targetType];
+}
+
+function getAutoGlobalSearchRun(targetType) {
+    return autoGlobalSearchRunIds[targetType] || 0;
+}
+
+async function fetchGlobalGeocode(query, options = {}) {
+    const trimmedQuery = String(query || '').trim();
+    if (!trimmedQuery) return { features: [] };
+
+    const requestOptions = {
+        size: 5,
+        country: 'US',
+        ...options
+    };
+    const cacheKey = getGlobalGeocodeCacheKey(trimmedQuery, requestOptions);
+
+    if (globalGeocodeCache.has(cacheKey)) return globalGeocodeCache.get(cacheKey);
+    if (globalGeocodeInFlight.has(cacheKey)) return globalGeocodeInFlight.get(cacheKey);
+
+    const request = (async () => {
+        if (typeof window.BARK.incrementRequestCount === 'function') window.BARK.incrementRequestCount();
+        const data = await window.BARK.services.ors.geocode(trimmedQuery, requestOptions);
+        rememberGlobalGeocodeResult(cacheKey, data);
+        return data;
+    })();
+
+    globalGeocodeInFlight.set(cacheKey, request);
+    try {
+        return await request;
+    } finally {
+        globalGeocodeInFlight.delete(cacheKey);
+    }
 }
 
 function getLocalParkMatches(query, limit = SEARCH_SUGGESTION_LIMIT) {
@@ -329,7 +400,7 @@ function appendInlineGlobalSearchButton(type, query, suggestBox) {
     suggestBox.appendChild(globalBtn);
 }
 
-function renderInlinePlannerSuggestions(type, query, matches) {
+function renderInlinePlannerSuggestions(type, query, matches, options = {}) {
     const DOM = window.BARK.DOM;
     const suggestBox = DOM && DOM.inlineSuggest ? DOM.inlineSuggest(type) : null;
     if (!suggestBox) return;
@@ -357,7 +428,19 @@ function renderInlinePlannerSuggestions(type, query, matches) {
         );
     }
 
-    appendInlineGlobalSearchButton(type, query, suggestBox);
+    const shouldAutoSearchGlobal = Boolean(
+        options.autoGlobal &&
+        matches.length === 0 &&
+        query.trim().length >= SEARCH_GLOBAL_MIN_LENGTH &&
+        isPremiumGlobalSearchUnlocked()
+    );
+
+    if (shouldAutoSearchGlobal) {
+        appendInlineAutoGlobalStatus(type, query, suggestBox);
+    } else {
+        bumpAutoGlobalSearchRun(type);
+        appendInlineGlobalSearchButton(type, query, suggestBox);
+    }
 
     suggestBox.style.display = suggestBox.innerHTML !== '' ? 'block' : 'none';
 }
@@ -368,6 +451,7 @@ function runInlinePlannerSearch(type, options = {}) {
     const query = input ? input.value.trim() : '';
 
     if (!query) {
+        bumpAutoGlobalSearchRun(type);
         hideInlineSuggestions(type);
         return;
     }
@@ -389,7 +473,7 @@ function runInlinePlannerSearch(type, options = {}) {
     }
 
     const matches = getLocalParkMatches(query);
-    renderInlinePlannerSuggestions(type, query, matches);
+    renderInlinePlannerSuggestions(type, query, matches, { autoGlobal: !options.executeGlobal });
 
     if (!options.executeGlobal || matches.length > 0 || query.length < SEARCH_GLOBAL_MIN_LENGTH) return;
 
@@ -401,6 +485,118 @@ function runInlinePlannerSearch(type, options = {}) {
     if (input) input.value = `Searching for "${query}"...`;
     hideInlineSuggestions(type);
     executeGeocode(query, type);
+}
+
+function getGeocodeSuggestionContainer(DOM, targetType) {
+    return targetType === 'stop'
+        ? DOM.searchSuggestions()
+        : DOM.inlineSuggest(targetType);
+}
+
+function getGeocodeActionText(targetType) {
+    if (targetType === 'start') return 'TRIP START';
+    if (targetType === 'end') return 'TRIP END';
+    return 'ADD STOP';
+}
+
+function renderGeocodeResults(query, targetType, data) {
+    const DOM = window.BARK.DOM;
+    const disambiguationContainer = getGeocodeSuggestionContainer(DOM, targetType);
+    if (!disambiguationContainer) return;
+
+    if (data.features && data.features.length > 0) {
+        const actionText = getGeocodeActionText(targetType);
+        disambiguationContainer.innerHTML = `
+            <div style="background: #f0fdf4; border-bottom: 1px solid #bbf7d0; padding: 10px; font-size: 11px; color: #15803d; font-weight: 800; text-transform: uppercase; display: flex; align-items: center; gap: 8px;">
+                SELECT FOR ${actionText}
+            </div>`;
+
+        data.features.forEach(f => {
+            const div = document.createElement('div');
+            div.className = 'suggestion-item';
+            div.style.cssText = 'padding: 12px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.2s;';
+
+            const label = document.createElement('span');
+            label.style.cssText = 'font-weight: 700; color: #1e293b;';
+            label.textContent = f.properties.label || query;
+            div.appendChild(label);
+
+            bindSuggestionSelection(div, () => {
+                const coords = f.geometry.coordinates;
+                const node = { name: f.properties.label || query, lat: coords[1], lng: coords[0] };
+                if (!applyTripNodeSelection(targetType, node, { alertOnFailure: true })) {
+                    clearGeocodeSearchStatus(DOM, targetType);
+                    disambiguationContainer.style.display = 'none';
+                    return;
+                }
+
+                const mainSearch = DOM.parkSearch();
+                const clearBtn = DOM.clearSearchBtn();
+                const inlineInput = targetType !== 'stop' ? DOM.inlineInput(targetType) : null;
+
+                if (targetType === 'stop') {
+                    if (mainSearch) mainSearch.value = '';
+                    if (typeof window.BARK.activeSearchQuery !== 'undefined') window.BARK.activeSearchQuery = '';
+                    if (clearBtn) clearBtn.style.display = 'none';
+                } else if (inlineInput) {
+                    inlineInput.value = node.name;
+                }
+
+                if (typeof window.syncState === 'function') window.syncState();
+
+                const movementMap = getSearchMovementMap(targetType);
+                if (movementMap) {
+                    movementMap.setView([node.lat, node.lng], 10, {
+                        animate: !window.lowGfxEnabled,
+                        duration: window.lowGfxEnabled ? 0 : 1.5
+                    });
+                }
+
+                disambiguationContainer.style.display = 'none';
+            });
+            disambiguationContainer.appendChild(div);
+        });
+
+        disambiguationContainer.style.display = 'block';
+        return;
+    }
+
+    disambiguationContainer.innerHTML = `<p style="padding: 10px; font-size: 12px; color: #dc2626; text-align: center; font-weight: bold;">Location not found.</p>`;
+    disambiguationContainer.style.display = 'block';
+}
+
+function appendInlineAutoGlobalStatus(type, query, suggestBox) {
+    if (!suggestBox) return;
+    appendInlineStatus(
+        suggestBox,
+        `Searching towns & cities for "${query}"...`,
+        'background: #f0fdf4; color: #15803d; font-weight: 800; border-top: 1px solid #bbf7d0;'
+    );
+
+    const runId = bumpAutoGlobalSearchRun(type);
+    fetchGlobalGeocode(query, { size: 5, country: 'US' })
+        .then(data => {
+            const DOM = window.BARK.DOM;
+            const input = DOM && DOM.inlineInput ? DOM.inlineInput(type) : null;
+            if (runId !== getAutoGlobalSearchRun(type)) return;
+            if (!input || input.value.trim() !== query || input !== document.activeElement) return;
+            renderGeocodeResults(query, type, data);
+        })
+        .catch(error => {
+            console.error('Auto town search failed:', error);
+            const DOM = window.BARK.DOM;
+            const input = DOM && DOM.inlineInput ? DOM.inlineInput(type) : null;
+            const currentSuggestBox = DOM && DOM.inlineSuggest ? DOM.inlineSuggest(type) : null;
+            if (runId !== getAutoGlobalSearchRun(type)) return;
+            if (!input || input.value.trim() !== query || input !== document.activeElement || !currentSuggestBox) return;
+            currentSuggestBox.innerHTML = '';
+            appendInlineStatus(
+                currentSuggestBox,
+                'Town search is unavailable right now.',
+                'background: #fef2f2; color: #b91c1c; font-weight: 800;'
+            );
+            currentSuggestBox.style.display = 'block';
+        });
 }
 
 function getSearchMovementMap(targetType) {
@@ -447,6 +643,7 @@ function initSearchEngine() {
 
     function cancelSearchWork() {
         activeSearchRunId += 1;
+        bumpAutoGlobalSearchRun('stop');
         clearSearchTimer(searchTimeout);
         clearSearchTimer(searchContinuationTimeout);
         searchTimeout = null;
@@ -515,7 +712,7 @@ function initSearchEngine() {
         federatedBtn.appendChild(iconSpan);
         federatedBtn.appendChild(textWrap);
 
-        federatedBtn.addEventListener('click', () => {
+        bindSuggestionSelection(federatedBtn, () => {
             if (!isPremiumGlobalSearchUnlocked()) {
                 alertGlobalSearchLocked();
                 return;
@@ -527,6 +724,36 @@ function initSearchEngine() {
         });
 
         searchSuggestions.appendChild(federatedBtn);
+    }
+
+    function appendAutoGlobalSearchStatus(activeQuery, searchRunId) {
+        if (!searchSuggestions) return;
+
+        appendSearchStatus(
+            `Searching towns & cities for "${activeQuery}"...`,
+            'background: #f0fdf4; color: #15803d; font-weight: 800; border-top: 1px solid #bbf7d0;'
+        );
+
+        const autoRunId = bumpAutoGlobalSearchRun('stop');
+        fetchGlobalGeocode(activeQuery, { size: 5, country: 'US' })
+            .then(data => {
+                if (searchRunId !== activeSearchRunId) return;
+                if (autoRunId !== getAutoGlobalSearchRun('stop')) return;
+                if (normalizeText(window.BARK.activeSearchQuery) !== normalizeText(activeQuery)) return;
+                renderGeocodeResults(activeQuery, 'stop', data);
+            })
+            .catch(error => {
+                console.error('Auto town search failed:', error);
+                if (searchRunId !== activeSearchRunId) return;
+                if (autoRunId !== getAutoGlobalSearchRun('stop')) return;
+                if (normalizeText(window.BARK.activeSearchQuery) !== normalizeText(activeQuery)) return;
+                searchSuggestions.innerHTML = '';
+                appendSearchStatus(
+                    'Town search is unavailable right now.',
+                    'background: #fef2f2; color: #b91c1c; font-weight: 800;'
+                );
+                searchSuggestions.style.display = 'block';
+            });
     }
 
     function renderSearchSuggestions(queryNorm, matches, isComplete) {
@@ -594,7 +821,13 @@ function initSearchEngine() {
                         'background: #f8fafc; color: #475569; font-weight: 700; border-top: 1px solid #e2e8f0;'
                     );
                 }
-                appendFederatedButton(activeQuery, isPremium);
+
+                if (topMatches.length === 0 && isPremium) {
+                    appendAutoGlobalSearchStatus(activeQuery, activeSearchRunId);
+                } else {
+                    bumpAutoGlobalSearchRun('stop');
+                    appendFederatedButton(activeQuery, isPremium);
+                }
             }
         }
 
@@ -772,6 +1005,7 @@ async function executeGeocode(query, targetType) {
     if (!query) return;
     const DOM = window.BARK.DOM;
     const lowerQ = query.trim().toLowerCase();
+    bumpAutoGlobalSearchRun(targetType);
 
     // 🔥 SMART INTERCEPT: GPS Routing
     if (lowerQ === 'my location' || lowerQ === 'current location') {
@@ -809,75 +1043,8 @@ async function executeGeocode(query, targetType) {
     }
 
     try {
-        window.BARK.incrementRequestCount();
-        const data = await window.BARK.services.ors.geocode(query, { size: 5, country: 'US' });
-
-        const disambiguationContainer = (targetType === 'stop')
-            ? DOM.searchSuggestions()
-            : DOM.inlineSuggest(targetType);
-
-        if (data.features && data.features.length > 0) {
-            if (disambiguationContainer) {
-                let actionText = targetType === 'start' ? 'TRIP START' : (targetType === 'end' ? 'TRIP END' : 'ADD STOP');
-                disambiguationContainer.innerHTML = `
-                    <div style="background: #f0fdf4; border-bottom: 1px solid #bbf7d0; padding: 10px; font-size: 11px; color: #15803d; font-weight: 800; text-transform: uppercase; display: flex; align-items: center; gap: 8px;">
-                        SELECT FOR ${actionText}
-                    </div>`;
-
-                data.features.forEach(f => {
-                    const div = document.createElement('div');
-                    div.className = 'suggestion-item';
-                    div.style.cssText = 'padding: 12px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.2s;';
-
-                    const label = document.createElement('span');
-                    label.style.cssText = 'font-weight: 700; color: #1e293b;';
-                    label.textContent = f.properties.label || query;
-                    div.appendChild(label);
-
-                    bindSuggestionSelection(div, () => {
-                        const coords = f.geometry.coordinates;
-                        const node = { name: f.properties.label || query, lat: coords[1], lng: coords[0] };
-                        if (!applyTripNodeSelection(targetType, node, { alertOnFailure: true })) {
-                            clearGeocodeSearchStatus(DOM, targetType);
-                            disambiguationContainer.style.display = 'none';
-                            return;
-                        }
-
-                        const mainSearch = DOM.parkSearch();
-                        const clearBtn = DOM.clearSearchBtn();
-                        const inlineInput = targetType !== 'stop' ? DOM.inlineInput(targetType) : null;
-
-                        if (targetType === 'stop') {
-                            if (mainSearch) mainSearch.value = '';
-                            if (typeof window.BARK.activeSearchQuery !== 'undefined') window.BARK.activeSearchQuery = '';
-                            if (clearBtn) clearBtn.style.display = 'none';
-                        } else if (inlineInput) {
-                            inlineInput.value = node.name;
-                        }
-
-                        window.syncState();
-
-                        const movementMap = getSearchMovementMap(targetType);
-                        if (movementMap) {
-                            movementMap.setView([node.lat, node.lng], 10, {
-                                animate: !window.lowGfxEnabled,
-                                duration: window.lowGfxEnabled ? 0 : 1.5
-                            });
-                        }
-
-                        disambiguationContainer.style.display = 'none';
-                    });
-                    disambiguationContainer.appendChild(div);
-                });
-
-                disambiguationContainer.style.display = 'block';
-            }
-        } else {
-            if (disambiguationContainer) {
-                disambiguationContainer.innerHTML = `<p style="padding: 10px; font-size: 12px; color: #dc2626; text-align: center; font-weight: bold;">Location not found.</p>`;
-                disambiguationContainer.style.display = 'block';
-            }
-        }
+        const data = await fetchGlobalGeocode(query, { size: 5, country: 'US' });
+        renderGeocodeResults(query, targetType, data);
     } catch (err) {
         console.error('Search geocode failed:', err);
         alert("Search service unavailable.");

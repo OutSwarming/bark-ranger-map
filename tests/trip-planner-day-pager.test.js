@@ -131,6 +131,10 @@ function getTextContent(root) {
     return `${root.textContent || ''}${root._innerHTML || ''}${(root.children || []).map(getTextContent).join('')}`;
 }
 
+async function flushPromises(count = 6) {
+    for (let index = 0; index < count; index += 1) await Promise.resolve();
+}
+
 function loadTripPlanner(options = {}) {
     const elements = new Map();
     const byId = id => {
@@ -153,6 +157,7 @@ function loadTripPlanner(options = {}) {
     const timerMode = options.timerMode || 'immediate';
 
     let directionsResolver = null;
+    const directionsCalls = [];
 
     const context = {
         window: {
@@ -166,7 +171,10 @@ function loadTripPlanner(options = {}) {
                         subscribe: () => {}
                     },
                     ors: {
-                        directions: () => new Promise(resolve => { directionsResolver = resolve; })
+                        directions: (coordinates, requestOptions) => {
+                            directionsCalls.push({ coordinates, requestOptions });
+                            return new Promise(resolve => { directionsResolver = resolve; });
+                        }
                     }
                 },
                 DOM: {
@@ -192,7 +200,7 @@ function loadTripPlanner(options = {}) {
                     optMaxStops: () => ({ value: '5' }),
                     optMaxHours: () => ({ value: '4' })
                 },
-                haversineDistance: () => 1,
+                haversineDistance: options.haversineDistance || (() => 1),
                 incrementRequestCount() {}
             },
             tripStartNode: null,
@@ -266,6 +274,7 @@ function loadTripPlanner(options = {}) {
         runTimers: () => {
             timers.splice(0).forEach(callback => callback());
         },
+        directionsCalls,
         resolveDirections: () => {
             if (!directionsResolver) throw new Error('Directions call has not started.');
             directionsResolver({
@@ -388,4 +397,70 @@ test('route generation shows working and slow status messages before completion'
     assert.equal(harness.element('route-telemetry').dataset.routeStatus, 'complete');
     assert.match(harness.getTextContent(harness.element('route-telemetry')), /Total Drive/);
     assert.match(harness.element('start-route-btn').innerHTML, /Generate Route/);
+});
+
+test('trip planner estimates long route days before calling directions', () => {
+    const harness = loadTripPlanner({ haversineDistance: () => 2000 });
+
+    const warnings = harness.window.BARK.getLongRouteDayWarnings([{
+        originalIndex: 2,
+        dayStops: [
+            { name: 'Start', lat: 0, lng: 0 },
+            { name: 'Finish', lat: 1, lng: 1 }
+        ]
+    }]);
+
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].dayNumber, 3);
+    assert.ok(warnings[0].estimatedMiles > 1000);
+});
+
+test('route generation opens optimizer and skips ORS when a day is too long', async () => {
+    const harness = loadTripPlanner({ haversineDistance: () => 2000 });
+    const warningsSeen = [];
+    harness.window.BARK.confirmLongRouteWarning = async (warnings) => {
+        warningsSeen.push(...warnings);
+        return 'optimize';
+    };
+    harness.window.BARK.tripDays = [{
+        color: '#1976D2',
+        stops: [
+            { name: 'Stop A', lat: 1, lng: 1 },
+            { name: 'Stop B', lat: 2, lng: 2 }
+        ],
+        notes: ''
+    }];
+
+    harness.window.BARK.initTripPlanner();
+    harness.window.BARK.updateTripUI();
+    harness.element('start-route-btn').onclick();
+    await flushPromises();
+
+    assert.equal(warningsSeen.length, 1);
+    assert.equal(harness.directionsCalls.length, 0);
+    assert.equal(harness.element('optimizer-modal').style.display, 'flex');
+    assert.equal(harness.element('route-telemetry').dataset.routeStatus, 'slow');
+    assert.match(harness.getTextContent(harness.element('route-telemetry')), /Day too long/);
+});
+
+test('route generation can continue after long day warning', async () => {
+    const harness = loadTripPlanner({ haversineDistance: () => 2000 });
+    harness.window.BARK.confirmLongRouteWarning = async () => 'continue';
+    harness.window.BARK.tripDays = [{
+        color: '#1976D2',
+        stops: [
+            { name: 'Stop A', lat: 1, lng: 1 },
+            { name: 'Stop B', lat: 2, lng: 2 }
+        ],
+        notes: ''
+    }];
+
+    harness.window.BARK.initTripPlanner();
+    harness.window.BARK.updateTripUI();
+    harness.element('start-route-btn').onclick();
+    await flushPromises();
+
+    assert.equal(harness.directionsCalls.length, 1);
+    harness.resolveDirections();
+    await flushPromises();
 });

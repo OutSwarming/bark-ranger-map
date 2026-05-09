@@ -379,6 +379,62 @@
     margin-bottom: 24px;
 }
 
+.long-route-warning-card {
+    border-color: rgba(245, 158, 11, 0.55);
+    box-shadow: 0 0 30px rgba(245, 158, 11, 0.18), 0 20px 40px rgba(0,0,0,0.4);
+}
+
+.long-route-warning-card .modal-header h3 {
+    color: #fbbf24;
+}
+
+.long-route-warning-body {
+    margin-bottom: 0;
+}
+
+.long-route-warning-summary {
+    color: #f8fafc;
+    font-size: 15px;
+    font-weight: 900;
+    line-height: 1.4;
+    margin: 0 0 12px;
+}
+
+.long-route-warning-note {
+    color: #cbd5e1;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.5;
+    margin: 0 0 20px;
+}
+
+.long-route-warning-actions {
+    display: grid;
+    gap: 10px;
+}
+
+.long-route-warning-primary,
+.long-route-warning-secondary {
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+    padding: 12px;
+    text-transform: uppercase;
+}
+
+.long-route-warning-primary {
+    background: linear-gradient(135deg, #f59e0b, #ef4444);
+    color: white;
+}
+
+.long-route-warning-secondary {
+    background: rgba(255,255,255,0.08);
+    color: #f8fafc;
+    border: 1px solid rgba(255,255,255,0.14);
+}
+
 .section-title {
     font-size: 10px;
     color: #64748b;
