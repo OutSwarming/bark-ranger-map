@@ -101,8 +101,8 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
 - Lowered the free tracked-visit cap from 20 to 5 in `services/checkinService.js`.
 - Updated user-facing fallback copy in `renderers/panelRenderer.js` and the BUG-015 Playwright smoke limit/test names.
 - Added Firestore rules enforcement so non-premium direct writes to `users/{uid}.visitedPlaces` are denied above 5.
-- Premium users with active/manual-active entitlement on the same user document can still write more than 5 visits.
-- Rules preserve cleanup behavior: legacy over-limit free users can update unrelated settings and can trim visits back to 5 or fewer.
+- Premium users with active, manual-active, past-due, or cancelled-active entitlement on the same user document can still write more than 5 visits.
+- Rules preserve cleanup behavior: legacy or expired over-limit users can update unrelated settings and can remove visits one at a time, but cannot add visits or swap the over-limit list.
 - QC: `npm run test:rules` passed 21/21.
 - QC: `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bug015-free-visited-limit-smoke.spec.js --workers=1 --reporter=list` passed 5/5.
 
@@ -244,3 +244,19 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
   - firebase-tools still warns that Java 21 will be required in v15; current checks passed on Java 18.
   - Playwright notes that trip-planner stop persistence after reload is not covered because current runtime trip state does not persist across reload; dynamic styling and visit persistence are covered.
   - Generated `firebase-debug.log`, `firestore-debug.log`, `functions/.secret.local`, and `test-results/` artifacts were cleaned before pushing.
+
+## Free Visit Cap Deployment Clarification
+
+- Date: 2026-05-09.
+- Current code policy: free tracked visits stop at **5**, not 20.
+- Local source check:
+  - `services/checkinService.js` has `FREE_VISIT_LIMIT = 5`.
+  - `firestore.rules` has `freeVisitedPlaceLimit() { return 5; }`.
+  - `tests/playwright/bug015-free-visited-limit-smoke.spec.js` verifies 5th add succeeds and 6th add is blocked.
+- Edge-case fix added after post-merge review:
+  - Legacy free users or expired premium users already above 5 cannot add more visits.
+  - They also cannot swap one over-limit list for another same-sized over-limit list.
+  - They can remove visits one at a time, so an account with 20 can go 20 -> 19 -> 18 without being trapped by rules.
+  - `past_due` and `cancelled_active` are now premium-active in Firestore rules, matching `premiumService` and payment hardening policy.
+- QC: `PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm run test:rules` passed 24/24.
+- Deployment note: pushing to GitHub updates the repository, but this repo has no checked-in GitHub Actions deploy workflow. Firebase Hosting/Firestore rules/functions must be deployed separately before the public/test website shows the new 5-visit behavior.

@@ -37,10 +37,10 @@ async function seedDoc(pathSegments, data) {
     });
 }
 
-function makeVisitedPlaces(count) {
+function makeVisitedPlaces(count, start = 1) {
     return Array.from({ length: count }, (_, index) => ({
-        id: `park-${index + 1}`,
-        name: `Park ${index + 1}`,
+        id: `park-${start + index}`,
+        name: `Park ${start + index}`,
         ts: 1710000000000 + index
     }));
 }
@@ -162,7 +162,7 @@ describe('Firestore entitlement and admin field rules', () => {
         }));
     });
 
-    it('denies direct free-user visitedPlaces updates above five while allowing trim-down writes', async () => {
+    it('denies direct free-user visitedPlaces updates above five while allowing legacy trim-down writes', async () => {
         await seedDoc(['users', 'alice'], {
             settings: { mapStyle: 'default' },
             visitedPlaces: makeVisitedPlaces(5)
@@ -187,29 +187,71 @@ describe('Firestore entitlement and admin field rules', () => {
             settings: { mapStyle: 'terrain' }
         }));
 
+        await assertFails(updateDoc(legacyRef, {
+            visitedPlaces: makeVisitedPlaces(9)
+        }));
+
+        await assertFails(updateDoc(legacyRef, {
+            visitedPlaces: makeVisitedPlaces(8, 101)
+        }));
+
         await assertSucceeds(updateDoc(legacyRef, {
-            visitedPlaces: makeVisitedPlaces(5)
+            visitedPlaces: makeVisitedPlaces(7)
         }));
     });
 
-    it('allows active premium users to write visitedPlaces beyond the free limit', async () => {
-        await seedDoc(['users', 'alice'], {
+    it('allows active premium-status users to write visitedPlaces beyond the free limit', async () => {
+        const premiumStatuses = ['active', 'manual_active', 'past_due', 'cancelled_active'];
+
+        for (const status of premiumStatuses) {
+            const uid = `premium-${status}`;
+            await seedDoc(['users', uid], {
+                entitlement: {
+                    premium: true,
+                    status,
+                    source: status === 'manual_active' ? 'admin_override' : 'lemon_squeezy',
+                    manualOverride: status === 'manual_active',
+                    currentPeriodEnd: status === 'cancelled_active' ? '2026-06-09T00:00:00.000Z' : null
+                },
+                settings: { mapStyle: 'default' },
+                visitedPlaces: makeVisitedPlaces(5)
+            });
+
+            const premiumDb = authedDb(uid);
+            const premiumRef = doc(premiumDb, 'users', uid);
+
+            await assertSucceeds(updateDoc(premiumRef, {
+                visitedPlaces: makeVisitedPlaces(6)
+            }));
+        }
+    });
+
+    it('locks expired over-limit users from adding visits while allowing removals', async () => {
+        await seedDoc(['users', 'expired-legacy'], {
             entitlement: {
-                premium: true,
-                status: 'manual_active',
-                source: 'admin_override',
-                manualOverride: true,
-                currentPeriodEnd: null
+                premium: false,
+                status: 'expired',
+                source: 'lemon_squeezy',
+                manualOverride: false,
+                currentPeriodEnd: '2026-04-09T00:00:00.000Z'
             },
             settings: { mapStyle: 'default' },
-            visitedPlaces: makeVisitedPlaces(5)
+            visitedPlaces: makeVisitedPlaces(20)
         });
 
-        const aliceDb = authedDb('alice');
-        const aliceRef = doc(aliceDb, 'users', 'alice');
+        const expiredDb = authedDb('expired-legacy');
+        const expiredRef = doc(expiredDb, 'users', 'expired-legacy');
 
-        await assertSucceeds(updateDoc(aliceRef, {
-            visitedPlaces: makeVisitedPlaces(6)
+        await assertFails(updateDoc(expiredRef, {
+            visitedPlaces: makeVisitedPlaces(21)
+        }));
+
+        await assertFails(updateDoc(expiredRef, {
+            visitedPlaces: makeVisitedPlaces(20, 101)
+        }));
+
+        await assertSucceeds(updateDoc(expiredRef, {
+            visitedPlaces: makeVisitedPlaces(19)
         }));
     });
 

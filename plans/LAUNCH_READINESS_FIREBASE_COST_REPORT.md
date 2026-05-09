@@ -348,7 +348,7 @@ Confirmed free/premium behavior:
 - Premium map filters/styles/trail controls are gated in `services/authPremiumUi.js`, `modules/paywallController.js`, and settings/search modules.
 - Premium route/geocode is server-enforced by `requirePremiumCallable()` in `functions/index.js`.
 
-Resolved gap: the free tracked-visit limit is now 5 and Firestore rules deny non-premium direct `users/{uid}.visitedPlaces` writes above 5. Premium users with active/manual-active entitlement on the same user document can exceed 5.
+Resolved gap: the free tracked-visit limit is now 5 and Firestore rules deny non-premium direct `users/{uid}.visitedPlaces` writes above 5. Premium users with active, manual-active, past-due, or cancelled-active entitlement on the same user document can exceed 5. Legacy/expired over-limit users are locked from adding or swapping over-limit visits, but can remove visits one at a time.
 
 Recommended tier design:
 
@@ -435,7 +435,7 @@ Risks:
 
 - Owner can write any allowed `leaderboard/{uid}` totals, including fake `totalPoints`.
 - Owner can write achievement documents with any valid-looking id/tier/timestamp.
-- Owner can no longer update `visitedPlaces` above 5 unless the existing user doc has active/manual-active entitlement. Rules now also require `visitedPlaces` to be a list when that field changes.
+- Owner can no longer update `visitedPlaces` above 5 unless the existing user doc has active, manual-active, past-due, or cancelled-active entitlement. Rules now also require `visitedPlaces` to be a list when that field changes and allow legacy/expired over-limit users to shrink, not grow or swap, their visit list.
 - `feedback` writes appear denied by default rules.
 
 | Rule area | Current protection | Missing tests | Exploit risk | Cost risk | Fix |

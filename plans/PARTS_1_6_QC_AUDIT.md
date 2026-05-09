@@ -21,6 +21,8 @@ Confirmed:
 
 Important policy note: the current implemented free tracked-visit cap is **5**, not 20. This follows the later owner request to bring the free account down to 5 across the board. Tests now verify 5/6 behavior, not 20/21 behavior.
 
+Post-merge clarification: older free or expired accounts already above 5 are locked from adding or swapping over-limit visits, but can remove visits one at a time. Firestore rules now also treat `past_due` and `cancelled_active` as premium-active states, matching the payment-hardening policy.
+
 ## 2. Launch Readiness Color
 
 | Launch scope | Color | Reason |
@@ -84,7 +86,7 @@ Baseline:
 Backend:
 
 - `npm --prefix functions test` - PASS, 82/82.
-- `npm run test:rules` - PASS, 23/23. Note: firebase-tools emitted the existing Java 21 future-requirement warning while running on Java 18.
+- `npm run test:rules` - PASS, 23/23 during the Parts 1-6 QC pass; follow-up free-cap edge-case QC PASS, 24/24. Note: firebase-tools emitted the existing Java 21 future-requirement warning while running on Java 18.
 - `npm run test:functions:emulator` - PASS, 9/9. Same Java 21 future-requirement warning.
 
 Playwright, local static server at `http://localhost:4173/index.html`:

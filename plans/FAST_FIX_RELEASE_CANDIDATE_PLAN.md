@@ -54,8 +54,8 @@ Move in small, verifiable slices:
 - Completed 2026-05-09:
   - Lowered the free tracked-visit cap to 5.
   - Added Firestore rules constraints that deny non-premium direct `visitedPlaces` writes above 5 without adding rules reads.
-  - Kept premium users with active/manual-active entitlement able to exceed 5.
-  - Preserved cleanup behavior for legacy over-limit free users: unrelated settings updates still work, and trim-down writes to 5 or fewer are allowed.
+  - Kept premium users with active, manual-active, past-due, or cancelled-active entitlement able to exceed 5.
+  - Preserved cleanup behavior for legacy/expired over-limit users: unrelated settings updates still work, add/swap writes are denied, and one-at-a-time removals are allowed.
 - Files:
   - `services/checkinService.js`
   - `renderers/panelRenderer.js`
@@ -69,6 +69,7 @@ Move in small, verifiable slices:
   - Premium user can exceed 5.
   - Fake local premium/localStorage does not bypass.
   - `npm run test:rules` passed 21/21.
+  - Follow-up QC passed 24/24 after adding legacy 20 -> 19 removal, over-limit swap denial, expired-user lock, and past-due/cancelled-active rules coverage.
 - Done when:
   - Direct client Firestore write cannot bypass the free tier. Completed for the 5-visit free cap.
 

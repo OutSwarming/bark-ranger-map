@@ -57,7 +57,7 @@ service cloud.firestore {
         && data.entitlement is map
         && data.entitlement.keys().hasAll(['premium', 'status'])
         && data.entitlement.premium == true
-        && data.entitlement.status in ['active', 'manual_active'];
+        && data.entitlement.status in ['active', 'manual_active', 'past_due', 'cancelled_active'];
     }
 
     function hasValidVisitedPlacesShape(data) {
@@ -68,6 +68,15 @@ service cloud.firestore {
     function withinFreeVisitedPlaceLimit(data) {
       return !data.keys().hasAny(['visitedPlaces'])
         || data.visitedPlaces.size() <= freeVisitedPlaceLimit();
+    }
+
+    function shrinksLegacyOverLimitVisitedPlaces() {
+      return resource.data.keys().hasAny(['visitedPlaces'])
+        && request.resource.data.keys().hasAny(['visitedPlaces'])
+        && resource.data.visitedPlaces is list
+        && request.resource.data.visitedPlaces is list
+        && resource.data.visitedPlaces.size() > freeVisitedPlaceLimit()
+        && request.resource.data.visitedPlaces.size() < resource.data.visitedPlaces.size();
     }
 
     function createsValidVisitedPlacesForPlan() {
@@ -83,7 +92,11 @@ service cloud.firestore {
       return !changesVisitedPlaces()
         || (
           hasValidVisitedPlacesShape(request.resource.data)
-          && (hasActivePremiumEntitlement(resource.data) || withinFreeVisitedPlaceLimit(request.resource.data))
+          && (
+            hasActivePremiumEntitlement(resource.data)
+            || withinFreeVisitedPlaceLimit(request.resource.data)
+            || shrinksLegacyOverLimitVisitedPlaces()
+          )
         );
     }
 
