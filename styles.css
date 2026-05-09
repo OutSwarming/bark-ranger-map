@@ -499,6 +499,63 @@ textarea,
     font-weight: 800;
 }
 
+.account-billing-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    margin-top: 14px;
+    padding: 14px;
+    border: 1px solid rgba(15, 118, 110, 0.18);
+    border-radius: 10px;
+    background: linear-gradient(135deg, #f0fdfa, #f8fafc);
+}
+
+.account-billing-panel[hidden] {
+    display: none;
+}
+
+.account-billing-eyebrow {
+    color: #0f766e;
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.account-billing-title {
+    margin-top: 2px;
+    color: #1e293b;
+    font-size: 15px;
+    font-weight: 900;
+}
+
+.account-billing-copy {
+    margin: 4px 0 0;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.account-billing-btn {
+    min-height: 42px;
+    border: 1px solid #99f6e4;
+    border-radius: 8px;
+    background: #0f766e;
+    color: white;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+    padding: 10px 12px;
+    white-space: nowrap;
+}
+
+.account-billing-btn[data-mode="support"] {
+    border-color: #cbd5e1;
+    background: #ffffff;
+    color: #334155;
+}
+
 .account-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -526,8 +583,13 @@ textarea,
 
 @media (max-width: 420px) {
     .account-mode-tabs,
-    .account-actions {
+    .account-actions,
+    .account-billing-panel {
         grid-template-columns: 1fr;
+    }
+
+    .account-billing-btn {
+        width: 100%;
     }
 
     .account-card-header {

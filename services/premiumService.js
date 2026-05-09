@@ -10,7 +10,9 @@ window.BARK.services = window.BARK.services || {};
         status: 'free',
         source: 'none',
         manualOverride: false,
-        currentPeriodEnd: null
+        currentPeriodEnd: null,
+        providerCustomerId: null,
+        providerSubscriptionId: null
     });
 
     const PREMIUM_STATUSES = new Set(['active', 'manual_active']);
@@ -79,7 +81,9 @@ window.BARK.services = window.BARK.services || {};
             status,
             source,
             manualOverride: raw.manualOverride === true,
-            currentPeriodEnd: normalizePeriodEnd(raw.currentPeriodEnd)
+            currentPeriodEnd: normalizePeriodEnd(raw.currentPeriodEnd),
+            providerCustomerId: normalizeString(raw.providerCustomerId, null),
+            providerSubscriptionId: normalizeString(raw.providerSubscriptionId, null)
         };
     }
 

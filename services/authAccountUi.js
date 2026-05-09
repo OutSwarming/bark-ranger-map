@@ -11,6 +11,8 @@
     const MIN_PASSWORD_LENGTH = 8;
     const MIN_USERNAME_LENGTH = 2;
     const MAX_USERNAME_LENGTH = 30;
+    const LEMON_SQUEEZY_BILLING_PORTAL_URL = 'https://usbarkrangers.lemonsqueezy.com/billing';
+    const SUPPORT_EMAIL = 'usbarkrangers@gmail.com';
 
     let initialized = false;
     let activeMode = 'signin';
@@ -244,6 +246,102 @@
         return 'Free';
     }
 
+    function isLemonSqueezyEntitlement(entitlement) {
+        return Boolean(
+            entitlement &&
+            (
+                entitlement.source === 'lemon_squeezy' ||
+                entitlement.providerCustomerId ||
+                entitlement.providerSubscriptionId
+            )
+        );
+    }
+
+    function getBillingPanelState(user) {
+        const premiumService = getPremiumService();
+        const entitlement = premiumService && typeof premiumService.getEntitlement === 'function'
+            ? premiumService.getEntitlement()
+            : null;
+        const isPremium = premiumService && typeof premiumService.isPremium === 'function'
+            ? premiumService.isPremium()
+            : false;
+        const hasInactiveLemonSubscription = isLemonSqueezyEntitlement(entitlement) &&
+            ['past_due', 'expired', 'canceled'].includes(entitlement.status);
+
+        if (!user || (!isPremium && !hasInactiveLemonSubscription)) {
+            return { visible: false };
+        }
+
+        if (isLemonSqueezyEntitlement(entitlement)) {
+            const statusText = entitlement.status === 'past_due'
+                ? 'Payment attention needed'
+                : entitlement.status === 'canceled' || entitlement.status === 'expired'
+                    ? 'Subscription history'
+                    : 'Manage subscription';
+            return {
+                visible: true,
+                mode: 'portal',
+                eyebrow: 'Premium billing',
+                title: statusText,
+                copy: 'Update payment methods, invoices, and subscription changes in Lemon Squeezy.',
+                buttonText: 'Manage subscription',
+                buttonMode: 'portal',
+                url: LEMON_SQUEEZY_BILLING_PORTAL_URL
+            };
+        }
+
+        return {
+            visible: true,
+            mode: 'support',
+            eyebrow: 'Premium billing',
+            title: 'Managed by support',
+            copy: 'This account has a manual premium grant, so there is no Lemon Squeezy subscription to manage.',
+            buttonText: 'Contact support',
+            buttonMode: 'support',
+            url: `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('B.A.R.K. Premium support')}`
+        };
+    }
+
+    function refreshBillingPanel(user) {
+        const panel = getElement('account-billing-panel');
+        const button = getElement('account-manage-subscription-btn');
+        if (!panel || !button) return;
+
+        const state = getBillingPanelState(user);
+        panel.hidden = !state.visible;
+        if (!state.visible) {
+            delete button.dataset.billingUrl;
+            delete button.dataset.mode;
+            return;
+        }
+
+        setText('account-billing-eyebrow', state.eyebrow);
+        setText('account-billing-title', state.title);
+        setText('account-billing-copy', state.copy);
+        button.textContent = state.buttonText;
+        button.dataset.mode = state.buttonMode;
+        button.dataset.billingUrl = state.url;
+    }
+
+    function openSubscriptionManagement() {
+        const button = getElement('account-manage-subscription-btn');
+        const destination = button && typeof button.dataset.billingUrl === 'string'
+            ? button.dataset.billingUrl
+            : '';
+        if (!destination) return;
+
+        try {
+            const url = new URL(destination, window.location.href);
+            if (url.protocol !== 'https:' && url.protocol !== 'mailto:') {
+                throw new Error('Unsupported billing URL protocol.');
+            }
+            window.location.assign(url.toString());
+        } catch (error) {
+            console.error('[authAccountUi] manage subscription URL failed:', error);
+            setStatus('Subscription management could not open. Please contact support.', 'error');
+        }
+    }
+
     function updateModeButtons() {
         ['signin', 'create', 'reset'].forEach(mode => {
             const button = getElement(`account-mode-${mode}`);
@@ -289,6 +387,7 @@
 
         const signedIn = Boolean(user);
         setHidden('account-status-card', !signedIn);
+        refreshBillingPanel(user);
 
         if (!signedIn) return;
 
@@ -486,6 +585,7 @@
         bindClick('account-inline-create-btn', () => showMode('create'));
         bindClick('account-signout-btn', () => signOut());
         bindClick('account-switch-btn', () => signOut({ switchAccount: true }));
+        bindClick('account-manage-subscription-btn', openSubscriptionManagement);
         bindClick('account-gate-close-btn', closeAccountPrompt);
         bindClick('account-gate-primary-btn', () => focusAccountForm('create'));
         bindClick('account-gate-secondary-btn', () => focusAccountForm('signin'));
@@ -520,7 +620,8 @@
         openAccountPrompt,
         closeAccountPrompt,
         refreshAccountDisplay,
-        signOut
+        signOut,
+        openSubscriptionManagement
     };
     window.BARK.initAuthAccountUi = initAuthAccountUi;
 

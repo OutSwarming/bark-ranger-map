@@ -99,6 +99,11 @@ function loadAuthAccountUi(overrides = {}) {
         'account-display-uid',
         'account-display-provider',
         'account-display-premium',
+        'account-billing-panel',
+        'account-billing-eyebrow',
+        'account-billing-title',
+        'account-billing-copy',
+        'account-manage-subscription-btn',
         'account-signin-form',
         'account-create-form',
         'account-reset-form',
@@ -173,12 +178,33 @@ function loadAuthAccountUi(overrides = {}) {
             return '__server_timestamp__';
         }
     };
+    const locationAssignCalls = [];
+    const premiumEntitlement = overrides.premiumEntitlement || {
+        premium: false,
+        status: 'free',
+        source: 'none',
+        providerCustomerId: null,
+        providerSubscriptionId: null
+    };
+    const premiumService = overrides.premiumService || {
+        getEntitlement: () => ({ ...premiumEntitlement }),
+        isPremium: () => Boolean(overrides.premiumActive),
+        subscribe: () => {}
+    };
 
     const context = {
         window: {
             BARK: {
-                services: {},
+                services: {
+                    premium: premiumService
+                },
                 incrementRequestCount() {}
+            },
+            location: {
+                href: 'https://outswarming.github.io/bark-ranger-map/',
+                assign(url) {
+                    locationAssignCalls.push(url);
+                }
             }
         },
         document,
@@ -192,6 +218,7 @@ function loadAuthAccountUi(overrides = {}) {
             error() {},
             warn() {}
         },
+        URL,
         setTimeout: (callback) => callback(),
         Date
     };
@@ -201,10 +228,13 @@ function loadAuthAccountUi(overrides = {}) {
     vm.runInNewContext(source, context, { filename: 'services/authAccountUi.js' });
 
     return {
+        window: context.window,
         document,
         auth,
+        user,
         createCalls,
         updateProfileCalls,
+        locationAssignCalls,
         writes,
         element: id => document.element(id)
     };
@@ -252,4 +282,65 @@ test('duplicate signup email points users back to existing account paths', async
     assert.equal(harness.element('account-reset-email').value, 'taken@example.com');
     assert.equal(harness.updateProfileCalls.length, 0);
     assert.equal(harness.writes.length, 0);
+});
+
+test('lemon squeezy premium account shows billing portal management', async () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'active',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_test',
+            providerSubscriptionId: 'sub_test'
+        }
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'paid-user',
+        email: 'paid@example.com',
+        displayName: 'Paid Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+    assert.equal(harness.element('account-billing-panel').hidden, false);
+    assert.equal(harness.element('account-billing-title').textContent, 'Manage subscription');
+    assert.match(harness.element('account-billing-copy').textContent, /Lemon Squeezy/);
+    assert.equal(harness.element('account-manage-subscription-btn').textContent, 'Manage subscription');
+    assert.equal(
+        harness.element('account-manage-subscription-btn').dataset.billingUrl,
+        'https://usbarkrangers.lemonsqueezy.com/billing'
+    );
+
+    await harness.element('account-manage-subscription-btn').dispatch('click');
+    assert.deepEqual(harness.locationAssignCalls, ['https://usbarkrangers.lemonsqueezy.com/billing']);
+});
+
+test('manual premium account shows support-managed billing instead of fake portal', () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'manual_active',
+            source: 'admin_override',
+            manualOverride: true
+        }
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'manual-user',
+        email: 'manual@example.com',
+        displayName: 'Manual Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+    assert.equal(harness.element('account-billing-panel').hidden, false);
+    assert.equal(harness.element('account-billing-title').textContent, 'Managed by support');
+    assert.match(harness.element('account-billing-copy').textContent, /no Lemon Squeezy subscription/);
+    assert.equal(harness.element('account-manage-subscription-btn').textContent, 'Contact support');
+    assert.equal(harness.element('account-manage-subscription-btn').dataset.mode, 'support');
 });
