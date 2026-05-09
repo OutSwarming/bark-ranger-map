@@ -200,3 +200,14 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
 - `playwright/.auth/free-user.json`, `playwright/.auth/premium-user.json`, and `playwright/.auth/free-user-b.json` exist locally and remain ignored.
 - Google Sheet polling kill switch was not implemented in Parts 1-6; no Sheet-polling flag was tested.
 - Parts 1-6 are safe for 5-10 private testers while Lemon Squeezy remains in test mode. Paid/public launch remains blocked.
+
+## Parts 1-6 Merge Candidate Milestone
+
+- Date: 2026-05-09.
+- Merge candidate branch: `codex/payment-webhook-hardening-test-mode`.
+- Merge candidate commit before this progress note: `4548a4a`.
+- GitHub status: branch pushed to `origin/codex/payment-webhook-hardening-test-mode`.
+- Release status: **YELLOW for 5-10 private testers in Lemon Squeezy test mode; RED for paid/public launch**.
+- Critical lock: Lemon Squeezy remains test-mode-only. Do not enable live checkout or remove the Carter approval lock until Carter explicitly approves the final RC switch.
+- Local work preservation: preexisting unmerged local edits were parked in stash `codex-preserve-local-before-clean-merge-candidate` before this clean merge candidate pass.
+- Next action: run a clean post-merge-candidate check, then merge to `main` only if the worktree stays clean and tests pass.
