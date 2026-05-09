@@ -26,11 +26,11 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
   - How to test: run the full smoke with `BARK_E2E_BASE_URL`, `BARK_E2E_STORAGE_STATE`, `BARK_E2E_STORAGE_STATE_B`, and `BARK_E2E_PREMIUM_STORAGE_STATE` pointing at the local `.auth` files. Completed: focused route-gating rerun passed 2/2; full signed-in smoke passed 40/40.
   - Expected cost/risk reduction: no Firestore cost reduction; materially lowers paid-beta regression risk by proving signed-in flows against real Firebase Auth storage states.
 
-- [ ] **Enforce free 20 visited-place limit outside the client**
-  - Files: `services/checkinService.js`, `services/firebaseService.js`, `functions/index.js`, `firestore.rules`, `tests/rules/firestore-entitlement.rules.test.js`
-  - Exact change: move visit mutation behind a callable or rules-enforceable structure; reject non-premium writes that exceed 20 saved visits.
-  - Why it matters: the current limit is client-side only and can be bypassed by direct Firestore writes.
-  - How to test: free user can create 20, cannot create 21st, can delete/unmark, premium can exceed 20, spoofed local premium fails.
+- [x] **Enforce free 5 visited-place limit outside the client**
+  - Files: `services/checkinService.js`, `renderers/panelRenderer.js`, `firestore.rules`, `tests/rules/firestore-entitlement.rules.test.js`, `tests/playwright/bug015-free-visited-limit-smoke.spec.js`
+  - Exact change: lowered the free tracked-visit cap to 5 and added Firestore rules constraints that reject non-premium direct `visitedPlaces` writes above 5.
+  - Why it matters: the free limit can no longer be bypassed by direct Firestore writes with a user auth token.
+  - How to test: free user can create 5, cannot create 6, can delete/unmark, premium can exceed 5, spoofed local premium fails. Completed: rules tests passed 21/21.
   - Expected cost/risk reduction: limits worst-case free-user write/storage growth; prevents product-tier bypass.
 
 - [ ] **Stop client-authoritative leaderboard scoring**

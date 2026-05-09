@@ -49,26 +49,28 @@ Move in small, verifiable slices:
 
 ## Day 2: Product Integrity
 
-### 3. Enforce the free 20 visited-place limit
+### 3. Enforce the free 5 visited-place limit
 
-- Preferred fast path:
-  - Add a callable for visit mutations and deny direct `visitedPlaces` updates except maybe migration/admin.
-- Conservative fallback:
-  - Add rules constraints that deny non-premium-sized arrays above 20 if feasible without expensive rule reads.
+- Completed 2026-05-09:
+  - Lowered the free tracked-visit cap to 5.
+  - Added Firestore rules constraints that deny non-premium direct `visitedPlaces` writes above 5 without adding rules reads.
+  - Kept premium users with active/manual-active entitlement able to exceed 5.
+  - Preserved cleanup behavior for legacy over-limit free users: unrelated settings updates still work, and trim-down writes to 5 or fewer are allowed.
 - Files:
   - `services/checkinService.js`
-  - `services/firebaseService.js`
-  - `functions/index.js`
+  - `renderers/panelRenderer.js`
   - `firestore.rules`
   - `tests/rules/firestore-entitlement.rules.test.js`
+  - `tests/playwright/bug015-free-visited-limit-smoke.spec.js`
 - Test:
-  - Free user can add 20.
-  - Free user cannot add 21.
+  - Free user can add 5.
+  - Free user cannot add 6.
   - Free user can unmark/delete at limit.
-  - Premium user can exceed 20.
+  - Premium user can exceed 5.
   - Fake local premium/localStorage does not bypass.
+  - `npm run test:rules` passed 21/21.
 - Done when:
-  - Direct client Firestore write cannot bypass the free tier.
+  - Direct client Firestore write cannot bypass the free tier. Completed for the 5-visit free cap.
 
 ### 4. Stop leaderboard score spoofing
 
@@ -205,7 +207,7 @@ Owner approval lock: **DO NOT TAKE OUT UNTIL CARTER APPROVES.** Keep Lemon Squee
 
 1. Kill switches / feature flags. This is next.
 2. Product-rules E2E failure.
-3. Free 20-visit server enforcement.
+3. Free 5-visit server enforcement.
 4. Server-derived leaderboard scoring.
 5. Webhook idempotency/ordering while still in Lemon Squeezy test mode.
 6. Subscription state alignment while still in Lemon Squeezy test mode.

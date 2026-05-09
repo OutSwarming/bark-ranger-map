@@ -95,3 +95,13 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
   - `BARK_RATE_LIMIT_PREMIUM_GEOCODE_WINDOW_MS`
 - Rate limit order: kill switch, auth, rate limit, entitlement, payload validation, ORS. Over-limit calls stop before entitlement reads and ORS network calls.
 - QC: `npm --prefix functions test` passed 75/75.
+
+## Free Visit Limit Progress
+
+- Lowered the free tracked-visit cap from 20 to 5 in `services/checkinService.js`.
+- Updated user-facing fallback copy in `renderers/panelRenderer.js` and the BUG-015 Playwright smoke limit/test names.
+- Added Firestore rules enforcement so non-premium direct writes to `users/{uid}.visitedPlaces` are denied above 5.
+- Premium users with active/manual-active entitlement on the same user document can still write more than 5 visits.
+- Rules preserve cleanup behavior: legacy over-limit free users can update unrelated settings and can trim visits back to 5 or fewer.
+- QC: `npm run test:rules` passed 21/21.
+- QC: `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bug015-free-visited-limit-smoke.spec.js --workers=1 --reporter=list` passed 5/5.

@@ -43,7 +43,7 @@ If launched tomorrow to a Facebook group or paid public launch, the biggest prob
 
 - **Payment readiness:** checkout and webhooks are currently hard-coded for Lemon Squeezy test mode in `functions/index.js`. This is known and intentional for pre-release testing; it should be the last owner-approved release-candidate switch, not the first thing to change while the rest of the safety work is still moving.
 - **Entitlement state correctness:** webhook signature verification exists, but idempotency only compares the last event id on the user document; old/different duplicate or out-of-order events can still be applied.
-- **Security/data integrity:** clients cannot self-grant `entitlement`, which is good, but clients can write their own leaderboard totals and achievement documents. Free 20-visit enforcement is client-side only.
+- **Security/data integrity:** clients cannot self-grant `entitlement`, which is good, and the free tracked-visit cap is now rules-enforced at 5. Clients can still write their own leaderboard totals and achievement documents.
 - **Cost/scalability:** normal use is likely cheap. Pathological use can produce the observed 9,000 reads and 3,000 writes per user/day. The leaderboard itself uses cursor pagination, not full reads, but repeated exact-rank aggregation can still add hidden cost and latency.
 - **QA readiness:** functions/rules/function-emulator tests pass. Post-Stage-0 QA now has local ignored free, premium/test-entitlement, and second-account storage states; the full signed-in Playwright smoke passed 40/40 against a local static server.
 
@@ -58,7 +58,7 @@ Launch readiness score: **54 / 100**
 | Firestore efficiency | 66 | Public park data is outside Firestore and leaderboard pages are cursor-based, but duplicate user-doc listeners and repeated rank aggregation remain. |
 | Payment reliability | 42 | Good signature tests and known intentional test-mode state; still needs event ordering/idempotency hardening before the final live-mode RC switch. |
 | Entitlement correctness | 45 | Server writes entitlement and client reads it read-only, but state machine is too coarse. |
-| Security rules | 58 | Entitlement protected; leaderboard/achievements/free limit are abusable. |
+| Security rules | 64 | Entitlement protected and free visit cap is rules-enforced; leaderboard/achievements remain abusable. |
 | Bug risk | 52 | Many smoke tests exist; launch-critical E2E is not yet green in this environment. |
 | Mobile readiness | 45 | Not deeply verified in this pass yet; known Android/search/zoom concerns remain. |
 | Monitoring/rollback readiness | 35 | No confirmed budget alerts, dashboards, App Check enforcement, or feature flags. |
@@ -117,7 +117,7 @@ Main file: `functions/index.js`.
 |---|---|---|---|---|---|---|
 | Map/pins | `modules/dataService.js`, `repos/ParkRepo.js`, `modules/mapEngine.js`, `modules/renderEngine.js` | Google Sheets CSV/static fallback | Local cache only | No | Free | External Sheet availability; not Firestore cost. |
 | Search/filter | `modules/searchEngine.js`, `services/authPremiumUi.js` | Local `ParkRepo`; premium geocode callable | Local UI state | No for local; yes/premium for global | Local free; global premium | Geocode abuse if premium and unthrottled. |
-| Visited places | `services/checkinService.js`, `services/firebaseService.js`, `repos/VaultRepo.js` | `users/{uid}` snapshot | `users/{uid}.visitedPlaces` whole-array writes | Yes for cloud | Free 20 client cap; premium more | Limit bypass; duplicate listeners; document growth. |
+| Visited places | `services/checkinService.js`, `services/firebaseService.js`, `repos/VaultRepo.js`, `firestore.rules` | `users/{uid}` snapshot | `users/{uid}.visitedPlaces` whole-array writes | Yes for cloud | Free 5 cap rules-enforced; premium more | Duplicate listeners; premium document growth. |
 | Stats/passport | `modules/profileEngine.js`, `gamificationLogic.js` | Local visits/parks; achievements subcollection once/session | Achievement batch writes | Yes for persisted achievements | Mostly free | Achievement spoofing. |
 | Leaderboard | `modules/profileEngine.js`, `renderers/leaderboardRenderer.js`, `functions/index.js` scheduled top 100 | `leaderboard` limited queries; REST aggregation; unused `system/leaderboardData` | Client writes `leaderboard/{uid}` | Read public; write signed-in | Main pagination is already good | Client score spoof; repeated rank aggregation. |
 | Routes/trips | `renderers/routeRenderer.js`, `services/firebaseService.js`, `services/orsService.js`, `functions/index.js` | Saved route subcollection; ORS callable | Saved route docs, deletes | Save/load yes | Manual planning free; route generation premium | Route callable spam; saved-route shape not validated. |
@@ -179,7 +179,7 @@ Behavior assumptions:
 | Profile | Reads/user/day | Writes/user/day | Deletes/user/day | Storage growth/user/month | Notes |
 |---|---:|---:|---:|---:|---|
 | A. Light free | 10 | 1 | 0 | 3 KB | Open app, local search, initial leaderboard, little/no account use. |
-| B. Normal free | 80 | 35 | 0 | 25 KB | Sign in, up to 20 saves, profile/passport/stats, one leaderboard visit and a few pages. |
+| B. Normal free | 80 | 35 | 0 | 25 KB | Sign in, up to 5 tracked visits, profile/passport/stats, one leaderboard visit and a few pages. |
 | C. Heavy premium | 600 | 400 | 5 | 250 KB | 100-300 saves, route planner, stats, achievements, repeat visits. |
 | D. Stress/abuse | 9,000 | 3,000 | 10 | 1 MB | Based on observed stress test; pathological, not normal use. |
 
@@ -240,7 +240,7 @@ Behavior assumptions:
 - Normal Firestore operation cost is not the main launch blocker. At 500 normal free users/day, gross Firestore cost is about **$0.83/month**. At 1,000 normal free users/day, gross Firestore cost is about **$1.67/month**.
 - A heavy all-premium day at 1,000 DAU is still about **$16.26/month** in Firestore operations/storage by this model. The more important premium costs are Functions/ORS usage, support, and payment correctness.
 - The observed 9,000 reads/3,000 writes stress profile is pathological. At 1,000 users/day all behaving like that, Firestore would be about **$162/month**; at 10,000/day, about **$1,622/month**. That is survivable for a short incident only if budget alerts and kill switches exist.
-- The free 20-visit limit meaningfully limits user-document growth and write opportunities for honest clients, but it does **not** protect costs or product boundaries against direct Firestore writes until server/rules enforcement exists.
+- The free 5-visit limit now meaningfully limits user-document growth, write opportunities, and product-tier bypass for free users through both client checks and Firestore rules.
 
 ## 4. Firestore Efficiency Audit
 
@@ -252,8 +252,8 @@ Initial confirmed rankings:
 | Leaderboard pagination | Good | `modules/profileEngine.js` uses `limit(5)` and `startAfter(window._lastLeaderboardDoc)`. | Keep the current cursor UX; exact-rank caching is watchlist-only unless monitoring shows a problem. |
 | Leaderboard rank lookup | Risky | REST `runAggregationQuery` in `fetchExactLeaderboardRankForScore()` runs on load, load-more, and score sync. | Cache rank for session/TTL; compute rank snapshots server-side for active users. |
 | User document listeners | Acceptable/Risky | `VaultRepo.startSubscription()` and `authService` both listen to `users/{uid}`. | Merge or split data so one listener handles user doc, or move `visitedPlaces` to a subcollection if it grows. |
-| Visited places writes | Acceptable/Risky | Every mark/unmark writes whole `visitedPlaces` array on `users/{uid}`. | Fine at 20 free visits; for premium 300+ visits, move to `users/{uid}/visitedPlaces/{parkId}` or enforce max document size guard. |
-| Free visit limit | Critical for product integrity | `services/checkinService.js` enforces only client-side; rules allow owner update of `visitedPlaces`. | Enforce server-side via callable/rules design before paid/public launch. |
+| Visited places writes | Acceptable/Risky | Every mark/unmark writes whole `visitedPlaces` array on `users/{uid}`. | Fine at 5 free visits; for premium 300+ visits, move to `users/{uid}/visitedPlaces/{parkId}` or enforce max document size guard. |
+| Free visit limit | Improved | `services/checkinService.js` and `firestore.rules` enforce 5 for non-premium users. | Keep rules tests green; consider callable/subcollection only if premium document growth becomes painful. |
 | Entitlement writes | Good/RC switch pending | Rules block client entitlement fields; server webhook writes entitlement. | First add processed event storage; switch live/test mode as the final RC change. |
 | Achievements | Risky | Client reads/writes `users/{uid}/achievements`; rules validate shape, not criteria. | Server-calculate achievements or treat as cosmetic only. |
 | Feedback | Broken/Risky | `modules/uiController.js` writes `feedback`, rules deny arbitrary top-level collections. | Add a safe feedback rule/function or remove UI until fixed. |
@@ -341,12 +341,12 @@ Before/after for one signed-in user near bottom clicking See More 100 times:
 
 Confirmed free/premium behavior:
 
-- Free limit of 20 visited places exists in `services/checkinService.js`.
+- Free limit of 5 visited places exists in `services/checkinService.js` and is enforced by `firestore.rules`.
 - Premium unlock is read from `services/premiumService.js`.
 - Premium map filters/styles/trail controls are gated in `services/authPremiumUi.js`, `modules/paywallController.js`, and settings/search modules.
 - Premium route/geocode is server-enforced by `requirePremiumCallable()` in `functions/index.js`.
 
-Major gap: free 20-visited limit is not enforced by Firestore rules or a callable. A user with their Firebase auth token can directly update `users/{uid}.visitedPlaces` beyond 20.
+Resolved gap: the free tracked-visit limit is now 5 and Firestore rules deny non-premium direct `users/{uid}.visitedPlaces` writes above 5. Premium users with active/manual-active entitlement on the same user document can exceed 5.
 
 Recommended tier design:
 
@@ -355,7 +355,7 @@ Recommended tier design:
 | Browse map/view pins | Yes | Yes | Yes | CSV/local | Keep free | Low |
 | Local search | Yes | Yes | Yes | Local over `ParkRepo` | Keep free | Low |
 | Visited-aware filters | No | No/locked | Yes | UI-gated | Keep premium, sanitize state | Medium |
-| Save visited places | No or prompt | 20 max | Unlimited or high cap | Client free cap only | Server-enforce 20; premium cap by doc-size or subcollection | High |
+| Save visited places | No or prompt | 5 max | Unlimited or high cap | Client + rules-enforced free cap | Keep 5 free cap; premium cap by doc-size or subcollection later | Medium |
 | Passport/stats | Limited/local | Yes | Enhanced | Local from visits | Keep mostly free for engagement | Low |
 | Achievements | View local | Yes | Yes/enhanced | Client writes achievements | Treat as cosmetic or server derive | Medium |
 | Leaderboard | Top 10/50 | Existing cursor browsing + own rank | Deep browse | Public cursor pages | Keep current cursor UX; only add a flagged depth cap if monitoring shows abuse | Medium |
@@ -377,7 +377,7 @@ Pricing/business notes:
 - $5/year is viable for a community tool if route usage is capped and support is light.
 - $9.99/year gives room for payment processing, refunds, occasional abuse, and support, but increases expectations that premium billing is polished.
 - Too-generous free tier risk: route/geocode abuse and no reason to upgrade.
-- Too-restrictive free tier risk: the Facebook group bounces before seeing value. Best launch default: free browsing/search + 20 tracked places + limited leaderboard, premium for route generation/global search/deep tools.
+- Too-restrictive free tier risk: the Facebook group bounces before seeing value. Current launch default: free browsing/search + 5 tracked places + limited leaderboard, premium for route generation/global search/deep tools.
 
 ## 7. Payments, Lemon Squeezy, and Entitlement Audit
 
@@ -432,14 +432,14 @@ Risks:
 
 - Owner can write any allowed `leaderboard/{uid}` totals, including fake `totalPoints`.
 - Owner can write achievement documents with any valid-looking id/tier/timestamp.
-- Owner can update `visitedPlaces` to any length or content because user-doc rules do not validate the field.
+- Owner can no longer update `visitedPlaces` above 5 unless the existing user doc has active/manual-active entitlement. Rules now also require `visitedPlaces` to be a list when that field changes.
 - `feedback` writes appear denied by default rules.
 
 | Rule area | Current protection | Missing tests | Exploit risk | Cost risk | Fix |
 |---|---|---|---|---|---|
 | User doc ownership | Owner-only read/create/update; delete denied | Large/invalid field constraints | Medium | Medium | Add field allowlist or callable for sensitive mutations. |
 | Entitlement | Protected keys blocked on create/update | Live webhook state tests in rules not relevant; function tests needed | Low client spoof risk | Low | Keep protected list; server-only entitlement writes. |
-| Free visit limit | None in rules | Free 20 max, premium bypass, direct malicious update | High | Medium | Callable or subcollection/rules design. |
+| Free visit limit | Rules-enforced 5 max for non-premium users; premium can exceed | Keep rules tests and runtime smoke current | Low/Medium | Low/Medium | Done for free cap; consider callable/subcollection if premium storage grows. |
 | Achievements | Owner-only, shape validation | Criteria validation, malicious unlock | Medium | Low | Server-derived or cosmetic-only. |
 | Leaderboard | Owner-only doc, key allowlist | Fake high score, negative values, weird types | High | Low/Medium | Server-only leaderboard writes. |
 | Saved routes | Owner-only | Size/shape/count limits | Medium | Medium | Add max fields/size and free cap if needed. |
@@ -454,8 +454,9 @@ Test results:
 | Command | Result | Notes |
 |---|---|---|
 | `npm --prefix functions test` with Node 20 PATH | Pass: 75/75 | Checkout, webhook, entitlement, ORS handler, kill-switch, and route/geocode rate-limit unit tests passed. |
-| `npm run test:rules` with Node 20 PATH | Pass: 17/17 | Firestore rules entitlement/admin/ownership tests passed. Java 18 warning: firebase-tools v15 will require Java 21+. |
+| `npm run test:rules` with Node 20 PATH | Pass: 21/21 | Firestore rules entitlement/admin/ownership/free-visit-limit tests passed. Java 18 warning: firebase-tools v15 will require Java 21+. |
 | `npm run test:functions:emulator` with Node 20 PATH | Pass: 9/9 | Auth/Firestore/Functions emulator ORS callable entitlement tests passed. |
+| `bug015-free-visited-limit-smoke` with local static server | Pass: 5/5 | Free cap is now 5: fifth add succeeds, sixth add/GPS are blocked, unmark works, and premium can exceed 5. |
 | `npm run test:e2e:smoke` without local server | Fail due environment | `npm` not on default PATH initially; after PATH fix, Playwright failed with `ERR_CONNECTION_REFUSED` because `localhost:4173` server was not running. |
 | `BARK_E2E_BASE_URL=http://localhost:4173/index.html npm run test:e2e:smoke` with static server and full storage-state env | Pass: 40/40 | Free, premium/test entitlement, and second-account storage states were available under ignored `playwright/.auth/` files. A first run found one route test timeout caused by the long-route warning; the test harness now chooses continue, and the full rerun passed. |
 | `bark-app-identity-smoke` rerun alone with server | Pass: 1/1 | Confirms prior identity failure was server/start timing, not app identity. |
@@ -473,7 +474,7 @@ Release blockers:
 | Priority | Title | Evidence/file | Impact | Suggested fix | Test to prove fixed |
 |---|---|---|---|---|---|
 | Done | Emergency kill switches missing | App config/UI feature paths | Risky beta features could not be disabled quickly | Added feature flags for route/geocode, checkout, leaderboard load-more, feedback, and risky premium tools | Stage 0 branch merged; function tests and browser flag smoke passed |
-| P0 | Free visited limit bypassable | `services/checkinService.js`, `firestore.rules` | Product tier bypass; possible write growth | Server/rules enforcement | Rules/callable tests for 20/21 visits |
+| Done | Free visited limit bypassable | `services/checkinService.js`, `firestore.rules` | Product tier bypass; possible write growth | Lowered free cap to 5 and added rules enforcement | Rules tests passed 21/21 for 5/6 visits and premium bypass |
 | P1 | Leaderboard score spoofing | `firestore.rules`, `modules/profileEngine.js` | Leaderboard trust collapse | Server-derived scores | Malicious write denied; server sync succeeds |
 | P1 | Webhook event ordering/idempotency weak | `functions/index.js` | Wrong access after delayed/replayed events | Processed event transaction + provider timestamp | Out-of-order webhook tests |
 | P1 | Past-due removes access immediately | `functions/index.js` | Angry users during billing retry | Explicit state machine/grace | Payment-failed/recovered tests |
@@ -541,7 +542,7 @@ Stage 0 must focus on:
 - keeping Lemon Squeezy test mode until the final owner-approved RC switch,
 - disabling or capping risky features only through flags if needed,
 - support/refund policy,
-- server/rules enforcement for free visit limit or disabling public paid launch until done.
+- maintaining the rules-enforced 5 free visit limit and watching whether premium storage needs a later subcollection.
 
 Leaderboard note: the main leaderboard pagination is already good. Exact-rank caching is a watchlist/polish item unless monitoring shows repeated rank lookup cost or latency.
 
@@ -550,7 +551,7 @@ Leaderboard note: the main leaderboard pagination is already good. Exact-rank ca
 | Stage 0: emergency launch safety | `modules/barkState.js`, `modules/profileEngine.js`, `services/orsService.js`, `modules/paywallController.js` | Low/Medium | Keep beta controllable while Lemon Squeezy remains test-only | Unit tests and manual flag tests | Risky features can be stopped without code surgery; live/test mode switch remains locked until Carter approves. |
 | Stage 1: cost fixes | `modules/profileEngine.js`, `functions/index.js`, `repos/VaultRepo.js`, `services/authService.js` | Medium | Reduce user-doc read amplification and watch leaderboard metrics | Instrument read paths; E2E leaderboard tests | One clear user-doc ownership plan; exact-rank caching only if monitoring shows repeated rank lookup cost or latency. |
 | Stage 2: payment correctness | `functions/index.js`, `premiumService.js`, `authAccountUi.js`, webhook tests | Medium | Correct entitlements after cancel/refund/retry | Webhook state machine tests | Out-of-order/replay safe; live webhook verified. |
-| Stage 3: free/premium enforcement | `checkinService.js`, `firebaseService.js`, `functions/index.js`, `firestore.rules` | Medium/High | Enforce product tiers | Rules/callable tests + E2E free/premium storage states | Direct writes cannot bypass 20 free visits or premium-only routes. |
+| Stage 3: free/premium enforcement | `checkinService.js`, `firebaseService.js`, `functions/index.js`, `firestore.rules` | Medium/High | Enforce remaining product tiers | Rules/callable tests + E2E free/premium storage states | Free direct writes cannot bypass 5 visits; remaining work focuses on leaderboard/achievements. |
 | Stage 4: QA hardening | Playwright tests, test fixtures, docs | Low | Prove mobile/account/checkout flows | Full smoke suite with free/premium users | No skipped launch-critical tests. |
 | Stage 5: scale polish | App Check, analytics, dashboards, admin tools | Medium | Operational maturity | Dashboard/fire-drill | Admin can diagnose entitlement, cost, webhook, and abuse issues quickly. |
 
@@ -615,12 +616,12 @@ Emergency cost playbook:
 
 | Rank | Risk | Severity | Likelihood | Evidence | Cost impact | User impact | Fix | Owner | Launch blocker? |
 |---:|---|---|---|---|---|---|---|---|---|
-| 1 | Free visit limit bypass | P0/P1 | High | `checkinService`, rules | Medium | Free users can take premium value | Server/callable enforcement | Firebase | Yes public |
-| 2 | Leaderboard spoofing | P1 | Medium | Rules allow owner totals | Low/Medium | Trust collapse | Server-derived scores | Firebase | Yes public |
-| 3 | Webhook replay/out-of-order | P1 | Medium | Last event id only | Low | Wrong access after cancel/refund/renew | Processed events + ordering | Payments | Yes paid |
-| 4 | Past-due removes access too early | P1 | Medium | `subscription_payment_failed` maps non-premium | Low | Angry paying users | Grace/state machine | Payments/Product | Yes paid |
-| 5 | Lemon Squeezy final RC live-mode switch | P0 | Certain before launch | `functions/index.js` | Low direct, high revenue/support | Users pay or cannot pay correctly if not switched | Keep test mode until Carter approves RC, then configurable mode + live webhook test | Payments | Yes public |
-| 6 | Route/geocode spam beyond server limits | P2 | Low/Medium | Premium callables now have per-user hourly limits; App Check not yet enforced | Medium | Slow/expensive external calls are capped per user but scripted account creation remains possible | Add App Check and monitoring | Functions/Ops | No for private beta |
+| 1 | Leaderboard spoofing | P1 | Medium | Rules allow owner totals | Low/Medium | Trust collapse | Server-derived scores | Firebase | Yes public |
+| 2 | Webhook replay/out-of-order | P1 | Medium | Last event id only | Low | Wrong access after cancel/refund/renew | Processed events + ordering | Payments | Yes paid |
+| 3 | Past-due removes access too early | P1 | Medium | `subscription_payment_failed` maps non-premium | Low | Angry paying users | Grace/state machine | Payments/Product | Yes paid |
+| 4 | Lemon Squeezy final RC live-mode switch | P0 | Certain before launch | `functions/index.js` | Low direct, high revenue/support | Users pay or cannot pay correctly if not switched | Keep test mode until Carter approves RC, then configurable mode + live webhook test | Payments | Yes public |
+| 5 | Route/geocode spam beyond server limits | P2 | Low/Medium | Premium callables now have per-user hourly limits; App Check not yet enforced | Medium | Slow/expensive external calls are capped per user but scripted account creation remains possible | Add App Check and monitoring | Functions/Ops | No for private beta |
+| 6 | Free visit limit regression | P2 | Low | Rules now enforce 5 free visits; runtime smoke must stay current | Low/Medium | Free users could regain premium value if rules regress | Keep rules + BUG-015 smoke in release suite | Firebase/QA | No if tests run |
 | 7 | Exact rank aggregation repeated | P2 | Medium | `fetchExactLeaderboardRankForScore` on load-more | Low/Medium | Slow leaderboard | TTL/cache only if monitoring shows a problem | Frontend | No |
 | 8 | Duplicate user-doc listeners | P2 | High | `authService` + `VaultRepo` | Low/Medium | More reads; state complexity | Consolidate/split | Frontend | No |
 | 9 | Feedback denied | P2 | High | `feedback.add`, default deny rules | Low | Users cannot contact support in app | Safe feedback path | Full-stack | No |
@@ -634,11 +635,11 @@ Current recommendation: **do not launch paid/public tomorrow. Launch only a cons
 
 Top fixes before asking Facebook admins to promote:
 
-1. Add feature flags/kill switches next so risky features can be shut off quickly.
-2. Fix the known product-rules E2E failure so premium gating is proved.
-3. Enforce free visit limit server-side or via a callable-backed write path.
-4. Stop client-authoritative leaderboard totals before any public leaderboard matters.
-5. Add durable webhook processed-event storage and event ordering rules while staying in Lemon Squeezy test mode.
+1. Stop client-authoritative leaderboard totals before any public leaderboard matters.
+2. Add durable webhook processed-event storage and event ordering rules while staying in Lemon Squeezy test mode.
+3. Align subscription grace/past-due/refund states before live payment.
+4. Add App Check/monitoring around function abuse before broader launch.
+5. Keep the free 5-visit rules tests and signed-in E2E in the release suite.
 
 Final RC steps after those fixes: add budget alerts/monitoring, then make the Lemon Squeezy live/test switch only after Carter explicitly approves and test one real low-risk transaction.
 

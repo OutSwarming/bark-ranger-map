@@ -48,6 +48,45 @@ service cloud.firestore {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedUserKeys());
     }
 
+    function freeVisitedPlaceLimit() {
+      return 5;
+    }
+
+    function hasActivePremiumEntitlement(data) {
+      return data.keys().hasAny(['entitlement'])
+        && data.entitlement is map
+        && data.entitlement.keys().hasAll(['premium', 'status'])
+        && data.entitlement.premium == true
+        && data.entitlement.status in ['active', 'manual_active'];
+    }
+
+    function hasValidVisitedPlacesShape(data) {
+      return !data.keys().hasAny(['visitedPlaces'])
+        || data.visitedPlaces is list;
+    }
+
+    function withinFreeVisitedPlaceLimit(data) {
+      return !data.keys().hasAny(['visitedPlaces'])
+        || data.visitedPlaces.size() <= freeVisitedPlaceLimit();
+    }
+
+    function createsValidVisitedPlacesForPlan() {
+      return hasValidVisitedPlacesShape(request.resource.data)
+        && (hasActivePremiumEntitlement(request.resource.data) || withinFreeVisitedPlaceLimit(request.resource.data));
+    }
+
+    function changesVisitedPlaces() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(['visitedPlaces']);
+    }
+
+    function updatesValidVisitedPlacesForPlan() {
+      return !changesVisitedPlaces()
+        || (
+          hasValidVisitedPlacesShape(request.resource.data)
+          && (hasActivePremiumEntitlement(resource.data) || withinFreeVisitedPlaceLimit(request.resource.data))
+        );
+    }
+
     function leaderboardWritableKeys() {
       return [
         'displayName',
@@ -85,8 +124,8 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isOwner(uid);
-      allow create: if isOwner(uid) && createsNoProtectedUserKeys();
-      allow update: if isOwner(uid) && changesNoProtectedUserKeys();
+      allow create: if isOwner(uid) && createsNoProtectedUserKeys() && createsValidVisitedPlacesForPlan();
+      allow update: if isOwner(uid) && changesNoProtectedUserKeys() && updatesValidVisitedPlacesForPlan();
       allow delete: if false;
 
       match /savedRoutes/{routeId} {

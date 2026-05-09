@@ -37,6 +37,14 @@ async function seedDoc(pathSegments, data) {
     });
 }
 
+function makeVisitedPlaces(count) {
+    return Array.from({ length: count }, (_, index) => ({
+        id: `park-${index + 1}`,
+        name: `Park ${index + 1}`,
+        ts: 1710000000000 + index
+    }));
+}
+
 describe('Firestore entitlement and admin field rules', () => {
     before(async () => {
         testEnv = await initializeTestEnvironment({
@@ -136,6 +144,99 @@ describe('Firestore entitlement and admin field rules', () => {
         await assertSucceeds(updateDoc(aliceRef, {
             settings: { mapStyle: 'terrain', visitedFilter: 'visited' },
             visitedPlaces: [{ id: 'zion', name: 'Zion', ts: 1710000000001 }]
+        }));
+    });
+
+    it('enforces the five-visit free limit on owner user document creates', async () => {
+        const aliceDb = authedDb('alice');
+        const bobDb = authedDb('bob');
+
+        await assertSucceeds(setDoc(doc(aliceDb, 'users', 'alice'), {
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(5)
+        }));
+
+        await assertFails(setDoc(doc(bobDb, 'users', 'bob'), {
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(6)
+        }));
+    });
+
+    it('denies direct free-user visitedPlaces updates above five while allowing trim-down writes', async () => {
+        await seedDoc(['users', 'alice'], {
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(5)
+        });
+
+        const aliceDb = authedDb('alice');
+        const aliceRef = doc(aliceDb, 'users', 'alice');
+
+        await assertFails(updateDoc(aliceRef, {
+            visitedPlaces: makeVisitedPlaces(6)
+        }));
+
+        await seedDoc(['users', 'legacy-free'], {
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(8)
+        });
+
+        const legacyDb = authedDb('legacy-free');
+        const legacyRef = doc(legacyDb, 'users', 'legacy-free');
+
+        await assertSucceeds(updateDoc(legacyRef, {
+            settings: { mapStyle: 'terrain' }
+        }));
+
+        await assertSucceeds(updateDoc(legacyRef, {
+            visitedPlaces: makeVisitedPlaces(5)
+        }));
+    });
+
+    it('allows active premium users to write visitedPlaces beyond the free limit', async () => {
+        await seedDoc(['users', 'alice'], {
+            entitlement: {
+                premium: true,
+                status: 'manual_active',
+                source: 'admin_override',
+                manualOverride: true,
+                currentPeriodEnd: null
+            },
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(5)
+        });
+
+        const aliceDb = authedDb('alice');
+        const aliceRef = doc(aliceDb, 'users', 'alice');
+
+        await assertSucceeds(updateDoc(aliceRef, {
+            visitedPlaces: makeVisitedPlaces(6)
+        }));
+    });
+
+    it('denies malformed visitedPlaces writes for free and premium users', async () => {
+        await seedDoc(['users', 'alice'], {
+            settings: { mapStyle: 'default' }
+        });
+        await seedDoc(['users', 'premium-alice'], {
+            entitlement: {
+                premium: true,
+                status: 'manual_active',
+                source: 'admin_override',
+                manualOverride: true,
+                currentPeriodEnd: null
+            },
+            settings: { mapStyle: 'default' }
+        });
+
+        const aliceDb = authedDb('alice');
+        const premiumDb = authedDb('premium-alice');
+
+        await assertFails(updateDoc(doc(aliceDb, 'users', 'alice'), {
+            visitedPlaces: { count: 1 }
+        }));
+
+        await assertFails(updateDoc(doc(premiumDb, 'users', 'premium-alice'), {
+            visitedPlaces: { count: 99 }
         }));
     });
 

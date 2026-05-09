@@ -12,7 +12,7 @@ The app is closer and auth/payment/rules are much safer. The paid/free product-t
 
 Resolved during this downgrade follow-up:
 
-- BUG-015: Free visited limit of 20 parks is now enforced in the client/runtime visit-add owner for signed-in free users.
+- BUG-015: Free visited limit is now 5 parks and is enforced in both client/runtime visit-add paths and Firestore rules for direct writes.
 - BUG-016: Route generation is now visually and runtime gated for free users, while premium users can still reach the ORS directions path.
 - BUG-017: Premium product surface audit for R05-R12 is complete and QC passed.
 - BUG-020: Free users can no longer force premium map style/visited filter state through DOM events or fake storage.
@@ -108,7 +108,7 @@ BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json"
 - BUG-012: Signed-in profile card order on mobile improved. QC PASSED.
 - BUG-013: Google switch-account chooser provider prompt implemented. Fixed, manual chooser visual QC still pending.
 - BUG-014: Settings autosave could call Firebase Auth before app initialization. QC PASSED.
-- BUG-015: Free visited limit of 20 parks. QC PASSED for manual mark, GPS check-in, fake localStorage bypass, removal at limit, premium 21st visit, and premium-to-free limit reapplication.
+- BUG-015: Free visited limit of 5 parks. Rules QC passed for direct write bypass attempts; runtime QC covers manual mark, GPS check-in, fake localStorage bypass, removal at limit, premium 6th visit, and premium-to-free limit reapplication.
 - BUG-016: Route generation premium gate. QC PASSED for free disabled UI, forced-click runtime guard, no free ORS call, premium enabled UI, and premium ORS directions path.
 - BUG-017: Premium product rules audit. QC PASSED for global search, premium clustering, premium map styles/visited filters, virtual/completed trail controls, fake storage bypass, and free/premium account behavior.
 - BUG-020: Free forced premium map/filter runtime state. QC PASSED.
