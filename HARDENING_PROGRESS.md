@@ -4,6 +4,14 @@ Date: 2026-05-09
 
 Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in test mode until Carter explicitly approves the final RC switch.
 
+## Merge Review
+
+- Branch reviewed: `codex/stage-0-hardening-kill-switches`.
+- Stage 0 commit merged into `main`: `1ba1afc stage 0 hardening kill switches`.
+- Merge method: fast-forward from `origin/main`; no merge conflicts.
+- Review result: no merge blockers found. The branch keeps Lemon Squeezy test mode locked, leaves normal leaderboard pagination unchanged, and adds app/server kill switches for the intended Stage 0 surfaces.
+- Local unrelated edits were stashed before the merge so they were not included in the Stage 0 merge.
+
 ## Files Changed
 
 - `modules/launchFlags.js`
