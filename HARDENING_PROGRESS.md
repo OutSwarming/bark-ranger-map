@@ -211,3 +211,36 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
 - Critical lock: Lemon Squeezy remains test-mode-only. Do not enable live checkout or remove the Carter approval lock until Carter explicitly approves the final RC switch.
 - Local work preservation: preexisting unmerged local edits were parked in stash `codex-preserve-local-before-clean-merge-candidate` before this clean merge candidate pass.
 - Next action: run a clean post-merge-candidate check, then merge to `main` only if the worktree stays clean and tests pass.
+
+## Parts 1-6 Main Merge And Post-Merge Check
+
+- Date: 2026-05-09.
+- Merged branch: `codex/payment-webhook-hardening-test-mode`.
+- Merge target: `main`.
+- Merge commit: `f225e7f`.
+- Merge result: clean merge with no conflicts.
+- Lemon Squeezy status: still locked in test mode; live checkout was not enabled and the Carter approval lock remains required.
+- Pre-merge candidate check:
+  - `git diff --check`: PASS.
+  - conflict-marker search: PASS.
+  - `node --check functions/index.js`: PASS.
+  - `npm ls --depth=0`: PASS.
+  - `npm --prefix functions ls --depth=0`: PASS.
+  - `npm --prefix functions test`: PASS, 82/82.
+  - `npm run test:rules`: PASS, 23/23.
+  - `npm run test:functions:emulator`: first parallel attempt failed from Firestore emulator port collision; serial rerun PASS, 9/9.
+  - focused Playwright sweep with free, premium/test, and second-account storage states: PASS, 54/54.
+- Post-merge check on `main`:
+  - `git diff --check`: PASS.
+  - conflict-marker search: PASS.
+  - `node --check functions/index.js`: PASS.
+  - `npm ls --depth=0`: PASS.
+  - `npm --prefix functions ls --depth=0`: PASS.
+  - `npm --prefix functions test`: PASS, 82/82.
+  - `npm run test:rules`: PASS, 23/23.
+  - `npm run test:functions:emulator`: PASS, 9/9.
+  - focused Playwright sweep with free, premium/test, and second-account storage states: PASS, 54/54.
+- Notes:
+  - firebase-tools still warns that Java 21 will be required in v15; current checks passed on Java 18.
+  - Playwright notes that trip-planner stop persistence after reload is not covered because current runtime trip state does not persist across reload; dynamic styling and visit persistence are covered.
+  - Generated `firebase-debug.log`, `firestore-debug.log`, `functions/.secret.local`, and `test-results/` artifacts were cleaned before pushing.
