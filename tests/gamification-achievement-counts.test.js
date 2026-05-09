@@ -116,3 +116,17 @@ test('Fort Caroline and Kingsley Plantation count as separate Florida sites', ()
     assert.equal(progress.verifiedVisitedSites, 1);
     assert.equal(progress.stateVisitsTotalMap.FL, 2);
 });
+
+test('alpha dog mystery feat unlocks only when leaderboard rank is first', () => {
+    const Engine = loadGamificationEngine();
+    const engine = new Engine();
+
+    const firstPlace = engine.evaluate([], 1).mysteryFeats.find(feat => feat.id === 'alphaDog');
+    const unknownPlace = engine.evaluate([], null).mysteryFeats.find(feat => feat.id === 'alphaDog');
+    const secondPlace = engine.evaluate([], 2).mysteryFeats.find(feat => feat.id === 'alphaDog');
+
+    assert.equal(firstPlace.status, 'unlocked');
+    assert.equal(firstPlace.tier, 'verified');
+    assert.equal(unknownPlace.status, 'locked');
+    assert.equal(secondPlace.status, 'locked');
+});

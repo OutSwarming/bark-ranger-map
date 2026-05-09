@@ -262,20 +262,17 @@ async function syncScoreToLeaderboard() {
         await db.collection('leaderboard').doc(user.uid).set(leaderboardPayload, { merge: true });
 
         window._lastSyncedScore = totalScore;
+        const exactRank = await fetchExactLeaderboardRankForScore(totalScore, 'score-sync');
+        setCurrentLeaderboardRank(exactRank, { refreshAchievements: true });
 
         if (cachedLeaderboardData.length > 0) {
             const me = cachedLeaderboardData.find(u => u.uid === user.uid);
             if (me) {
                 me.totalPoints = totalScore;
                 me.totalVisited = totalVisitedCount;
+                if (me.isPersonalFallback) me.exactRank = exactRank;
             } else {
-                cachedLeaderboardData.push({
-                    uid: user.uid,
-                    displayName: user.displayName || 'Bark Ranger',
-                    totalPoints: totalScore,
-                    totalVisited: totalVisitedCount,
-                    hasVerified: hasProfileVerifiedVisit(visitedPlaces)
-                });
+                cachedLeaderboardData.push(buildPersonalLeaderboardFallback(user, visitedPlaces, totalScore, exactRank));
             }
             cachedLeaderboardData.sort((a, b) => b.totalPoints - a.totalPoints);
             renderLeaderboard(cachedLeaderboardData);
@@ -311,7 +308,7 @@ async function evaluateAchievements(visitedPlacesMap) {
         userId = firebase.auth().currentUser.uid;
     }
 
-    const achievements = await window.gamificationEngine.evaluateAndStoreAchievements(userId, visitedArray, null, window.currentWalkPoints || 0);
+    const achievements = await window.gamificationEngine.evaluateAndStoreAchievements(userId, visitedArray, getCurrentLeaderboardRank(), window.currentWalkPoints || 0);
 
     // Update Banner
     const titleEl = document.getElementById('current-title-label');
@@ -579,11 +576,60 @@ window.BARK.updateStatsUI = updateStatsUI;
 
 // ====== LEADERBOARD ======
 window._lastLeaderboardDoc = null;
+window._lastKnownLeaderboardRank = null;
 let isFetchingMoreLeaderboard = false;
+let leaderboardRankAchievementRefreshInProgress = false;
 
 function getLeaderboardRenderer() {
     return window.BARK && window.BARK.leaderboardRenderer;
 }
+
+function getSafeLeaderboardRankValue(rank) {
+    const leaderboardRenderer = getLeaderboardRenderer();
+    if (leaderboardRenderer && typeof leaderboardRenderer.getSafeLeaderboardRank === 'function') {
+        return leaderboardRenderer.getSafeLeaderboardRank(rank);
+    }
+
+    const parsed = Number(rank);
+    if (!Number.isFinite(parsed) || parsed < 1) return null;
+    return Math.trunc(parsed);
+}
+
+function getCurrentLeaderboardRank() {
+    return getSafeLeaderboardRankValue(window._lastKnownLeaderboardRank);
+}
+
+function requestAchievementRefreshForLeaderboardRank() {
+    if (leaderboardRankAchievementRefreshInProgress) return;
+    if (typeof window.BARK.evaluateAchievements !== 'function') return;
+
+    if (typeof window.syncState === 'function') {
+        window.syncState();
+        return;
+    }
+
+    leaderboardRankAchievementRefreshInProgress = true;
+    Promise.resolve(window.BARK.evaluateAchievements())
+        .catch(error => console.error('[profileEngine] Leaderboard-rank achievement refresh failed:', error))
+        .finally(() => {
+            leaderboardRankAchievementRefreshInProgress = false;
+        });
+}
+
+function setCurrentLeaderboardRank(rank, options = {}) {
+    const previousRank = getCurrentLeaderboardRank();
+    const nextRank = getSafeLeaderboardRankValue(rank);
+    window._lastKnownLeaderboardRank = nextRank;
+
+    if (options.refreshAchievements && previousRank !== nextRank) {
+        requestAchievementRefreshForLeaderboardRank();
+    }
+
+    return nextRank;
+}
+
+window.BARK.getCurrentLeaderboardRank = getCurrentLeaderboardRank;
+window.BARK.setCurrentLeaderboardRank = setCurrentLeaderboardRank;
 
 function parseLeaderboardRankCount(countData) {
     const rawCount = countData &&
@@ -595,6 +641,28 @@ function parseLeaderboardRankCount(countData) {
     const parsedCount = Number.parseInt(rawCount, 10);
     if (!Number.isFinite(parsedCount) || parsedCount < 0) return null;
     return parsedCount;
+}
+
+async function fetchExactLeaderboardRankForScore(localScore, context = 'leaderboard') {
+    const user = getCurrentFirebaseUser();
+    if (!user || typeof firebase === 'undefined' || !firebase.app || typeof fetch !== 'function') return null;
+
+    try {
+        const projectId = firebase.app().options.projectId;
+        const idToken = await user.getIdToken();
+        const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runAggregationQuery`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ structuredAggregationQuery: { structuredQuery: { from: [{ collectionId: 'leaderboard' }], where: { fieldFilter: { field: { fieldPath: 'totalPoints' }, op: 'GREATER_THAN', value: Number.isInteger(localScore) ? { integerValue: localScore } : { doubleValue: localScore } } } }, aggregations: [{ alias: 'rankCount', count: {} }] } })
+        });
+        const countData = await response.json();
+        const countMatched = parseLeaderboardRankCount(countData);
+        return countMatched !== null ? countMatched + 1 : null;
+    } catch (error) {
+        console.warn(`REST API aggregate rank lookup failed (${context}).`, error);
+        return null;
+    }
 }
 
 function buildPersonalLeaderboardFallback(user, visitedPlaces, localScore, exactRank = null) {
@@ -635,6 +703,8 @@ function renderLeaderboard(topUsers) {
         if (user.isPersonalFallback) rank = leaderboardRenderer.getSafeLeaderboardRank(user.exactRank);
         if (user.uid === uid) { personalRank = rank; personalUserObj = user; }
     });
+
+    if (uid) setCurrentLeaderboardRank(personalRank, { refreshAchievements: true });
 
     if (rankEl) rankEl.textContent = 'Rank: ' + leaderboardRenderer.formatLeaderboardRank(personalRank);
 
@@ -694,20 +764,7 @@ async function loadLeaderboard() {
             const visitedPlaces = getProfileVisitedPlacesArray();
             const localScore = window.BARK.calculateVisitScore(visitedPlaces, window.currentWalkPoints).totalScore;
 
-            let exactRank = null;
-            try {
-                const projectId = firebase.app().options.projectId;
-                const idToken = await firebase.auth().currentUser.getIdToken();
-                const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runAggregationQuery`;
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ structuredAggregationQuery: { structuredQuery: { from: [{ collectionId: 'leaderboard' }], where: { fieldFilter: { field: { fieldPath: 'totalPoints' }, op: 'GREATER_THAN', value: Number.isInteger(localScore) ? { integerValue: localScore } : { doubleValue: localScore } } } }, aggregations: [{ alias: 'rankCount', count: {} }] } })
-                });
-                const countData = await response.json();
-                const countMatched = parseLeaderboardRankCount(countData);
-                if (countMatched !== null) exactRank = countMatched + 1;
-            } catch (e) { console.warn('REST API aggregate rank lookup failed.', e); }
+            const exactRank = await fetchExactLeaderboardRankForScore(localScore, 'leaderboard-load');
 
             topUsers.push(buildPersonalLeaderboardFallback(user, visitedPlaces, localScore, exactRank));
         }
@@ -741,21 +798,7 @@ async function loadMoreLeaderboard() {
         if (user && !cachedLeaderboardData.find(u => u.uid === user.uid)) {
             const visitedPlaces = getProfileVisitedPlacesArray();
             const localScore = window.BARK.calculateVisitScore(visitedPlaces, window.currentWalkPoints).totalScore;
-            let exactRank = null;
-
-            try {
-                const projectId = firebase.app().options.projectId;
-                const idToken = await firebase.auth().currentUser.getIdToken();
-                const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runAggregationQuery`;
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ structuredAggregationQuery: { structuredQuery: { from: [{ collectionId: 'leaderboard' }], where: { fieldFilter: { field: { fieldPath: 'totalPoints' }, op: 'GREATER_THAN', value: Number.isInteger(localScore) ? { integerValue: localScore } : { doubleValue: localScore } } } }, aggregations: [{ alias: 'rankCount', count: {} }] } })
-                });
-                const countData = await response.json();
-                const countMatched = parseLeaderboardRankCount(countData);
-                if (countMatched !== null) exactRank = countMatched + 1;
-            } catch (e) { console.warn('REST API aggregate rank lookup failed in loadMore', e); }
+            const exactRank = await fetchExactLeaderboardRankForScore(localScore, 'leaderboard-load-more');
 
             cachedLeaderboardData.push(buildPersonalLeaderboardFallback(user, visitedPlaces, localScore, exactRank));
         }

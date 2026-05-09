@@ -712,6 +712,7 @@ function scheduleGuestMarkerRestore() {
 function resetLoggedOutRuntimeState() {
     window._cloudSettingsLoaded = false;
     window._leaderboardLoadedOnce = false;
+    window._lastKnownLeaderboardRank = null;
     window.currentWalkPoints = 0;
     window.isAdmin = false;
     resetAdminUi();
@@ -738,6 +739,7 @@ function resetLoggedOutRuntimeState() {
 function resetAccountScopedRuntimeState() {
     window._leaderboardLoadedOnce = false;
     window._lastKnownRank = null;
+    window._lastKnownLeaderboardRank = null;
     window._lastLeaderboardDoc = null;
     window._lastSyncedScore = -1;
     window.currentWalkPoints = 0;
@@ -776,6 +778,7 @@ function initFirebase() {
                 window._serverPayloadSettled = false;
                 window._firstServerPayloadReceived = false;
                 window._lastKnownRank = null;
+                window._lastKnownLeaderboardRank = null;
                 window.currentWalkPoints = window.currentWalkPoints || 0;
 
                 const loginContainer = document.getElementById('login-container');
