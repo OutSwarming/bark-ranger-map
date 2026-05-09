@@ -45,7 +45,7 @@ If launched tomorrow to a Facebook group or paid public launch, the biggest prob
 - **Entitlement state correctness:** webhook signature verification exists, but idempotency only compares the last event id on the user document; old/different duplicate or out-of-order events can still be applied.
 - **Security/data integrity:** clients cannot self-grant `entitlement`, which is good, but clients can write their own leaderboard totals and achievement documents. Free 20-visit enforcement is client-side only.
 - **Cost/scalability:** normal use is likely cheap. Pathological use can produce the observed 9,000 reads and 3,000 writes per user/day. The leaderboard itself uses cursor pagination, not full reads, but repeated exact-rank aggregation can still add hidden cost and latency.
-- **QA readiness:** functions/rules/function-emulator tests pass. With a local static server, the smoke suite had 18 passing, 2 failing, and 20 skipped due missing auth storage states; one identity smoke passed on rerun.
+- **QA readiness:** functions/rules/function-emulator tests pass. Post-Stage-0 QA now has local ignored free, premium/test-entitlement, and second-account storage states; the full signed-in Playwright smoke passed 40/40 against a local static server.
 
 Biggest risk: **payment entitlement and data integrity**, not raw Firestore cost.
 
@@ -456,28 +456,28 @@ Test results:
 | `npm run test:rules` with Node 20 PATH | Pass: 17/17 | Firestore rules entitlement/admin/ownership tests passed. Java 18 warning: firebase-tools v15 will require Java 21+. |
 | `npm run test:functions:emulator` with Node 20 PATH | Pass: 9/9 | Auth/Firestore/Functions emulator ORS callable entitlement tests passed. |
 | `npm run test:e2e:smoke` without local server | Fail due environment | `npm` not on default PATH initially; after PATH fix, Playwright failed with `ERR_CONNECTION_REFUSED` because `localhost:4173` server was not running. |
-| `BARK_E2E_BASE_URL=http://localhost:4173/index.html npm run test:e2e:smoke` with static server | 18 passed, 2 failed, 20 skipped | Auth storage-state-dependent tests skipped; one product-rules smoke failed on paywall title copy; identity smoke flaked on first run but passed when rerun alone. |
+| `BARK_E2E_BASE_URL=http://localhost:4173/index.html npm run test:e2e:smoke` with static server and full storage-state env | Pass: 40/40 | Free, premium/test entitlement, and second-account storage states were available under ignored `playwright/.auth/` files. A first run found one route test timeout caused by the long-route warning; the test harness now chooses continue, and the full rerun passed. |
 | `bark-app-identity-smoke` rerun alone with server | Pass: 1/1 | Confirms prior identity failure was server/start timing, not app identity. |
 
 E2E failure to fix or triage:
 
-- `tests/playwright/bug017-product-rules-audit-smoke.spec.js`: free-account bypass audit expected paywall title matching `Premium map filters|Premium map tools|Global towns and cities`; received `Virtual trail tracking is a Premium feature`. This may be a copy expectation drift or a real source-selection bug. Treat as P1 until triaged because it covers premium gating.
+- `tests/playwright/bug017-product-rules-audit-smoke.spec.js`: fixed. The failure was test expectation drift; the test clicked trail controls last and the app correctly showed the `Virtual trail tracking` premium paywall.
 
 Skipped E2E coverage:
 
-- Free visited limit, route generation gating, route bookends, saved custom stops, signed-in visit lifecycle, account switching, signed-in premium gating, profile/manage, settings persistence, and trip planner visited styling require `BARK_E2E_STORAGE_STATE`, `BARK_E2E_PREMIUM_STORAGE_STATE`, or a second account storage state. These should be run before any paid beta.
+- Previously skipped signed-in coverage is now running locally with `BARK_E2E_STORAGE_STATE`, `BARK_E2E_PREMIUM_STORAGE_STATE`, and `BARK_E2E_STORAGE_STATE_B`. The full smoke passed 40/40. Remaining caveat: trip planner stop persistence after reload is not supported by current runtime state; the existing test covers dynamic styling and visit persistence.
 
 Release blockers:
 
 | Priority | Title | Evidence/file | Impact | Suggested fix | Test to prove fixed |
 |---|---|---|---|---|---|
-| P0 | Emergency kill switches missing | App config/UI feature paths | Risky beta features cannot be disabled quickly | Add feature flags for route/geocode, checkout, leaderboard load-more, and Sheet polling | Flip each flag locally and verify graceful disabled states |
+| Done | Emergency kill switches missing | App config/UI feature paths | Risky beta features could not be disabled quickly | Added feature flags for route/geocode, checkout, leaderboard load-more, feedback, and risky premium tools | Stage 0 branch merged; function tests and browser flag smoke passed |
 | P0 | Free visited limit bypassable | `services/checkinService.js`, `firestore.rules` | Product tier bypass; possible write growth | Server/rules enforcement | Rules/callable tests for 20/21 visits |
 | P1 | Leaderboard score spoofing | `firestore.rules`, `modules/profileEngine.js` | Leaderboard trust collapse | Server-derived scores | Malicious write denied; server sync succeeds |
 | P1 | Webhook event ordering/idempotency weak | `functions/index.js` | Wrong access after delayed/replayed events | Processed event transaction + provider timestamp | Out-of-order webhook tests |
 | P1 | Past-due removes access immediately | `functions/index.js` | Angry users during billing retry | Explicit state machine/grace | Payment-failed/recovered tests |
-| P1 | Product-rules E2E failure | `tests/playwright/bug017...` | Premium gating/copy drift | Fix source/copy or test expectation | E2E pass with server |
-| P1 | Signed-in E2E not run | Playwright env | Account switch/mobile/checkout not proved | Create storage states and run full suite | All premium/free E2E pass |
+| Done | Product-rules E2E failure | `tests/playwright/bug017...` | Premium gating/copy drift | Fixed test expectation for valid trail-specific paywall | Targeted smoke passed 2/2 |
+| Done | Signed-in E2E not run | Playwright env | Account switch/mobile/checkout not proved | Created/validated storage states and ran full suite | Full signed-in smoke passed 40/40 |
 | P2 | Feedback likely denied | `modules/uiController.js`, `firestore.rules` | Support channel broken | Add safe write path | Rules/function test |
 | P2 | Duplicate user-doc listeners | `authService`, `VaultRepo` | Extra reads | Consolidate or split model | Instrument one listener path |
 | P0 final RC | No final budget/rollback confirmation | Cloud console/config | Cost incident risk | Kill switches first; budget alerts in final pre-RC checklist | Fire drill |
@@ -623,7 +623,7 @@ Emergency cost playbook:
 | 7 | Exact rank aggregation repeated | P2 | Medium | `fetchExactLeaderboardRankForScore` on load-more | Low/Medium | Slow leaderboard | TTL/cache only if monitoring shows a problem | Frontend | No |
 | 8 | Duplicate user-doc listeners | P2 | High | `authService` + `VaultRepo` | Low/Medium | More reads; state complexity | Consolidate/split | Frontend | No |
 | 9 | Feedback denied | P2 | High | `feedback.add`, default deny rules | Low | Users cannot contact support in app | Safe feedback path | Full-stack | No |
-| 10 | Signed-in E2E not fully run | P1 | High | Missing storage states | Unknown | Account/checkout regressions | Run full suite | QA | Yes paid |
+| 10 | Signed-in E2E can go stale | P2 | Medium | Storage states are local ignored files; full smoke passed 40/40 on 2026-05-09 | Unknown when stale | Account/checkout regressions could slip if not rerun before RC | Refresh storage states and rerun full smoke before each paid beta/RC | QA | No, if rerun before launch |
 | 11 | No confirmed kill switches or final budget alerts | P1 | High | No config found | High during incident | Outage/cost anxiety | Kill switches next; budget alerts in final pre-RC checklist | Ops | Yes public |
 | 12 | Achievement spoofing | P2 | Medium | Client achievement writes | Low | Badge trust issue | Server derive/cosmetic | Firebase | No |
 

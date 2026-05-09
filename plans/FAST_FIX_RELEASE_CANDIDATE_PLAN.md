@@ -135,7 +135,7 @@ Move in small, verifiable slices:
 
 ## Day 4: QA Closure
 
-### 7. Create and run full E2E storage states
+### 7. Create and run full E2E storage states - complete
 
 - Files:
   - Playwright auth storage files under `playwright/.auth/` or `node_modules/.cache/bark-e2e/`
@@ -151,6 +151,7 @@ Move in small, verifiable slices:
   - targeted mobile viewport smoke if available.
 - Done when:
   - No launch-critical tests are skipped.
+  - Completed 2026-05-09: local ignored storage states exist for free, premium/test entitlement, and second free account; full signed-in smoke passed 40/40 against `http://localhost:4173/index.html`.
 
 ### 8. Final pre-RC budget alerts and monitoring checklist
 

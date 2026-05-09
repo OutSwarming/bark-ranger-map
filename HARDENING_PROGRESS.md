@@ -68,3 +68,16 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
 - Fixed `tests/playwright/bug017-product-rules-audit-smoke.spec.js` by aligning the free-account forced-control assertion with the app's valid `Virtual trail tracking` paywall source.
 - This was a test expectation drift, not a product-gating bug: the test clicked trail controls last, and the app correctly showed the trail-specific premium paywall.
 - Targeted QC: `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bug017-product-rules-audit-smoke.spec.js --workers=1 --reporter=list` passed 2/2 with a local static server.
+
+## Signed-In E2E Storage State QC
+
+- Validated ignored local storage states:
+  - Free user: `playwright/.auth/free-user.json`
+  - Premium/test entitlement user: `playwright/.auth/premium-user.json`
+  - Second account for account switching: `playwright/.auth/free-user-b.json`
+- Full signed-in smoke command:
+  - `BARK_E2E_BASE_URL=http://localhost:4173/index.html BARK_E2E_STORAGE_STATE="$PWD/playwright/.auth/free-user.json" BARK_E2E_STORAGE_STATE_B="$PWD/playwright/.auth/free-user-b.json" BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json" npm run test:e2e:smoke`
+- First full run result: 39 passed, 1 failed. The failing premium route-generation smoke hit the app's long-route warning and timed out before reaching the stubbed ORS path.
+- Test harness fix: `tests/playwright/bug016-route-generation-gating-smoke.spec.js` now stubs `window.BARK.confirmLongRouteWarning` to return `continue`, keeping product behavior unchanged while making the route gating smoke deterministic.
+- Focused route-gating rerun: `bug016-route-generation-gating-smoke.spec.js` passed 2/2.
+- Final full signed-in smoke rerun: `npm run test:e2e:smoke` passed 40/40 with `BARK_E2E_BASE_URL`, `BARK_E2E_STORAGE_STATE`, `BARK_E2E_STORAGE_STATE_B`, and `BARK_E2E_PREMIUM_STORAGE_STATE` set to the local ignored `.auth` files.

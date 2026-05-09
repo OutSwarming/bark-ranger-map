@@ -19,6 +19,13 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
   - How to test: run `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bug017-product-rules-audit-smoke.spec.js --workers=1 --reporter=list`. Completed: targeted smoke passed 2/2 against a local static server with free/premium storage states available.
   - Expected cost/risk reduction: reduces paid-beta UX/regression risk; no direct Firestore cost impact.
 
+- [x] **Set up full signed-in E2E storage states and run skipped smoke**
+  - Files: ignored local storage states at `playwright/.auth/free-user.json`, `playwright/.auth/premium-user.json`, `playwright/.auth/free-user-b.json`; `tests/playwright/bug016-route-generation-gating-smoke.spec.js`; `HARDENING_PROGRESS.md`
+  - Exact change: validated the three ignored storage-state files and made the premium route-generation smoke explicitly continue past the long-route warning so it reaches the stubbed ORS path deterministically.
+  - Why it matters: auth, account switching, route gating, settings, profile/manage, and premium/free flows now run instead of skipping.
+  - How to test: run the full smoke with `BARK_E2E_BASE_URL`, `BARK_E2E_STORAGE_STATE`, `BARK_E2E_STORAGE_STATE_B`, and `BARK_E2E_PREMIUM_STORAGE_STATE` pointing at the local `.auth` files. Completed: focused route-gating rerun passed 2/2; full signed-in smoke passed 40/40.
+  - Expected cost/risk reduction: no Firestore cost reduction; materially lowers paid-beta regression risk by proving signed-in flows against real Firebase Auth storage states.
+
 - [ ] **Enforce free 20 visited-place limit outside the client**
   - Files: `services/checkinService.js`, `services/firebaseService.js`, `functions/index.js`, `firestore.rules`, `tests/rules/firestore-entitlement.rules.test.js`
   - Exact change: move visit mutation behind a callable or rules-enforceable structure; reject non-premium writes that exceed 20 saved visits.
