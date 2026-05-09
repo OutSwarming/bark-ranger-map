@@ -543,10 +543,10 @@ describe('Firestore entitlement and admin field rules', () => {
         }));
     });
 
-    it('allows owner leaderboard writes and denies writing another user leaderboard doc', async () => {
+    it('denies direct client leaderboard writes, including owner and other-user docs', async () => {
         const aliceDb = authedDb('alice');
 
-        await assertSucceeds(setDoc(doc(aliceDb, 'leaderboard', 'alice'), {
+        await assertFails(setDoc(doc(aliceDb, 'leaderboard', 'alice'), {
             displayName: 'Alice',
             photoURL: '',
             totalPoints: 42,

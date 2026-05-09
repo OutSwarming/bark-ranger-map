@@ -43,7 +43,7 @@ If launched tomorrow to a Facebook group or paid public launch, the biggest prob
 
 - **Payment readiness:** checkout and webhooks are currently hard-coded for Lemon Squeezy test mode in `functions/index.js`. This is known and intentional for pre-release testing; it should be the last owner-approved release-candidate switch, not the first thing to change while the rest of the safety work is still moving.
 - **Entitlement state correctness:** webhook signature verification, durable processed-event receipts, and provider timestamp/rank ordering now exist in test mode. The remaining paid-launch gap is final live-mode verification plus chargeback/dispute policy.
-- **Security/data integrity:** clients cannot self-grant `entitlement`, which is good, and the free tracked-visit cap is now rules-enforced at 5. Clients can still write their own leaderboard totals and achievement documents.
+- **Security/data integrity:** clients cannot self-grant `entitlement`, the free tracked-visit cap is rules-enforced at 5, and leaderboard writes are now server-authoritative through a callable. Clients can still write achievement documents, and the score input data is still partly client-authored.
 - **Cost/scalability:** normal use is likely cheap. Pathological use can produce the observed 9,000 reads and 3,000 writes per user/day. The leaderboard itself uses cursor pagination, not full reads, but repeated exact-rank aggregation can still add hidden cost and latency.
 - **QA readiness:** functions/rules/function-emulator tests pass. Post-Stage-0 QA now has local ignored free, premium/test-entitlement, and second-account storage states; the full signed-in Playwright smoke passed 40/40 against a local static server.
 
@@ -58,7 +58,7 @@ Launch readiness score: **54 / 100**
 | Firestore efficiency | 66 | Public park data is outside Firestore and leaderboard pages are cursor-based, but duplicate user-doc listeners and repeated rank aggregation remain. |
 | Payment reliability | 58 | Signature, idempotency, ordering, and state-machine tests are stronger; live mode is still intentionally locked until final RC approval. |
 | Entitlement correctness | 62 | Server writes entitlement and client reads it read-only; past-due, cancelled-active, and refunded states are now explicit. |
-| Security rules | 64 | Entitlement protected and free visit cap is rules-enforced; leaderboard/achievements remain abusable. |
+| Security rules | 68 | Entitlement protected, free visit cap is rules-enforced, and direct leaderboard writes are denied; achievements remain abusable. |
 | Bug risk | 52 | Many smoke tests exist; launch-critical E2E is not yet green in this environment. |
 | Mobile readiness | 45 | Not deeply verified in this pass yet; known Android/search/zoom concerns remain. |
 | Monitoring/rollback readiness | 35 | No confirmed budget alerts, dashboards, App Check enforcement, or feature flags. |
@@ -95,7 +95,7 @@ Confirmed paths from code and rules:
 - `users/{uid}`: profile fields, settings, `visitedPlaces`, entitlement, streak, walk/expedition state, score mirrors.
 - `users/{uid}/savedRoutes/{routeId}`: saved route documents, cursor-paginated.
 - `users/{uid}/achievements/{achievementId}`: client-created achievement stamps.
-- `leaderboard/{uid}`: public leaderboard rows, client-writable by owner.
+- `leaderboard/{uid}`: public leaderboard rows, read by clients and written by the server-side `syncLeaderboardScore` callable.
 - `system/leaderboardData`: hourly top-100 aggregate written by a scheduled function but not currently used by the frontend leaderboard.
 - `_adminRateLimits/{action_uid_window}`: admin callable rate limits.
 - `_premiumCallableRateLimits/{action_uid_window}`: server-written per-user rate limits for premium route/geocode callables.
@@ -108,6 +108,7 @@ Main file: `functions/index.js`.
 
 - Premium ORS callables: `getPremiumRoute`, `getPremiumGeocode`.
 - Payment callables/webhooks: `createCheckoutSession`, `lemonSqueezyWebhook`.
+- Leaderboard callable: `syncLeaderboardScore`.
 - Scheduled aggregate: `generateHourlyLeaderboard`.
 - Admin spreadsheet/Gemini functions exist later in `functions/index.js`.
 - Secrets are bound with `runWith({ secrets: [...] })` for Lemon Squeezy API/webhook keys.
@@ -120,7 +121,7 @@ Main file: `functions/index.js`.
 | Search/filter | `modules/searchEngine.js`, `services/authPremiumUi.js` | Local `ParkRepo`; premium geocode callable | Local UI state | No for local; yes/premium for global | Local free; global premium | Geocode abuse if premium and unthrottled. |
 | Visited places | `services/checkinService.js`, `services/firebaseService.js`, `repos/VaultRepo.js`, `firestore.rules` | `users/{uid}` snapshot | `users/{uid}.visitedPlaces` whole-array writes | Yes for cloud | Free 5 cap rules-enforced; premium more | Duplicate listeners; premium document growth. |
 | Stats/passport | `modules/profileEngine.js`, `gamificationLogic.js` | Local visits/parks; achievements subcollection once/session | Achievement batch writes | Yes for persisted achievements | Mostly free | Achievement spoofing. |
-| Leaderboard | `modules/profileEngine.js`, `renderers/leaderboardRenderer.js`, `functions/index.js` scheduled top 100 | `leaderboard` limited queries; REST aggregation; unused `system/leaderboardData` | Client writes `leaderboard/{uid}` | Read public; write signed-in | Main pagination is already good | Client score spoof; repeated rank aggregation. |
+| Leaderboard | `modules/profileEngine.js`, `renderers/leaderboardRenderer.js`, `functions/index.js` scheduled top 100 and `syncLeaderboardScore` callable | `leaderboard` limited queries; REST aggregation; unused `system/leaderboardData` | Server callable writes `leaderboard/{uid}` from user data | Read public; sync signed-in | Main pagination is already good | Source data still partly client-authored; repeated rank aggregation. |
 | Routes/trips | `renderers/routeRenderer.js`, `services/firebaseService.js`, `services/orsService.js`, `functions/index.js` | Premium saved route subcollection; ORS callable | Premium saved route docs, owner deletes | Save/load yes and premium; delete owner cleanup | Manual planning free; save/load and route generation premium | Route callable spam; saved-route shape not validated. |
 | Premium/paywall | `modules/paywallController.js`, `services/premiumService.js`, `services/authPremiumUi.js` | User entitlement listener | Checkout callable only; webhook writes entitlement | Yes | Premium unlocks tools | Test-mode-only live blocker. |
 | Account/profile | `services/authService.js`, `services/authAccountUi.js` | Firebase Auth, `users/{uid}` listener | Profile seed/settings writes | Yes | Same; billing visible by entitlement | Account-switch must stay tested. |
@@ -276,7 +277,7 @@ Initial confirmed rankings:
 | Canonicalization | `VaultRepo.handleVisitedSnapshot`; `firebaseService.normalizeLocalVisitedPlacesToCanonical` | `users/{uid}.update({visitedPlaces})` if changed | Snapshot/data load | 0 or 1 write | Rare | Acceptable, but surprise writes | Log/write once; avoid repeated snapshot loops. |
 | Achievements load/write | `gamificationLogic.js` `evaluateAndStoreAchievements` | `users/{uid}/achievements.get()`, batch `set()` | Profile/stats/share evaluation | Reads all achievement docs once/session, writes new/upgraded | Session/profile changes | Risky integrity | Server-derived or mark cosmetic. |
 | Stats/passport | `modules/profileEngine.js` | Local compute from `VaultRepo` and `ParkRepo` | Profile render | No direct Firestore | Frequent UI | Good | Keep local. |
-| Leaderboard score sync | `modules/profileEngine.js` `syncScoreToLeaderboard` | `users/{uid}.set`, `leaderboard/{uid}.set`, rank aggregation | Score changes, debounced | 2 writes + aggregation | Debounced but repeated with marks/walks | Risky integrity | Server derive, cap aggregation. |
+| Leaderboard score sync | `modules/profileEngine.js` `syncScoreToLeaderboard`; `functions/index.js` `syncLeaderboardScore` | Client calls callable; server reads `users/{uid}` and writes `users/{uid}` score mirrors plus `leaderboard/{uid}` | Score changes, debounced | 1 callable, 1 user-doc read, 2 server writes, optional rank aggregation | Debounced but repeated with marks/walks | Better integrity; source data still partly client-authored | Done for direct leaderboard writes; later harden source inputs if needed. |
 | Leaderboard initial | `profileEngine.loadLeaderboard` | `leaderboard.limit(5).get()` | Auth boot/profile | 5 doc reads + optional aggregation | Once/session or manual | Good/Risky | Use cached top doc and rank TTL. |
 | Leaderboard See More | `profileEngine.loadMoreLeaderboard` | `startAfter(lastDoc).limit(5).get()` | User clicks | 5 doc reads + optional aggregation | Per click | Good pagination; optional aggregation risk | No offset; keep UX; exact-rank cache only if monitoring shows a problem. |
 | Saved routes list | `firebaseService.loadSavedRoutes` | Premium-gated `users/{uid}/savedRoutes.orderBy(...).startAfter(cursor).limit(n).get()` | Route panel | 3 initial, 5 more | Per panel/page | Good; now premium-only | Keep cursor pagination and premium rules check. |
@@ -433,7 +434,7 @@ Strengths:
 
 Risks:
 
-- Owner can write any allowed `leaderboard/{uid}` totals, including fake `totalPoints`.
+- Direct client writes to `leaderboard/{uid}` are now denied. Remaining leaderboard integrity risk is source data that is still partly client-authored, especially walk/expedition points.
 - Owner can write achievement documents with any valid-looking id/tier/timestamp.
 - Owner can no longer update `visitedPlaces` above 5 unless the existing user doc has active, manual-active, past-due, or cancelled-active entitlement. Rules now also require `visitedPlaces` to be a list when that field changes and allow legacy/expired over-limit users to shrink, not grow or swap, their visit list.
 - `feedback` writes appear denied by default rules.
@@ -444,7 +445,7 @@ Risks:
 | Entitlement | Protected keys blocked on create/update | Live webhook state tests in rules not relevant; function tests needed | Low client spoof risk | Low | Keep protected list; server-only entitlement writes. |
 | Free visit limit | Rules-enforced 5 max for non-premium users; premium can exceed | Keep rules tests and runtime smoke current | Low/Medium | Low/Medium | Done for free cap; consider callable/subcollection if premium storage grows. |
 | Achievements | Owner-only, shape validation | Criteria validation, malicious unlock | Medium | Low | Server-derived or cosmetic-only. |
-| Leaderboard | Owner-only doc, key allowlist | Fake high score, negative values, weird types | High | Low/Medium | Server-only leaderboard writes. |
+| Leaderboard | Public read; direct client create/update/delete denied; server callable writes rows | Keep callable/rules tests current | Low/Medium | Low/Medium | Done for direct leaderboard writes; consider server-derived walk/achievement inputs later. |
 | Saved routes | Premium owner-only for read/create/update; owner delete allowed for cleanup | Size/shape/count limits | Medium | Medium | Add max fields/size if needed. |
 | Feedback | Denied by default | Desired success + spam/malicious fields | Low functional bug | Low | Callable with rate limit or validated rules. |
 | Admin-only paths | `_adminRateLimits` not matched, default denied to clients | Admin path tests | Low | Low | Keep server-only. |
@@ -478,7 +479,7 @@ Release blockers:
 |---|---|---|---|---|---|
 | Done | Emergency kill switches missing | App config/UI feature paths | Risky beta features could not be disabled quickly | Added feature flags for route/geocode, checkout, leaderboard load-more, feedback, and risky premium tools | Stage 0 branch merged; function tests and browser flag smoke passed |
 | Done | Free visited limit bypassable | `services/checkinService.js`, `firestore.rules` | Product tier bypass; possible write growth | Lowered free cap to 5 and added rules enforcement | Rules tests passed 21/21 for 5/6 visits and premium bypass |
-| P1 | Leaderboard score spoofing | `firestore.rules`, `modules/profileEngine.js` | Leaderboard trust collapse | Server-derived scores | Malicious write denied; server sync succeeds |
+| Done | Leaderboard score spoofing | `firestore.rules`, `modules/profileEngine.js`, `functions/index.js` | Direct fake totals blocked | Added `syncLeaderboardScore` callable and denied direct client leaderboard writes | Function tests passed 86/86; rules tests passed 24/24; leaderboard browser smoke passed 3/3 |
 | Done | Webhook event ordering/idempotency weak | `functions/index.js` | Wrong access after delayed/replayed events | Added processed-event transaction + provider timestamp/rank ordering | Webhook tests passed 47/47; functions tests passed 81/81 |
 | Done | Past-due removes access immediately | `functions/index.js`, `premiumService`, account/paywall UI | Angry users during billing retry | Added `past_due` grace, `cancelled_active`, and `refunded` states | Webhook tests passed 47/47; auth-account UI tests passed 4/4 |
 | Done | Product-rules E2E failure | `tests/playwright/bug017...` | Premium gating/copy drift | Fixed test expectation for valid trail-specific paywall | Targeted smoke passed 2/2 |
@@ -619,7 +620,7 @@ Emergency cost playbook:
 
 | Rank | Risk | Severity | Likelihood | Evidence | Cost impact | User impact | Fix | Owner | Launch blocker? |
 |---:|---|---|---|---|---|---|---|---|---|
-| 1 | Leaderboard spoofing | P1 | Medium | Rules allow owner totals | Low/Medium | Trust collapse | Server-derived scores | Firebase | Yes public |
+| 1 | Leaderboard source-data spoofing | P1/P2 | Medium | Direct leaderboard writes are blocked, but some source fields like walk points are still client-authored | Low/Medium | Leaderboard trust can still be gamed indirectly | Harden source inputs/server-derived scores further if leaderboard becomes high-stakes | Firebase | No for private beta; yes before broad public competition |
 | 2 | Lemon Squeezy final RC live-mode switch | P0 | Certain before launch | `functions/index.js` still intentionally test-mode-only | Low direct, high revenue/support | Users pay or cannot pay correctly if switched casually | Keep test mode until Carter approves RC, then configurable mode + live webhook test | Payments | Yes public |
 | 3 | Chargeback/dispute state handling unconfirmed | P1 | Medium | No provider-confirmed chargeback/dispute event mapping yet | Low | Disputed/refunded edge cases may need manual support | Confirm Lemon event support and add fixtures | Payments/Product | Yes paid |
 | 4 | Route/geocode spam beyond server limits | P2 | Low/Medium | Premium callables now have per-user hourly limits; App Check not yet enforced | Medium | Slow/expensive external calls are capped per user but scripted account creation remains possible | Add App Check and monitoring | Functions/Ops | No for private beta |
@@ -637,10 +638,10 @@ Current recommendation: **do not launch paid/public tomorrow. Launch only a cons
 
 Top fixes before asking Facebook admins to promote:
 
-1. Stop client-authoritative leaderboard totals before any public leaderboard matters.
-2. Confirm chargeback/dispute handling and support policy before live payment.
-3. Add App Check/monitoring around function abuse before broader launch.
-4. Keep the free 5-visit rules tests and signed-in E2E in the release suite.
+1. Confirm chargeback/dispute handling and support policy before live payment.
+2. Add App Check/monitoring around function abuse before broader launch.
+3. Keep the free 5-visit rules tests and signed-in E2E in the release suite.
+4. Decide whether leaderboard walk/expedition source data needs server hardening before a public competition.
 5. Run one final Lemon Squeezy test-mode delivery re-skim before Carter approves the live-mode RC switch.
 
 Final RC steps after those fixes: add budget alerts/monitoring, then make the Lemon Squeezy live/test switch only after Carter explicitly approves and test one real low-risk transaction.

@@ -106,25 +106,6 @@ service cloud.firestore {
         && hasActivePremiumEntitlement(get(/databases/$(database)/documents/users/$(uid)).data);
     }
 
-    function leaderboardWritableKeys() {
-      return [
-        'displayName',
-        'photoURL',
-        'totalPoints',
-        'totalVisited',
-        'hasVerified',
-        'lastUpdated'
-      ];
-    }
-
-    function createsOnlyLeaderboardKeys() {
-      return request.resource.data.keys().hasOnly(leaderboardWritableKeys());
-    }
-
-    function changesOnlyLeaderboardKeys() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(leaderboardWritableKeys());
-    }
-
     function achievementWritableKeys() {
       return [
         'achievementId',
@@ -165,9 +146,7 @@ service cloud.firestore {
 
     match /leaderboard/{uid} {
       allow read: if true;
-      allow create: if isOwner(uid) && createsOnlyLeaderboardKeys();
-      allow update: if isOwner(uid) && changesOnlyLeaderboardKeys();
-      allow delete: if false;
+      allow create, update, delete: if false;
     }
 
     match /system/{docId} {

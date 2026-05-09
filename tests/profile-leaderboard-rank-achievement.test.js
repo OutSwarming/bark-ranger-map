@@ -105,3 +105,61 @@ test('profile achievement evaluation passes the cached leaderboard rank', async 
 
     assert.equal(harness.getReceivedRank(), 1);
 });
+
+test('profile leaderboard sync uses the server callable instead of direct Firestore writes', async () => {
+    const harness = loadProfileEngineHarness();
+    const callableCalls = [];
+
+    harness.sandbox.window._lastSyncedScore = -1;
+    harness.sandbox.window.currentWalkPoints = 4;
+    harness.sandbox.window.BARK.repos.VaultRepo = {
+        getVisits() {
+            return [
+                { id: 'park-a', verified: true },
+                { id: 'park-b', verified: false }
+            ];
+        }
+    };
+    harness.sandbox.window.BARK.calculateVisitScore = () => ({
+        totalScore: 7,
+        totalVisitedCount: 2,
+        verifiedCount: 1
+    });
+
+    harness.sandbox.firebase = {
+        auth() {
+            return {
+                currentUser: {
+                    uid: 'alice',
+                    displayName: 'Alice Ranger',
+                    photoURL: ''
+                }
+            };
+        },
+        functions() {
+            return {
+                httpsCallable(name) {
+                    return async (payload) => {
+                        callableCalls.push({ name, payload });
+                        return {
+                            data: {
+                                totalPoints: 7,
+                                totalVisited: 2,
+                                hasVerified: true
+                            }
+                        };
+                    };
+                }
+            };
+        },
+        firestore() {
+            throw new Error('profileEngine should not write leaderboard scores directly through Firestore');
+        }
+    };
+
+    await harness.sandbox.window.BARK.syncScoreToLeaderboard();
+
+    assert.equal(callableCalls.length, 1);
+    assert.equal(callableCalls[0].name, 'syncLeaderboardScore');
+    assert.equal(harness.sandbox.window._lastSyncedScore, 7);
+});

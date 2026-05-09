@@ -221,4 +221,131 @@ test.describe('Stage 0 launch safety flags', () => {
             await context.close();
         }
     });
+
+    test('leaderboard initial load and See More keep the existing read pagination when enabled', async ({ browser }) => {
+        const errors = [];
+        const context = await newBarkContext(browser);
+        await context.addInitScript(() => {
+            window.localStorage.setItem('barkLaunchFlags', JSON.stringify({
+                leaderboardDeepBrowsingEnabled: true
+            }));
+        });
+
+        const page = await context.newPage();
+        collectRelevantErrors(page, 'leaderboard enabled', errors);
+
+        try {
+            await openFlagReadyApp(page);
+
+            const state = await page.evaluate(async () => {
+                const originalFirestore = window.firebase.firestore;
+                const originalAuth = window.firebase.auth;
+                const queryLog = [];
+
+                const makeDocs = (start, count) => Array.from({ length: count }, (_, index) => {
+                    const rank = start + index;
+                    return {
+                        id: `leader-${rank}`,
+                        data: () => ({
+                            displayName: `Leader ${rank}`,
+                            totalPoints: 100 - rank,
+                            totalVisited: rank,
+                            hasVerified: rank === 1
+                        })
+                    };
+                });
+
+                const makeSnapshot = docs => ({
+                    empty: docs.length === 0,
+                    docs,
+                    forEach(callback) {
+                        docs.forEach(callback);
+                    }
+                });
+
+                const pages = [
+                    makeSnapshot(makeDocs(1, 5)),
+                    makeSnapshot(makeDocs(6, 5))
+                ];
+
+                function makeQuery(startAfterDoc = null) {
+                    return {
+                        limit(limitValue) {
+                            return {
+                                get: async () => {
+                                    queryLog.push({
+                                        collection: 'leaderboard',
+                                        orderBy: ['totalPoints', 'desc'],
+                                        startAfter: startAfterDoc ? startAfterDoc.id : null,
+                                        limit: limitValue
+                                    });
+                                    return pages.shift() || makeSnapshot([]);
+                                }
+                            };
+                        },
+                        startAfter(doc) {
+                            return makeQuery(doc);
+                        }
+                    };
+                }
+
+                window.firebase.firestore = () => ({
+                    collection: (name) => ({
+                        orderBy: (field, direction) => {
+                            if (name !== 'leaderboard' || field !== 'totalPoints' || direction !== 'desc') {
+                                throw new Error(`Unexpected leaderboard query: ${name}.${field}.${direction}`);
+                            }
+                            return makeQuery();
+                        }
+                    })
+                });
+                window.firebase.auth = () => ({ currentUser: null });
+
+                await window.BARK.loadLeaderboard();
+                const loadMoreBefore = Boolean(document.getElementById('lb-load-more-btn'));
+                document.getElementById('lb-load-more-btn').click();
+
+                const startedAt = Date.now();
+                while (
+                    (queryLog.length < 2 || !document.getElementById('leaderboard-list').textContent.includes('Leader 10')) &&
+                    Date.now() - startedAt < 1000
+                ) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+
+                const rows = Array.from(document.querySelectorAll('#leaderboard-list li'))
+                    .map(row => row.textContent || '');
+
+                window.firebase.firestore = originalFirestore;
+                window.firebase.auth = originalAuth;
+
+                return {
+                    queryLog,
+                    loadMoreBefore,
+                    rows
+                };
+            });
+
+            expect(state.loadMoreBefore).toBe(true);
+            expect(state.queryLog).toEqual([
+                {
+                    collection: 'leaderboard',
+                    orderBy: ['totalPoints', 'desc'],
+                    startAfter: null,
+                    limit: 5
+                },
+                {
+                    collection: 'leaderboard',
+                    orderBy: ['totalPoints', 'desc'],
+                    startAfter: 'leader-5',
+                    limit: 5
+                }
+            ]);
+            expect(state.rows.join(' ')).toContain('Leader 1');
+            expect(state.rows.join(' ')).toContain('Leader 10');
+            expect(errors, errors.join('\n')).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    });
 });

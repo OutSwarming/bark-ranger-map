@@ -283,6 +283,103 @@ function throwHttpsError(error, fallbackMessage) {
     throw new functions.https.HttpsError("internal", fallbackMessage);
 }
 
+function cleanLeaderboardString(value, fallback, maxLength = 80) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text) return fallback;
+    return text.slice(0, maxLength);
+}
+
+function sanitizeLeaderboardWalkPoints(value) {
+    const parsed = Number(value || 0);
+    if (!Number.isFinite(parsed) || parsed < 0) return 0;
+    return Math.floor(Math.round(parsed * 100) / 100);
+}
+
+function getLeaderboardVisitId(visit, index) {
+    if (!visit || typeof visit !== "object") return `unknown_${index}`;
+    const rawId = visit.id || visit.parkId || visit.placeId || visit.pinId || visit.name || "";
+    const id = typeof rawId === "string" ? rawId.trim() : String(rawId || "").trim();
+    return id || `unknown_${index}`;
+}
+
+function calculateServerLeaderboardScore(userData) {
+    const data = userData && typeof userData === "object" && !Array.isArray(userData) ? userData : {};
+    const visits = Array.isArray(data.visitedPlaces) ? data.visitedPlaces : [];
+    const uniqueVisits = new Map();
+
+    visits.forEach((visit, index) => {
+        const id = getLeaderboardVisitId(visit, index);
+        const existing = uniqueVisits.get(id) || { verified: false };
+        existing.verified = existing.verified || Boolean(visit && visit.verified === true);
+        uniqueVisits.set(id, existing);
+    });
+
+    let verifiedCount = 0;
+    uniqueVisits.forEach((visit) => {
+        if (visit.verified) verifiedCount += 1;
+    });
+
+    const totalVisited = uniqueVisits.size;
+    const walkPoints = sanitizeLeaderboardWalkPoints(data.walkPoints);
+    const totalPoints = totalVisited + verifiedCount + walkPoints;
+
+    return {
+        totalPoints,
+        totalVisited,
+        verifiedCount,
+        walkPoints,
+        hasVerified: verifiedCount > 0
+    };
+}
+
+async function handleSyncLeaderboardScore(requestOrData, context, options = {}) {
+    const uid = requireAuthCallable(context);
+    const db = options.firestore || admin.firestore();
+    const userRef = db.collection("users").doc(uid);
+    const leaderboardRef = db.collection("leaderboard").doc(uid);
+    const token = context && context.auth && context.auth.token ? context.auth.token : {};
+
+    let result = null;
+
+    await db.runTransaction(async (transaction) => {
+        const userSnap = await transaction.get(userRef);
+        const userData = userSnap && userSnap.exists && typeof userSnap.data === "function"
+            ? userSnap.data()
+            : {};
+        const score = calculateServerLeaderboardScore(userData);
+        const displayName = cleanLeaderboardString(userData.displayName, cleanLeaderboardString(token.name, "Bark Ranger"));
+        const photoURL = cleanLeaderboardString(userData.photoURL, cleanLeaderboardString(token.picture, "", 500), 500);
+        const timestamp = FieldValue.serverTimestamp();
+
+        const leaderboardPayload = {
+            displayName,
+            photoURL,
+            totalPoints: score.totalPoints,
+            totalVisited: score.totalVisited,
+            hasVerified: score.hasVerified,
+            lastUpdated: timestamp
+        };
+
+        transaction.set(userRef, {
+            displayName,
+            totalPoints: score.totalPoints,
+            totalVisited: score.totalVisited,
+            hasVerified: score.hasVerified,
+            leaderboardSyncedAt: timestamp
+        }, { merge: true });
+
+        transaction.set(leaderboardRef, leaderboardPayload, { merge: true });
+
+        result = {
+            totalPoints: score.totalPoints,
+            totalVisited: score.totalVisited,
+            hasVerified: score.hasVerified
+        };
+    });
+
+    return result;
+}
+
 const CANONICAL_PARK_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function cleanSheetCell(value) {
@@ -1304,6 +1401,10 @@ exports.lemonSqueezyWebhook = functions
         return handleLemonSqueezyWebhook(req, res);
     });
 
+exports.syncLeaderboardScore = functions.https.onCall(async (requestOrData, context) => {
+    return handleSyncLeaderboardScore(requestOrData, context);
+});
+
 if (process.env.NODE_ENV === "test") {
     exports.__test = {
         normalizeEntitlement,
@@ -1330,7 +1431,9 @@ if (process.env.NODE_ENV === "test") {
         isStaleLemonSqueezyEvent,
         mapLemonSqueezyEntitlement,
         processLemonSqueezyWebhookEntitlement,
-        handleLemonSqueezyWebhook
+        handleLemonSqueezyWebhook,
+        calculateServerLeaderboardScore,
+        handleSyncLeaderboardScore
     };
 }
 

@@ -258,6 +258,59 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
   - They also cannot swap one over-limit list for another same-sized over-limit list.
   - They can remove visits one at a time, so an account with 20 can go 20 -> 19 -> 18 without being trapped by rules.
   - `past_due` and `cancelled_active` are now premium-active in Firestore rules, matching `premiumService` and payment hardening policy.
+
+## Leaderboard Server-Authoritative Integrity Progress
+
+- Date: 2026-05-09.
+- Scope: P1 integrity fix after Parts 1-6 private-beta hardening.
+- Lemon Squeezy status: unchanged and still locked in test mode. Checkout live mode was not enabled.
+- Old path:
+  - `modules/profileEngine.js` calculated score in the browser and wrote directly to `users/{uid}` score mirrors and `leaderboard/{uid}`.
+  - `firestore.rules` allowed an owner to create/update `leaderboard/{uid}` with allowed leaderboard keys, so a signed-in client could fake totals.
+- New path:
+  - `modules/profileEngine.js` calls the `syncLeaderboardScore` callable.
+  - `functions/index.js` reads `users/{uid}`, calculates leaderboard totals server-side from `visitedPlaces` and `walkPoints`, writes score mirrors to `users/{uid}`, and writes the public row to `leaderboard/{uid}`.
+  - `firestore.rules` now makes `leaderboard/{uid}` public-read and client read-only; direct client create/update/delete is denied.
+- Compatibility:
+  - Existing leaderboard initial read and See More cursor pagination are unchanged.
+  - Profile score display still renders locally; leaderboard sync failure is now a warning so profile rendering can continue.
+  - Remaining integrity caveat: direct leaderboard totals are blocked, but some source inputs, especially walk/expedition points, are still client-authored and should be hardened later if leaderboard competition becomes high-stakes.
+
+### Leaderboard Integrity QC Run
+
+- `node --check functions/index.js`
+  - Result: PASS.
+- `node --check functions/tests/leaderboard-sync.test.js`
+  - Result: PASS.
+- `node --check tests/playwright/stage0-launch-flags-smoke.spec.js`
+  - Result: PASS.
+- `node --check tests/profile-leaderboard-rank-achievement.test.js`
+  - Result: PASS.
+- `node --test tests/profile-leaderboard-rank-achievement.test.js`
+  - Result: PASS, 2/2.
+  - Covered: cached leaderboard rank still reaches achievements; profile sync uses `syncLeaderboardScore` instead of direct Firestore writes.
+- `npm --prefix functions test`
+  - Result: PASS, 86/86.
+  - Covered: new authenticated leaderboard sync, unauthenticated rejection, fake caller-provided `totalPoints` ignored, existing checkout/webhook/ORS suites.
+- `npm run test:rules`
+  - Result: PASS, 24/24.
+  - Covered: direct owner and other-user writes to `leaderboard/{uid}` are denied.
+- `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/stage0-launch-flags-smoke.spec.js --workers=1 --reporter=list`
+  - First run: 2/3 passed; new See More regression needed a better render wait.
+  - Final rerun: PASS, 3/3.
+  - Covered: initial leaderboard `limit(5)` and See More `startAfter(lastDoc).limit(5)` still work.
+- Signed-in focused Playwright sweep:
+  - Command used local ignored free, premium/test, and second-account storage states.
+  - Result: PASS, 11/11.
+  - Covered: account UI, free 5-visit cap, premium bypass, and route generation gating after the leaderboard callable change.
+- `npm run test:functions:emulator`
+  - First run: failed from Functions discovery timeout before definitions fully loaded; warmup calls returned `not-found`.
+  - Clean rerun: PASS, 9/9.
+  - Covered: existing ORS callable emulator entitlement behavior after adding `syncLeaderboardScore`.
+- `npm ls --depth=0`
+  - Result: PASS.
+- `npm --prefix functions ls --depth=0`
+  - Result: PASS.
 - QC: `PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm run test:rules` passed 24/24.
 - Deployment note: pushing to GitHub updates the repository, but this repo has no checked-in GitHub Actions deploy workflow. Firebase Hosting/Firestore rules/functions must be deployed separately before the public/test website shows the new 5-visit behavior.
 
