@@ -118,6 +118,32 @@ describe("access code redemption callable", () => {
         );
     });
 
+    it("rejects unverified email/password access code redemption before granting premium", async () => {
+        const [path, codeData] = seedAccessCode("VIP-2026-VERIFY", {
+            type: "premium_free_year"
+        });
+        const firestore = makeFirestore({ [path]: codeData });
+
+        await assertRejectsCode(
+            handleRedeemAccessOrPromoCode(
+                { code: "VIP-2026-VERIFY" },
+                authedContext("unverified-code-user", {
+                    email: "unverified@example.test",
+                    email_verified: false,
+                    firebase: { sign_in_provider: "password" }
+                }),
+                {
+                    firestore,
+                    nowMs: NOW_MS
+                }
+            ),
+            "failed-precondition"
+        );
+
+        assert.equal(firestore.docs.has("users/unverified-code-user"), false);
+        assert.equal(firestore.docs.get(path).redemptionCount, 0);
+    });
+
     it("grants one year of premium for a valid free-year access code", async () => {
         const [path, codeData] = seedAccessCode("VIP-2026-ABC", {
             type: "premium_free_year",

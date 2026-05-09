@@ -150,6 +150,38 @@ function requireAuthCallable(context) {
     return uid;
 }
 
+function getCallableAuthToken(context) {
+    return context && context.auth && context.auth.token && typeof context.auth.token === "object"
+        ? context.auth.token
+        : {};
+}
+
+function getSignInProviderFromToken(token = {}) {
+    const firebaseClaims = token.firebase && typeof token.firebase === "object" ? token.firebase : {};
+    return typeof firebaseClaims.sign_in_provider === "string" ? firebaseClaims.sign_in_provider : "";
+}
+
+function isCallableEmailVerified(context) {
+    const token = getCallableAuthToken(context);
+    const provider = getSignInProviderFromToken(token);
+    if (token.email_verified === true || token.email_verified === "true") return true;
+    if (provider === "google.com") return true;
+    if (provider === "password") return false;
+    if (token.email && token.email_verified === false) return false;
+    return true;
+}
+
+function requireVerifiedEmailCallable(context) {
+    const uid = requireAuthCallable(context);
+    if (!isCallableEmailVerified(context)) {
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Please verify your email before continuing."
+        );
+    }
+    return uid;
+}
+
 function parsePositiveInteger(value, fallback) {
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -300,7 +332,7 @@ function isEffectivePremium(raw, options = {}) {
 }
 
 async function requirePremiumCallable(context, action, options = {}) {
-    const uid = requireAuthCallable(context);
+    const uid = requireVerifiedEmailCallable(context);
     const db = options.firestore || admin.firestore();
 
     let userDoc;
@@ -912,7 +944,7 @@ function extractLemonSqueezyCheckoutUrl(response) {
 
 async function handleCreateCheckoutSession(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("createCheckoutSession", options);
-    const uid = requireAuthCallable(context);
+    const uid = requireVerifiedEmailCallable(context);
     const data = getCallablePayload(requestOrData);
     const rawDiscountCode = data && data.discountCode;
     const discountCode = rawDiscountCode ? normalizePromoCode(rawDiscountCode) : null;
@@ -1016,7 +1048,7 @@ function buildAccessCodeEntitlement({ codeData, grantExpiresAt, nowMs, options =
 }
 
 async function handleRedeemAccessOrPromoCode(requestOrData, context, options = {}) {
-    const uid = requireAuthCallable(context);
+    const uid = requireVerifiedEmailCallable(context);
     const payload = getCallablePayload(requestOrData);
     const code = normalizePromoCode(payload && payload.code);
     if (!code) throw accessCodeError();
@@ -1585,7 +1617,7 @@ async function handleLemonSqueezyWebhook(req, res, options = {}) {
 
 async function handlePremiumRoute(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("getPremiumRoute", options);
-    const uid = requireAuthCallable(context);
+    const uid = requireVerifiedEmailCallable(context);
     await enforcePremiumCallableRateLimit(uid, "getPremiumRoute", options);
     await requirePremiumCallable(context, "getPremiumRoute", options);
 
@@ -1636,7 +1668,7 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
 
 async function handlePremiumGeocode(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("getPremiumGeocode", options);
-    const uid = requireAuthCallable(context);
+    const uid = requireVerifiedEmailCallable(context);
     await enforcePremiumCallableRateLimit(uid, "getPremiumGeocode", options);
     await requirePremiumCallable(context, "getPremiumGeocode", options);
 
@@ -1714,6 +1746,8 @@ if (process.env.NODE_ENV === "test") {
         isEffectivePremium,
         isFunctionFlagEnabled,
         requireFunctionFlagEnabled,
+        isCallableEmailVerified,
+        requireVerifiedEmailCallable,
         getPremiumCallableRateLimit,
         enforcePremiumCallableRateLimit,
         requirePremiumCallable,

@@ -17,8 +17,8 @@ const {
     }
 } = require("../index.js");
 
-function authedContext(uid = "user-a") {
-    return { auth: { uid, token: {} } };
+function authedContext(uid = "user-a", token = {}) {
+    return { auth: { uid, token } };
 }
 
 function getHttpsErrorCode(error) {
@@ -175,6 +175,42 @@ describe("ORS premium callable entitlement helpers", () => {
         );
     });
 
+    it("rejects unverified email/password premium callable requests before entitlement reads", async () => {
+        const firestore = makeFirestore({ entitlement: premiumEntitlement });
+
+        await assertRejectsCode(
+            requirePremiumCallable(
+                authedContext("unverified-premium-user", {
+                    email: "unverified@example.test",
+                    email_verified: false,
+                    firebase: { sign_in_provider: "password" }
+                }),
+                "getPremiumRoute",
+                { firestore }
+            ),
+            "failed-precondition"
+        );
+
+        assert.equal(firestore.state.reads, 0);
+    });
+
+    it("allows verified Google premium callable requests", async () => {
+        const result = await requirePremiumCallable(
+            authedContext("google-premium-user", {
+                email: "google@example.test",
+                email_verified: true,
+                firebase: { sign_in_provider: "google.com" }
+            }),
+            "getPremiumRoute",
+            {
+                firestore: makeFirestore({ entitlement: premiumEntitlement })
+            }
+        );
+
+        assert.equal(result.uid, "google-premium-user");
+        assert.equal(result.entitlement.premium, true);
+    });
+
     it("rejects signed-in free users", async () => {
         const firestore = makeFirestore({
             entitlement: { premium: false, status: "free", source: "none" }
@@ -307,6 +343,68 @@ describe("ORS premium callable handlers", () => {
         );
 
         assert.equal(firestore.state.reads, 0);
+        assert.equal(getCalls, 0);
+    });
+
+    it("rejects unverified email/password route requests before rate-limit, entitlement, or ORS work", async () => {
+        let postCalls = 0;
+        const firestore = makeFirestore({ entitlement: premiumEntitlement });
+
+        await assertRejectsCode(
+            handlePremiumRoute(
+                {
+                    data: {
+                        coordinates: [[-122.4, 37.8], [-122.5, 37.9]]
+                    }
+                },
+                authedContext("unverified-route-user", {
+                    email: "unverified@example.test",
+                    email_verified: false,
+                    firebase: { sign_in_provider: "password" }
+                }),
+                {
+                    firestore,
+                    getOrsApiKey: () => "test-key",
+                    axiosPost: async () => {
+                        postCalls += 1;
+                        return { data: { ok: true } };
+                    }
+                }
+            ),
+            "failed-precondition"
+        );
+
+        assert.equal(firestore.state.reads, 0);
+        assert.equal(firestore.state.writes, 0);
+        assert.equal(postCalls, 0);
+    });
+
+    it("rejects unverified email/password geocode requests before rate-limit, entitlement, or ORS work", async () => {
+        let getCalls = 0;
+        const firestore = makeFirestore({ entitlement: premiumEntitlement });
+
+        await assertRejectsCode(
+            handlePremiumGeocode(
+                { data: { text: "Seattle" } },
+                authedContext("unverified-geocode-user", {
+                    email: "unverified@example.test",
+                    email_verified: false,
+                    firebase: { sign_in_provider: "password" }
+                }),
+                {
+                    firestore,
+                    getOrsApiKey: () => "test-key",
+                    axiosGet: async () => {
+                        getCalls += 1;
+                        return { data: { features: [] } };
+                    }
+                }
+            ),
+            "failed-precondition"
+        );
+
+        assert.equal(firestore.state.reads, 0);
+        assert.equal(firestore.state.writes, 0);
         assert.equal(getCalls, 0);
     });
 

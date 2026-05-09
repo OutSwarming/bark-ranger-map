@@ -228,6 +228,48 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
   - `npm --prefix functions ls --depth=0`: PASS.
   - `npm --prefix functions test`: PASS, 82/82.
   - `npm run test:rules`: PASS, 23/23.
+
+## Email Verification Hardening
+
+- Date: 2026-05-09.
+- Branch: `codex/promo-access-code-premium`.
+- Lemon Squeezy status: still locked in test mode; checkout payload still uses `attributes.test_mode: true`.
+- Added email verification for Firebase email/password accounts:
+  - new email/password account creation sends a Firebase verification email,
+  - account UI shows `Email verification sent`, `Please verify your email`, `Resend verification email`, and `I verified, refresh status`,
+  - resend has a 60-second cooldown,
+  - account load/sign-in refreshes `emailVerified` from Firebase Auth,
+  - the verified-refresh action forces an ID-token refresh so callables receive the updated `email_verified` claim.
+- Added verification gates:
+  - unverified password users cannot redeem internal free access codes,
+  - unverified password users cannot start Lemon checkout,
+  - unverified password users cannot call premium route/geocode functions,
+  - Google users with verified email are not blocked.
+- Client hint fields written to `users/{uid}`:
+  - `emailVerified`
+  - `emailVerificationUpdatedAt`
+  - These are written only after explicit verification actions such as send/resend/refresh, not on every app load.
+  - Entitlement fields remain protected and server-authoritative.
+
+### Email Verification QC
+
+- `node --check services/authAccountUi.js`
+  - Result: PASS.
+- `node --check modules/paywallController.js`
+  - Result: PASS.
+- `node --check services/orsService.js`
+  - Result: PASS.
+- `node --check functions/index.js`
+  - Result: PASS.
+- `node --test tests/auth-account-ui.test.js`
+  - Result: PASS, 9/9.
+- `npm --prefix functions test`
+  - Result: PASS, 106/106.
+- `npm run test:rules`
+  - Result: PASS, 26/26.
+  - Note: firebase-tools emitted the existing Java 21 future-requirement warning; current run passed on Java 18.
+- `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/promo-access-code-smoke.spec.js tests/playwright/bark-app-identity-smoke.spec.js --reporter=list`
+  - Result: PASS, 8/8.
   - `npm run test:functions:emulator`: first parallel attempt failed from Firestore emulator port collision; serial rerun PASS, 9/9.
   - focused Playwright sweep with free, premium/test, and second-account storage states: PASS, 54/54.
 - Post-merge check on `main`:

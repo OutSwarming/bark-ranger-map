@@ -125,6 +125,11 @@ describe('Firestore entitlement and admin field rules', () => {
                 { id: 'yosemite', name: 'Yosemite', ts: 1710000000000 }
             ]
         }));
+
+        await assertSucceeds(updateDoc(aliceRef, {
+            emailVerified: false,
+            emailVerificationUpdatedAt: 1710000000002
+        }));
     });
 
     it('allows allowed user writes while preserving server-written entitlement', async () => {

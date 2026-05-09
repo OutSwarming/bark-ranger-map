@@ -18,6 +18,7 @@ async function installPaywallHarness(page, options = {}) {
     await page.evaluate(({ user, redeemMode }) => {
         const authState = { currentUser: user || null };
         window.__promoRedeemCalls = [];
+        window.__checkoutCalls = [];
 
         if (!window.firebase) window.firebase = {};
         window.firebase.apps = window.firebase.apps && window.firebase.apps.length ? window.firebase.apps : [{}];
@@ -33,6 +34,14 @@ async function installPaywallHarness(page, options = {}) {
         window.firebase.functions = () => ({
             httpsCallable(name) {
                 return async (payload) => {
+                    if (name === 'createCheckoutSession') {
+                        window.__checkoutCalls.push({ name, payload });
+                        return {
+                            data: {
+                                checkoutUrl: 'https://usbarkrangers.lemonsqueezy.com/checkout/test-session'
+                            }
+                        };
+                    }
                     if (name !== 'redeemAccessOrPromoCode') {
                         throw new Error(`Unexpected callable ${name}`);
                     }
@@ -156,5 +165,44 @@ test.describe('Promo / Access Code paywall UI', () => {
         await expect(page.locator('#paywall-promo-code-message')).toContainText('That code was not recognized or has expired.');
         await page.locator('#paywall-close-btn').click();
         await expect(page.locator('#park-search')).toBeVisible();
+    });
+
+    test('unverified email/password user cannot redeem access code before verification', async ({ page }) => {
+        await openApp(page);
+        await installPaywallHarness(page, {
+            user: {
+                uid: 'unverified-code-user',
+                email: 'unverified-code@example.test',
+                emailVerified: false,
+                providerData: [{ providerId: 'password' }]
+            },
+            redeemMode: 'valid-free'
+        });
+
+        await page.evaluate(() => window.BARK.paywall.openPaywall({ source: 'profile-premium-card' }));
+        await page.locator('#paywall-promo-code-input').fill('VIP-2026-TEST');
+        await page.locator('#paywall-promo-code-btn').click();
+
+        await expect(page.locator('#paywall-promo-code-message')).toContainText('Please verify your email');
+        await expect.poll(() => page.evaluate(() => window.__promoRedeemCalls.length)).toBe(0);
+    });
+
+    test('unverified email/password user cannot start checkout before verification', async ({ page }) => {
+        await openApp(page);
+        await installPaywallHarness(page, {
+            user: {
+                uid: 'unverified-checkout-user',
+                email: 'unverified-checkout@example.test',
+                emailVerified: false,
+                providerData: [{ providerId: 'password' }]
+            }
+        });
+
+        await page.evaluate(() => window.BARK.paywall.openPaywall({ source: 'profile-premium-card' }));
+        await page.locator('#paywall-primary-btn').click();
+
+        await expect(page.locator('#paywall-body')).toContainText('Please verify your email');
+        await expect(page.locator('#paywall-promo-code-message')).toContainText('Please verify your email');
+        await expect.poll(() => page.evaluate(() => window.__checkoutCalls.length)).toBe(0);
     });
 });

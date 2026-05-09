@@ -110,6 +110,61 @@ describe("Lemon Squeezy checkout session callable", () => {
         );
     });
 
+    it("rejects unverified email/password checkout requests before Lemon Squeezy is called", async () => {
+        let postCalls = 0;
+
+        await assertRejectsCode(
+            handleCreateCheckoutSession(
+                {},
+                authedContext("unverified-email-user", {
+                    email: "unverified@example.test",
+                    email_verified: false,
+                    firebase: { sign_in_provider: "password" }
+                }),
+                {
+                    ...config,
+                    axiosPost: async () => {
+                        postCalls += 1;
+                    }
+                }
+            ),
+            "failed-precondition"
+        );
+
+        assert.equal(postCalls, 0);
+    });
+
+    it("allows verified Google users to start checkout", async () => {
+        let postCalls = 0;
+
+        const result = await handleCreateCheckoutSession(
+            {},
+            authedContext("google-verified-user", {
+                email: "google@example.test",
+                email_verified: true,
+                firebase: { sign_in_provider: "google.com" }
+            }),
+            {
+                ...config,
+                axiosPost: async () => {
+                    postCalls += 1;
+                    return {
+                        data: {
+                            data: {
+                                attributes: {
+                                    url: "https://usbarkrangers.lemonsqueezy.com/checkout/test-session"
+                                }
+                            }
+                        }
+                    };
+                }
+            }
+        );
+
+        assert.equal(postCalls, 1);
+        assert.equal(result.checkoutUrl, "https://usbarkrangers.lemonsqueezy.com/checkout/test-session");
+    });
+
     it("returns only the hosted checkout URL for signed-in users", async () => {
         let captured = null;
 

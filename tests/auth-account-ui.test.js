@@ -99,6 +99,12 @@ function loadAuthAccountUi(overrides = {}) {
         'account-display-uid',
         'account-display-provider',
         'account-display-premium',
+        'account-email-verification-panel',
+        'account-email-verification-eyebrow',
+        'account-email-verification-title',
+        'account-email-verification-copy',
+        'account-resend-verification-btn',
+        'account-refresh-verification-btn',
         'account-billing-panel',
         'account-billing-eyebrow',
         'account-billing-title',
@@ -131,15 +137,34 @@ function loadAuthAccountUi(overrides = {}) {
     const document = createDocument(ids);
     const writes = [];
     const createCalls = [];
+    const signInCalls = [];
     const updateProfileCalls = [];
+    const verificationEmails = [];
+    const reloadCalls = [];
+    const tokenRefreshCalls = [];
     const user = {
         uid: 'uid-123',
         email: '',
         displayName: '',
-        providerData: [{ providerId: 'password' }],
+        emailVerified: overrides.emailVerified === true,
+        providerData: overrides.providerData || [{ providerId: 'password' }],
         async updateProfile(profile) {
             updateProfileCalls.push({ ...profile });
             Object.assign(user, profile);
+        },
+        async sendEmailVerification() {
+            verificationEmails.push({ uid: user.uid, email: user.email });
+            if (overrides.sendVerificationError) throw overrides.sendVerificationError;
+        },
+        async reload() {
+            reloadCalls.push({ uid: user.uid });
+            if (Object.prototype.hasOwnProperty.call(overrides, 'reloadEmailVerified')) {
+                user.emailVerified = overrides.reloadEmailVerified === true;
+            }
+        },
+        async getIdToken(forceRefresh) {
+            tokenRefreshCalls.push({ uid: user.uid, forceRefresh });
+            return 'test-id-token';
         }
     };
     const auth = {
@@ -151,7 +176,12 @@ function loadAuthAccountUi(overrides = {}) {
             auth.currentUser = user;
             return { user };
         },
-        async signInWithEmailAndPassword() {},
+        async signInWithEmailAndPassword(email, password) {
+            signInCalls.push({ email, password });
+            user.email = email;
+            auth.currentUser = user;
+            return { user };
+        },
         async sendPasswordResetEmail() {},
         async signOut() {
             auth.currentUser = null;
@@ -233,7 +263,11 @@ function loadAuthAccountUi(overrides = {}) {
         auth,
         user,
         createCalls,
+        signInCalls,
         updateProfileCalls,
+        verificationEmails,
+        reloadCalls,
+        tokenRefreshCalls,
         locationAssignCalls,
         writes,
         element: id => document.element(id)
@@ -256,7 +290,7 @@ test('email account creation requires and saves a username', async () => {
     assert.equal(harness.element('user-profile-name').textContent, 'Trail Boss');
     assert.equal(harness.element('account-auth-message').dataset.tone, 'success');
 
-    assert.equal(harness.writes.length, 1);
+    assert.ok(harness.writes.length >= 1);
     assert.equal(harness.writes[0].collectionName, 'users');
     assert.equal(harness.writes[0].docId, 'uid-123');
     assert.equal(harness.writes[0].options.merge, true);
@@ -374,4 +408,75 @@ test('access-code premium account hides manage billing and shows no auto-renew/p
     assert.match(harness.element('account-billing-copy').textContent, /Auto-renew: No/);
     assert.match(harness.element('account-billing-copy').textContent, /Payment method: None/);
     assert.equal(harness.element('account-manage-subscription-btn').hidden, true);
+});
+
+test('new email/password account sends verification email and shows verification sent status', async () => {
+    const harness = loadAuthAccountUi();
+
+    harness.element('account-create-username').value = 'Trail Boss';
+    harness.element('account-create-email').value = 'verify@example.com';
+    harness.element('account-create-password').value = 'password123';
+
+    await harness.element('account-create-form').dispatch('submit');
+
+    assert.deepEqual(harness.verificationEmails, [{ uid: 'uid-123', email: 'verify@example.com' }]);
+    assert.equal(harness.element('account-email-verification-panel').hidden, false);
+    assert.equal(harness.element('account-email-verification-title').textContent, 'Email verification sent');
+    assert.match(harness.element('account-auth-message').textContent, /Email verification sent/);
+});
+
+test('unverified email/password user sees verification banner', () => {
+    const harness = loadAuthAccountUi();
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'unverified-user',
+        email: 'unverified@example.com',
+        emailVerified: false,
+        providerData: [{ providerId: 'password' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+    assert.equal(harness.element('account-email-verification-panel').hidden, false);
+    assert.equal(harness.element('account-email-verification-eyebrow').textContent, 'Please verify your email');
+    assert.match(harness.element('account-email-verification-copy').textContent, /Premium checkout/);
+});
+
+test('resend verification button sends once and respects cooldown', async () => {
+    const harness = loadAuthAccountUi();
+    Object.assign(harness.user, {
+        uid: 'cooldown-user',
+        email: 'cooldown@example.com',
+        emailVerified: false,
+        providerData: [{ providerId: 'password' }]
+    });
+    harness.auth.currentUser = harness.user;
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+    await harness.element('account-resend-verification-btn').dispatch('click');
+    await harness.element('account-resend-verification-btn').dispatch('click');
+
+    assert.deepEqual(harness.verificationEmails, [{ uid: 'cooldown-user', email: 'cooldown@example.com' }]);
+    assert.equal(harness.element('account-resend-verification-btn').disabled, true);
+    assert.match(harness.element('account-resend-verification-btn').textContent, /Resend in/);
+});
+
+test('verified user hides warning after refresh status reload', async () => {
+    const harness = loadAuthAccountUi({ reloadEmailVerified: true });
+    Object.assign(harness.user, {
+        uid: 'verified-refresh-user',
+        email: 'verified@example.com',
+        emailVerified: false,
+        providerData: [{ providerId: 'password' }]
+    });
+    harness.auth.currentUser = harness.user;
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    assert.equal(harness.element('account-email-verification-panel').hidden, false);
+
+    await harness.element('account-refresh-verification-btn').dispatch('click');
+
+    assert.equal(harness.element('account-email-verification-panel').hidden, true);
+    assert.equal(harness.reloadCalls.length, 1);
+    assert.deepEqual(harness.tokenRefreshCalls, [{ uid: 'verified-refresh-user', forceRefresh: true }]);
+    assert.match(harness.element('account-auth-message').textContent, /Email verified/);
 });

@@ -13,10 +13,12 @@
     const MAX_USERNAME_LENGTH = 30;
     const LEMON_SQUEEZY_BILLING_PORTAL_URL = 'https://usbarkrangers.lemonsqueezy.com/billing';
     const SUPPORT_EMAIL = 'usbarkrangers@gmail.com';
+    const VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
 
     let initialized = false;
     let activeMode = 'signin';
     let unsubscribePremium = null;
+    let lastVerificationEmailSentAt = 0;
 
     const ACCOUNT_PROMPT_COPY = {
         'mark-visited': {
@@ -90,6 +92,13 @@
     function setHidden(id, hidden) {
         const node = getElement(id);
         if (node) node.hidden = hidden === true;
+    }
+
+    function setButtonTextAndDisabled(id, text, disabled) {
+        const node = getElement(id);
+        if (!node) return;
+        node.textContent = text;
+        node.disabled = disabled === true;
     }
 
     function setStatus(message, tone = 'neutral') {
@@ -224,6 +233,46 @@
         if (providerIds.includes('google.com')) return 'Google';
         if (providerIds.includes('password')) return 'Email/password';
         return user && user.isAnonymous ? 'Anonymous' : 'Firebase Auth';
+    }
+
+    function isPasswordAuthUser(user) {
+        const providerIds = (user && Array.isArray(user.providerData) ? user.providerData : [])
+            .map(provider => provider && provider.providerId)
+            .filter(Boolean);
+        return providerIds.includes('password');
+    }
+
+    function needsEmailVerification(user) {
+        return Boolean(user && user.email && isPasswordAuthUser(user) && user.emailVerified !== true);
+    }
+
+    function getVerificationCooldownRemainingMs(now = Date.now()) {
+        if (!lastVerificationEmailSentAt) return 0;
+        return Math.max(0, VERIFICATION_RESEND_COOLDOWN_MS - (now - lastVerificationEmailSentAt));
+    }
+
+    function updateEmailVerificationPanel(user) {
+        const panel = getElement('account-email-verification-panel');
+        if (!panel) return;
+
+        const showPanel = needsEmailVerification(user);
+        panel.hidden = !showPanel;
+        if (!showPanel) {
+            setButtonTextAndDisabled('account-resend-verification-btn', 'Resend verification email', false);
+            return;
+        }
+
+        const cooldownRemainingMs = getVerificationCooldownRemainingMs();
+        const cooldownSeconds = Math.ceil(cooldownRemainingMs / 1000);
+        setText('account-email-verification-eyebrow', 'Please verify your email');
+        setText('account-email-verification-title', lastVerificationEmailSentAt ? 'Email verification sent' : 'Please verify your email');
+        setText('account-email-verification-copy', 'Please verify your email before using Premium checkout, access codes, or premium routing.');
+        setButtonTextAndDisabled(
+            'account-resend-verification-btn',
+            cooldownRemainingMs > 0 ? `Resend in ${cooldownSeconds}s` : 'Resend verification email',
+            cooldownRemainingMs > 0
+        );
+        setButtonTextAndDisabled('account-refresh-verification-btn', 'I verified, refresh status', false);
     }
 
     function getUserDisplayName(user) {
@@ -454,6 +503,7 @@
 
         const signedIn = Boolean(user);
         setHidden('account-status-card', !signedIn);
+        updateEmailVerificationPanel(user);
         refreshBillingPanel(user);
 
         if (!signedIn) return;
@@ -463,6 +513,102 @@
         setText('account-display-uid', user.uid || 'Unavailable');
         setText('account-display-provider', getProviderLabel(user));
         setText('account-display-premium', getPremiumLabel());
+    }
+
+    async function persistEmailVerificationState(user) {
+        if (!user || !user.uid) return;
+        try {
+            if (typeof firebase === 'undefined' || !firebase.firestore) return;
+            const timestamp = getServerTimestamp();
+            await firebase.firestore().collection('users').doc(user.uid).set({
+                emailVerified: user.emailVerified === true,
+                emailVerificationUpdatedAt: timestamp || Date.now()
+            }, { merge: true });
+        } catch (error) {
+            console.warn('[authAccountUi] email verification state save failed:', error);
+        }
+    }
+
+    async function refreshEmailVerificationStatus(options = {}) {
+        let user = null;
+        try {
+            user = getFirebaseAuth().currentUser;
+        } catch (error) {
+            user = null;
+        }
+
+        if (!user) {
+            refreshAccountDisplay();
+            return null;
+        }
+
+        if (options.reload !== false && typeof user.reload === 'function') {
+            try {
+                await user.reload();
+                user = getFirebaseAuth().currentUser || user;
+            } catch (error) {
+                console.warn('[authAccountUi] email verification reload failed:', error);
+            }
+        }
+
+        if (user.emailVerified === true && typeof user.getIdToken === 'function') {
+            try {
+                await user.getIdToken(true);
+            } catch (error) {
+                console.warn('[authAccountUi] email verification token refresh failed:', error);
+            }
+        }
+
+        if (options.persist === true) {
+            await persistEmailVerificationState(user);
+        }
+        refreshAccountDisplay();
+
+        if (options.silent !== true) {
+            setStatus(user.emailVerified === true
+                ? 'Email verified. Premium account actions are available.'
+                : 'Please verify your email, then refresh status.',
+                user.emailVerified === true ? 'success' : 'neutral');
+        }
+
+        return user;
+    }
+
+    async function sendVerificationEmailForUser(user, options = {}) {
+        if (!user || !needsEmailVerification(user)) return false;
+
+        const cooldownRemainingMs = options.ignoreCooldown === true ? 0 : getVerificationCooldownRemainingMs();
+        if (cooldownRemainingMs > 0) {
+            setStatus(`Please wait ${Math.ceil(cooldownRemainingMs / 1000)} seconds before resending verification email.`, 'neutral');
+            updateEmailVerificationPanel(user);
+            return false;
+        }
+
+        if (typeof user.sendEmailVerification !== 'function') {
+            setStatus('Email verification could not be sent from this browser. Please sign out and sign in again.', 'error');
+            return false;
+        }
+
+        try {
+            await user.sendEmailVerification();
+            lastVerificationEmailSentAt = Date.now();
+            setStatus('Email verification sent. Please verify your email.', 'success');
+            await persistEmailVerificationState(user);
+            updateEmailVerificationPanel(user);
+            return true;
+        } catch (error) {
+            console.error('[authAccountUi] sendEmailVerification failed:', error);
+            setStatus(error && error.code === 'auth/too-many-requests'
+                ? 'Too many verification emails. Wait a moment, then try again.'
+                : 'Verification email could not be sent. Please try again.',
+                'error');
+            return false;
+        }
+    }
+
+    async function resendVerificationEmail() {
+        const user = getFirebaseAuth().currentUser;
+        await sendVerificationEmailForUser(user);
     }
 
     function seedAccountEmailFields(email) {
@@ -538,9 +684,12 @@
             const credential = await auth.createUserWithEmailAndPassword(email, password);
             const user = (credential && credential.user) || auth.currentUser;
             await saveCreatedAccountProfile(user, username, email);
+            const verificationSent = await sendVerificationEmailForUser(user, { ignoreCooldown: true });
             clearPasswordFields();
             clearCreateUsernameField();
-            setStatus('Account created. You are signed in.', 'success');
+            if (!verificationSent) {
+                setStatus('Account created. Please verify your email before using Premium checkout or access codes.', 'success');
+            }
             refreshAccountDisplay();
         } catch (error) {
             console.error('[authAccountUi] createUserWithEmailAndPassword failed:', error);
@@ -561,9 +710,15 @@
 
         try {
             setStatus('Signing in...', 'neutral');
-            await getFirebaseAuth().signInWithEmailAndPassword(email, password);
+            const auth = getFirebaseAuth();
+            await auth.signInWithEmailAndPassword(email, password);
+            const user = await refreshEmailVerificationStatus({ reload: true, silent: true });
             clearPasswordFields();
-            setStatus('Signed in.', 'success');
+            if (needsEmailVerification(user)) {
+                setStatus('Please verify your email before using Premium checkout, access codes, or premium routing.', 'neutral');
+            } else {
+                setStatus('Signed in.', 'success');
+            }
         } catch (error) {
             console.error('[authAccountUi] signInWithEmailAndPassword failed:', error);
             setStatus(getSafeAuthError(error), 'error');
@@ -632,10 +787,10 @@
         }
 
         try {
-            firebase.auth().onAuthStateChanged(() => {
-                refreshAccountDisplay();
+            firebase.auth().onAuthStateChanged(async () => {
+                await refreshEmailVerificationStatus({ reload: true, silent: true });
             });
-            refreshAccountDisplay();
+            refreshEmailVerificationStatus({ reload: true, silent: true });
         } catch (error) {
             if (attempt < 80) setTimeout(() => bindAuthObserverWhenReady(attempt + 1), 250);
         }
@@ -656,6 +811,8 @@
         bindClick('account-gate-close-btn', closeAccountPrompt);
         bindClick('account-gate-primary-btn', () => focusAccountForm('create'));
         bindClick('account-gate-secondary-btn', () => focusAccountForm('signin'));
+        bindClick('account-resend-verification-btn', resendVerificationEmail);
+        bindClick('account-refresh-verification-btn', () => refreshEmailVerificationStatus({ reload: true, persist: true }));
 
         bindSubmit('account-signin-form', signInWithEmail);
         bindSubmit('account-create-form', createAccount);
@@ -687,6 +844,9 @@
         openAccountPrompt,
         closeAccountPrompt,
         refreshAccountDisplay,
+        refreshEmailVerificationStatus,
+        resendVerificationEmail,
+        needsEmailVerification,
         signOut,
         openSubscriptionManagement
     };

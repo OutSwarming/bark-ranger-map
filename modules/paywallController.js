@@ -39,6 +39,21 @@
         }
     }
 
+    function isPasswordAuthUser(user) {
+        const providerIds = (user && Array.isArray(user.providerData) ? user.providerData : [])
+            .map(provider => provider && provider.providerId)
+            .filter(Boolean);
+        return providerIds.includes('password');
+    }
+
+    function needsEmailVerification(user) {
+        return Boolean(user && user.email && isPasswordAuthUser(user) && user.emailVerified !== true);
+    }
+
+    function getEmailVerificationMessage() {
+        return 'Please verify your email before using Premium checkout, access codes, or premium routing.';
+    }
+
     function isPremiumActive() {
         const premiumService = getPremiumService();
         return Boolean(
@@ -703,6 +718,12 @@
             return null;
         }
 
+        const user = getCurrentUser();
+        if (needsEmailVerification(user)) {
+            setPromoCodeMessage('Please verify your email before redeeming access codes.', 'error');
+            return null;
+        }
+
         const code = normalizePromoCodeInput();
         if (!code) {
             setPromoCodeMessage('That code was not recognized or has expired.', 'error');
@@ -768,6 +789,13 @@
         }
 
         if (state.mode === 'premium' || state.mode === 'verifying') {
+            return;
+        }
+
+        const user = getCurrentUser();
+        if (needsEmailVerification(user)) {
+            setText('paywall-body', getEmailVerificationMessage());
+            setPromoCodeMessage('Please verify your email before continuing.', 'error');
             return;
         }
 
