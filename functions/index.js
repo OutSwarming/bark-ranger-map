@@ -17,6 +17,23 @@ const ADMIN_RATE_LIMITS = {
     syncToSpreadsheet: { maxRequests: 10, windowMs: 60 * 1000 }
 };
 
+const PREMIUM_CALLABLE_RATE_LIMITS = {
+    getPremiumRoute: {
+        maxRequests: 30,
+        windowMs: 60 * 60 * 1000,
+        envMaxKey: "BARK_RATE_LIMIT_PREMIUM_ROUTE_MAX",
+        envWindowKey: "BARK_RATE_LIMIT_PREMIUM_ROUTE_WINDOW_MS",
+        message: "Route generation limit reached. Please try again shortly."
+    },
+    getPremiumGeocode: {
+        maxRequests: 120,
+        windowMs: 60 * 60 * 1000,
+        envMaxKey: "BARK_RATE_LIMIT_PREMIUM_GEOCODE_MAX",
+        envWindowKey: "BARK_RATE_LIMIT_PREMIUM_GEOCODE_WINDOW_MS",
+        message: "Global town search limit reached. Please try again shortly."
+    }
+};
+
 const FUNCTION_FLAG_CONFIG = Object.freeze({
     getPremiumRoute: {
         envKey: "BARK_ENABLE_PREMIUM_ROUTE",
@@ -130,6 +147,80 @@ function requireAuthCallable(context) {
         throw new functions.https.HttpsError("unauthenticated", "Sign in is required.");
     }
     return uid;
+}
+
+function parsePositiveInteger(value, fallback) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getPremiumCallableRateLimit(action, options = {}) {
+    const defaults = PREMIUM_CALLABLE_RATE_LIMITS[action];
+    if (!defaults) return null;
+
+    const optionLimits = options.premiumCallableRateLimits || {};
+    const override = optionLimits && typeof optionLimits[action] === "object" ? optionLimits[action] : {};
+    const env = options.env || process.env;
+
+    return {
+        maxRequests: parsePositiveInteger(
+            override.maxRequests === undefined ? env[defaults.envMaxKey] : override.maxRequests,
+            defaults.maxRequests
+        ),
+        windowMs: parsePositiveInteger(
+            override.windowMs === undefined ? env[defaults.envWindowKey] : override.windowMs,
+            defaults.windowMs
+        ),
+        message: typeof override.message === "string" && override.message.trim()
+            ? override.message.trim()
+            : defaults.message
+    };
+}
+
+function getRateLimitRetrySeconds(windowEndsAt, now) {
+    return Math.max(1, Math.ceil((windowEndsAt - now) / 1000));
+}
+
+async function enforcePremiumCallableRateLimit(uid, action, options = {}) {
+    const limit = getPremiumCallableRateLimit(action, options);
+    if (!limit) return;
+
+    const db = options.firestore || admin.firestore();
+    if (!db || typeof db.runTransaction !== "function") {
+        console.error("[premiumRateLimit] Firestore transaction support is unavailable.", { uid, action });
+        throw new functions.https.HttpsError("internal", "Rate limit could not be verified.");
+    }
+
+    const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
+    const windowStart = Math.floor(now / limit.windowMs) * limit.windowMs;
+    const windowEndsAt = windowStart + limit.windowMs;
+    const safeUid = encodeURIComponent(uid);
+    const safeAction = encodeURIComponent(action);
+    const ref = db.collection("_premiumCallableRateLimits").doc(`${safeAction}_${safeUid}_${windowStart}`);
+
+    await db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(ref);
+        const currentCount = snapshot.exists ? Number(snapshot.data().count || 0) : 0;
+
+        if (currentCount >= limit.maxRequests) {
+            const retrySeconds = getRateLimitRetrySeconds(windowEndsAt, now);
+            throw new functions.https.HttpsError(
+                "resource-exhausted",
+                `${limit.message} Try again in ${retrySeconds} seconds.`
+            );
+        }
+
+        transaction.set(ref, {
+            uid,
+            action,
+            count: currentCount + 1,
+            limit: limit.maxRequests,
+            windowStart: admin.firestore.Timestamp.fromMillis(windowStart),
+            windowEndsAt: admin.firestore.Timestamp.fromMillis(windowEndsAt),
+            expiresAt: admin.firestore.Timestamp.fromMillis(windowEndsAt + 24 * 60 * 60 * 1000),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    });
 }
 
 const PREMIUM_ENTITLEMENT_STATUSES = new Set(["active", "manual_active"]);
@@ -932,6 +1023,8 @@ async function handleLemonSqueezyWebhook(req, res, options = {}) {
 
 async function handlePremiumRoute(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("getPremiumRoute", options);
+    const uid = requireAuthCallable(context);
+    await enforcePremiumCallableRateLimit(uid, "getPremiumRoute", options);
     await requirePremiumCallable(context, "getPremiumRoute", options);
 
     const payload = getCallablePayload(requestOrData);
@@ -981,6 +1074,8 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
 
 async function handlePremiumGeocode(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("getPremiumGeocode", options);
+    const uid = requireAuthCallable(context);
+    await enforcePremiumCallableRateLimit(uid, "getPremiumGeocode", options);
     await requirePremiumCallable(context, "getPremiumGeocode", options);
 
     const payload = getCallablePayload(requestOrData);
@@ -1047,6 +1142,8 @@ if (process.env.NODE_ENV === "test") {
         isEffectivePremium,
         isFunctionFlagEnabled,
         requireFunctionFlagEnabled,
+        getPremiumCallableRateLimit,
+        enforcePremiumCallableRateLimit,
         requirePremiumCallable,
         handlePremiumRoute,
         handlePremiumGeocode,

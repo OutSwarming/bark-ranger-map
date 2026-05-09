@@ -81,3 +81,17 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
 - Test harness fix: `tests/playwright/bug016-route-generation-gating-smoke.spec.js` now stubs `window.BARK.confirmLongRouteWarning` to return `continue`, keeping product behavior unchanged while making the route gating smoke deterministic.
 - Focused route-gating rerun: `bug016-route-generation-gating-smoke.spec.js` passed 2/2.
 - Final full signed-in smoke rerun: `npm run test:e2e:smoke` passed 40/40 with `BARK_E2E_BASE_URL`, `BARK_E2E_STORAGE_STATE`, `BARK_E2E_STORAGE_STATE_B`, and `BARK_E2E_PREMIUM_STORAGE_STATE` set to the local ignored `.auth` files.
+
+## Server Rate Limit Progress
+
+- Added server-side per-user rate limits for premium ORS callables in `functions/index.js`.
+- Defaults:
+  - `getPremiumRoute`: 30 requests per hour.
+  - `getPremiumGeocode`: 120 requests per hour.
+- Optional env overrides:
+  - `BARK_RATE_LIMIT_PREMIUM_ROUTE_MAX`
+  - `BARK_RATE_LIMIT_PREMIUM_ROUTE_WINDOW_MS`
+  - `BARK_RATE_LIMIT_PREMIUM_GEOCODE_MAX`
+  - `BARK_RATE_LIMIT_PREMIUM_GEOCODE_WINDOW_MS`
+- Rate limit order: kill switch, auth, rate limit, entitlement, payload validation, ORS. Over-limit calls stop before entitlement reads and ORS network calls.
+- QC: `npm --prefix functions test` passed 75/75.

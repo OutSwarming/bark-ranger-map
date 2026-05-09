@@ -86,12 +86,12 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
   - How to test: signed-in and/or anonymous feedback succeeds as intended; malicious extra fields/huge text denied.
   - Expected cost/risk reduction: support channel works; low cost, prevents noisy client errors.
 
-- [ ] **Add route/geocode per-user rate limits**
+- [x] **Add route/geocode per-user rate limits**
   - Files: `functions/index.js`, `functions/tests/ors-entitlement.test.js`
-  - Exact change: apply per-user/day or per-minute counters to `getPremiumRoute` and `getPremiumGeocode`; return `resource-exhausted` with retry guidance.
+  - Exact change: added per-user Firestore transaction counters for `getPremiumRoute` and `getPremiumGeocode`; defaults are 30 route generations/hour and 120 geocode searches/hour, configurable through environment variables; over-limit calls return `resource-exhausted` with retry guidance.
   - Why it matters: premium route generation can be spammed and each callable performs entitlement read plus external ORS calls.
-  - How to test: within limit succeeds; over limit fails; counters reset by window.
-  - Expected cost/risk reduction: caps function invocations, Firestore entitlement reads, outbound/API usage under abuse.
+  - How to test: within limit succeeds; over limit fails before entitlement reads or ORS calls; counters reset by window. Completed: function tests passed 75/75.
+  - Expected cost/risk reduction: caps Firestore entitlement reads and outbound/API usage under abuse after the first limit-window counter read.
 
 ## P2 - Can Fix During/After Private Beta
 

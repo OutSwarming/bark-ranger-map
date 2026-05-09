@@ -98,6 +98,7 @@ Confirmed paths from code and rules:
 - `leaderboard/{uid}`: public leaderboard rows, client-writable by owner.
 - `system/leaderboardData`: hourly top-100 aggregate written by a scheduled function but not currently used by the frontend leaderboard.
 - `_adminRateLimits/{action_uid_window}`: admin callable rate limits.
+- `_premiumCallableRateLimits/{action_uid_window}`: server-written per-user rate limits for premium route/geocode callables.
 - `feedback/{autoId}` is written by `modules/uiController.js`, but no matching allow rule exists in `firestore.rules`; likely denied in production rules.
 
 ### Cloud Functions
@@ -278,8 +279,8 @@ Initial confirmed rankings:
 | Leaderboard See More | `profileEngine.loadMoreLeaderboard` | `startAfter(lastDoc).limit(5).get()` | User clicks | 5 doc reads + optional aggregation | Per click | Good pagination; optional aggregation risk | No offset; keep UX; exact-rank cache only if monitoring shows a problem. |
 | Saved routes list | `firebaseService.loadSavedRoutes` | `users/{uid}/savedRoutes.orderBy(...).startAfter(cursor).limit(n).get()` | Route panel | 3 initial, 5 more | Per panel/page | Good | Keep cursor pagination. |
 | Saved route open/delete | `firebaseService.loadSavedRoute/deleteSavedRoute` | One doc get/delete | User action | 1 read or 1 delete | User action | Good | Keep. |
-| Route generation | `services/orsService.js`; `functions/index.js` `getPremiumRoute` | Function reads `users/{uid}` entitlement | Premium route request | 1 Firestore read + function/network | Per generation | Abuse/cost risk | Add per-user rate limits and App Check. |
-| Global geocode | `searchEngine.fetchGlobalGeocode`; `functions/index.js` `getPremiumGeocode` | Function reads `users/{uid}` entitlement | Premium global search | 1 Firestore read + function/network | Per uncached query | Abuse/cost risk | Per-user rate limits; keep client cache. |
+| Route generation | `services/orsService.js`; `functions/index.js` `getPremiumRoute` | Function checks per-user rate limit, then reads `users/{uid}` entitlement | Premium route request | 1 rate-limit read/write within limit, 1 entitlement read, function/network; over-limit stops before entitlement/ORS | Per generation | Lower after rate limit; App Check still needed | Keep 30/hour default; add App Check before public scale. |
+| Global geocode | `searchEngine.fetchGlobalGeocode`; `functions/index.js` `getPremiumGeocode` | Function checks per-user rate limit, then reads `users/{uid}` entitlement | Premium global search | 1 rate-limit read/write within limit, 1 entitlement read, function/network; over-limit stops before entitlement/ORS | Per uncached query | Lower after rate limit; App Check still needed | Keep 120/hour default; keep client cache. |
 | Checkout start | `paywallController.startCheckout`; `functions/index.js` `createCheckoutSession` | No Firestore write | User clicks checkout | Function invocation only | Per click | Test-mode blocker | Live/test config and anti-double-click exists client-side. |
 | Webhook entitlement | `functions/index.js` `handleLemonSqueezyWebhook` | `users/{uid}.get()`, `set({entitlement})` | Lemon Squeezy webhook | 1 read + 1 write | Provider events | Event ordering risk | Processed-event transaction. |
 | Subscription display | `services/authAccountUi.js` | Reads local `premiumService` state from listener | Profile render | No extra read | UI refresh | Good | Portal URL should be verified. |
@@ -358,10 +359,10 @@ Recommended tier design:
 | Passport/stats | Limited/local | Yes | Enhanced | Local from visits | Keep mostly free for engagement | Low |
 | Achievements | View local | Yes | Yes/enhanced | Client writes achievements | Treat as cosmetic or server derive | Medium |
 | Leaderboard | Top 10/50 | Existing cursor browsing + own rank | Deep browse | Public cursor pages | Keep current cursor UX; only add a flagged depth cap if monitoring shows abuse | Medium |
-| Route generation | No | No | Yes | Server premium callable | Keep; add per-user rate limit | High if abused |
+| Route generation | No | No | Yes | Server premium callable with per-user rate limit | Keep; App Check still recommended | Medium if abused |
 | Trip planner manual stops | Limited | Yes | Yes | Mostly client/local/saved routes | Keep free planning; premium route generation | Medium |
 | Saved routes | No | Small cap | Higher cap | Saved routes owner subcollection | Cap free count if needed | Low/Medium |
-| Global town search | No | No | Yes | Server premium geocode | Keep; rate limit/cache | Medium |
+| Global town search | No | No | Yes | Server premium geocode with per-user rate limit | Keep; client cache and App Check still recommended | Medium |
 | Account/profile | Prompt | Yes | Yes | Auth UI/user doc | Keep | Low |
 | Manage subscription | No | If inactive history | Yes | Static Lemon portal URL | Verify portal URL/user flow | Medium |
 | Checkout | Sign in first | Yes | Already premium hides checkout | Server callable | Live/test config required | P0 |
@@ -452,7 +453,7 @@ Test results:
 
 | Command | Result | Notes |
 |---|---|---|
-| `npm --prefix functions test` with Node 20 PATH | Pass: 71/71 | Checkout, webhook, entitlement, ORS handler unit tests passed. |
+| `npm --prefix functions test` with Node 20 PATH | Pass: 75/75 | Checkout, webhook, entitlement, ORS handler, kill-switch, and route/geocode rate-limit unit tests passed. |
 | `npm run test:rules` with Node 20 PATH | Pass: 17/17 | Firestore rules entitlement/admin/ownership tests passed. Java 18 warning: firebase-tools v15 will require Java 21+. |
 | `npm run test:functions:emulator` with Node 20 PATH | Pass: 9/9 | Auth/Firestore/Functions emulator ORS callable entitlement tests passed. |
 | `npm run test:e2e:smoke` without local server | Fail due environment | `npm` not on default PATH initially; after PATH fix, Playwright failed with `ERR_CONNECTION_REFUSED` because `localhost:4173` server was not running. |
@@ -619,7 +620,7 @@ Emergency cost playbook:
 | 3 | Webhook replay/out-of-order | P1 | Medium | Last event id only | Low | Wrong access after cancel/refund/renew | Processed events + ordering | Payments | Yes paid |
 | 4 | Past-due removes access too early | P1 | Medium | `subscription_payment_failed` maps non-premium | Low | Angry paying users | Grace/state machine | Payments/Product | Yes paid |
 | 5 | Lemon Squeezy final RC live-mode switch | P0 | Certain before launch | `functions/index.js` | Low direct, high revenue/support | Users pay or cannot pay correctly if not switched | Keep test mode until Carter approves RC, then configurable mode + live webhook test | Payments | Yes public |
-| 6 | Route/geocode spam | P1 | Medium | Premium callables no per-user rate limit | Medium/High | Slow/expensive external calls | Rate limits/App Check | Functions | Beta cap |
+| 6 | Route/geocode spam beyond server limits | P2 | Low/Medium | Premium callables now have per-user hourly limits; App Check not yet enforced | Medium | Slow/expensive external calls are capped per user but scripted account creation remains possible | Add App Check and monitoring | Functions/Ops | No for private beta |
 | 7 | Exact rank aggregation repeated | P2 | Medium | `fetchExactLeaderboardRankForScore` on load-more | Low/Medium | Slow leaderboard | TTL/cache only if monitoring shows a problem | Frontend | No |
 | 8 | Duplicate user-doc listeners | P2 | High | `authService` + `VaultRepo` | Low/Medium | More reads; state complexity | Consolidate/split | Frontend | No |
 | 9 | Feedback denied | P2 | High | `feedback.add`, default deny rules | Low | Users cannot contact support in app | Safe feedback path | Full-stack | No |
@@ -656,6 +657,6 @@ Realistic Firebase cost:
 - 1,000 heavy premium users/day: about **$16/month Firestore**, plus Functions/ORS costs.
 - Catastrophic modeled case, 10,000 stress/abuse users/day: about **$1,622/month Firestore** before Functions/network and before kill switches.
 
-Single code issue most likely to make costs explode: unbounded route/geocode/leaderboard actions without server-side rate limits and kill switches. The exact leaderboard pagination is not the feared full-collection read bug.
+Single code issue most likely to make costs explode: any remaining unbounded action that bypasses server controls, especially leaderboard/client-authored writes or scripted account creation without App Check. Route/geocode now have kill switches and per-user server limits.
 
 Single payment issue most likely to cause user anger: a user pays in live mode but entitlement is wrong because a webhook arrives late/out of order or the final test-to-live switch was not verified. The test-mode-only state itself is known and should be changed last.

@@ -8,6 +8,7 @@ const {
         normalizeEntitlement,
         isEffectivePremium,
         isFunctionFlagEnabled,
+        getPremiumCallableRateLimit,
         requirePremiumCallable,
         handlePremiumRoute,
         handlePremiumGeocode,
@@ -31,12 +32,64 @@ async function assertRejectsCode(promise, code) {
     );
 }
 
-function makeFirestore({ entitlement, exists = true, data } = {}) {
+function makeFirestore({ entitlement, exists = true, data, rateLimitCount } = {}) {
+    const rateLimitDocs = new Map();
     const state = {
         reads: 0,
+        writes: 0,
+        userReads: 0,
+        rateLimitReads: 0,
+        rateLimitWrites: 0,
         requestedCollection: null,
-        requestedDoc: null
+        requestedDoc: null,
+        lastRateLimitDoc: null
     };
+
+    function makeDocRef(collectionName, docId) {
+        return {
+            async get() {
+                state.reads += 1;
+                state.requestedCollection = collectionName;
+                state.requestedDoc = docId;
+
+                if (collectionName === "users") {
+                    state.userReads += 1;
+                    return {
+                        exists,
+                        data: () => data || { entitlement }
+                    };
+                }
+
+                if (collectionName === "_premiumCallableRateLimits") {
+                    state.rateLimitReads += 1;
+                    state.lastRateLimitDoc = docId;
+                    const stored = rateLimitDocs.has(docId)
+                        ? rateLimitDocs.get(docId)
+                        : rateLimitCount === undefined
+                            ? null
+                            : { count: rateLimitCount };
+                    return {
+                        exists: stored !== null,
+                        data: () => stored || {}
+                    };
+                }
+
+                return {
+                    exists: false,
+                    data: () => ({})
+                };
+            },
+            async set(value, options = {}) {
+                state.writes += 1;
+                if (collectionName === "_premiumCallableRateLimits") {
+                    state.rateLimitWrites += 1;
+                    state.lastRateLimitDoc = docId;
+                    const previous = rateLimitDocs.get(docId) || {};
+                    rateLimitDocs.set(docId, options.merge ? { ...previous, ...value } : { ...value });
+                }
+            }
+        };
+    }
 
     return {
         state,
@@ -45,17 +98,19 @@ function makeFirestore({ entitlement, exists = true, data } = {}) {
             return {
                 doc(docId) {
                     state.requestedDoc = docId;
-                    return {
-                        async get() {
-                            state.reads += 1;
-                            return {
-                                exists,
-                                data: () => data || { entitlement }
-                            };
-                        }
-                    };
+                    return makeDocRef(collectionName, docId);
                 }
             };
+        },
+        async runTransaction(callback) {
+            return callback({
+                get(ref) {
+                    return ref.get();
+                },
+                set(ref, value, options) {
+                    return ref.set(value, options);
+                }
+            });
         }
     };
 }
@@ -143,6 +198,19 @@ describe("ORS premium callable entitlement helpers", () => {
 });
 
 describe("ORS premium callable handlers", () => {
+    it("uses conservative default per-user premium callable limits", () => {
+        assert.deepEqual(getPremiumCallableRateLimit("getPremiumRoute", { env: {} }), {
+            maxRequests: 30,
+            windowMs: 60 * 60 * 1000,
+            message: "Route generation limit reached. Please try again shortly."
+        });
+        assert.deepEqual(getPremiumCallableRateLimit("getPremiumGeocode", { env: {} }), {
+            maxRequests: 120,
+            windowMs: 60 * 60 * 1000,
+            message: "Global town search limit reached. Please try again shortly."
+        });
+    });
+
     it("can disable route generation server-side before entitlement reads or ORS calls", async () => {
         let postCalls = 0;
         const firestore = makeFirestore({ entitlement: premiumEntitlement });
@@ -203,6 +271,115 @@ describe("ORS premium callable handlers", () => {
 
         assert.equal(firestore.state.reads, 0);
         assert.equal(getCalls, 0);
+    });
+
+    it("rate-limits premium routes before entitlement reads or ORS calls", async () => {
+        let postCalls = 0;
+        const firestore = makeFirestore({
+            entitlement: premiumEntitlement,
+            rateLimitCount: 2
+        });
+
+        await assertRejectsCode(
+            handlePremiumRoute(
+                {
+                    data: {
+                        coordinates: [[-122.4, 37.8], [-122.5, 37.9]]
+                    }
+                },
+                authedContext("premium-user"),
+                {
+                    firestore,
+                    nowMillis: 1700000000000,
+                    premiumCallableRateLimits: {
+                        getPremiumRoute: { maxRequests: 2, windowMs: 60 * 1000 }
+                    },
+                    getOrsApiKey: () => "test-key",
+                    axiosPost: async () => {
+                        postCalls += 1;
+                        return { data: { ok: true } };
+                    }
+                }
+            ),
+            "resource-exhausted"
+        );
+
+        assert.equal(firestore.state.rateLimitReads, 1);
+        assert.equal(firestore.state.rateLimitWrites, 0);
+        assert.equal(firestore.state.userReads, 0);
+        assert.equal(postCalls, 0);
+    });
+
+    it("rate-limits premium geocode before entitlement reads or ORS calls", async () => {
+        let getCalls = 0;
+        const firestore = makeFirestore({
+            entitlement: premiumEntitlement,
+            rateLimitCount: 1
+        });
+
+        await assertRejectsCode(
+            handlePremiumGeocode(
+                { data: { text: "Seattle" } },
+                authedContext("premium-user"),
+                {
+                    firestore,
+                    nowMillis: 1700000000000,
+                    premiumCallableRateLimits: {
+                        getPremiumGeocode: { maxRequests: 1, windowMs: 60 * 1000 }
+                    },
+                    getOrsApiKey: () => "test-key",
+                    axiosGet: async () => {
+                        getCalls += 1;
+                        return { data: { features: [] } };
+                    }
+                }
+            ),
+            "resource-exhausted"
+        );
+
+        assert.equal(firestore.state.rateLimitReads, 1);
+        assert.equal(firestore.state.rateLimitWrites, 0);
+        assert.equal(firestore.state.userReads, 0);
+        assert.equal(getCalls, 0);
+    });
+
+    it("resets premium geocode counters when the rate-limit window changes", async () => {
+        let getCalls = 0;
+        const firestore = makeFirestore({ entitlement: premiumEntitlement });
+        const options = {
+            firestore,
+            premiumCallableRateLimits: {
+                getPremiumGeocode: { maxRequests: 1, windowMs: 60 * 1000 }
+            },
+            getOrsApiKey: () => "test-key",
+            axiosGet: async () => {
+                getCalls += 1;
+                return { data: { features: [] } };
+            }
+        };
+
+        await handlePremiumGeocode(
+            { data: { text: "Seattle" } },
+            authedContext("premium-user"),
+            { ...options, nowMillis: 1700000000000 }
+        );
+
+        await assertRejectsCode(
+            handlePremiumGeocode(
+                { data: { text: "Portland" } },
+                authedContext("premium-user"),
+                { ...options, nowMillis: 1700000001000 }
+            ),
+            "resource-exhausted"
+        );
+
+        await handlePremiumGeocode(
+            { data: { text: "Tacoma" } },
+            authedContext("premium-user"),
+            { ...options, nowMillis: 1700000060000 }
+        );
+
+        assert.equal(getCalls, 2);
     });
 
     it("normalizes route coordinate pairs and rejects malformed waypoint lists", () => {

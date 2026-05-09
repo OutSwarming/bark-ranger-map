@@ -153,6 +153,18 @@ Move in small, verifiable slices:
   - No launch-critical tests are skipped.
   - Completed 2026-05-09: local ignored storage states exist for free, premium/test entitlement, and second free account; full signed-in smoke passed 40/40 against `http://localhost:4173/index.html`.
 
+### Completed: Server-side route/geocode rate limits
+
+- Files:
+  - `functions/index.js`
+  - `functions/tests/ors-entitlement.test.js`
+- Change:
+  - Added per-user Firestore transaction counters for `getPremiumRoute` and `getPremiumGeocode`.
+  - Defaults are 30 route generations/hour and 120 geocode searches/hour, with env overrides.
+- Test:
+  - `npm --prefix functions test` passed 75/75.
+  - Over-limit tests prove calls stop before entitlement reads and ORS network calls.
+
 ### 8. Final pre-RC budget alerts and monitoring checklist
 
 - Google Cloud/Firebase console:
