@@ -100,6 +100,12 @@ service cloud.firestore {
         );
     }
 
+    function hasSavedRoutePremiumAccess(uid) {
+      return isOwner(uid)
+        && exists(/databases/$(database)/documents/users/$(uid))
+        && hasActivePremiumEntitlement(get(/databases/$(database)/documents/users/$(uid)).data);
+    }
+
     function leaderboardWritableKeys() {
       return [
         'displayName',
@@ -142,7 +148,8 @@ service cloud.firestore {
       allow delete: if false;
 
       match /savedRoutes/{routeId} {
-        allow read, create, update, delete: if isOwner(uid);
+        allow read, create, update: if hasSavedRoutePremiumAccess(uid);
+        allow delete: if isOwner(uid);
       }
 
       match /achievements/{achievementId} {

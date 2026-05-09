@@ -260,3 +260,30 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
   - `past_due` and `cancelled_active` are now premium-active in Firestore rules, matching `premiumService` and payment hardening policy.
 - QC: `PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm run test:rules` passed 24/24.
 - Deployment note: pushing to GitHub updates the repository, but this repo has no checked-in GitHub Actions deploy workflow. Firebase Hosting/Firestore rules/functions must be deployed separately before the public/test website shows the new 5-visit behavior.
+
+## Saved Route Premium Gate Fix
+
+- Date: 2026-05-09.
+- Issue: signed-in free accounts could save and load unlimited saved routes because the app and Firestore rules only checked account ownership.
+- Policy now implemented:
+  - Manual trip planning remains free.
+  - Saving saved routes is Premium-only.
+  - Listing/loading saved routes is Premium-only.
+  - Owner delete remains allowed as cleanup for old saved-route documents.
+- Files changed:
+  - `engines/tripPlannerCore.js`
+  - `renderers/routeRenderer.js`
+  - `services/firebaseService.js`
+  - `modules/paywallController.js`
+  - `services/authAccountUi.js`
+  - `firestore.rules`
+  - `tests/rules/firestore-entitlement.rules.test.js`
+  - `tests/route-renderer-account-gate.test.js`
+  - `tests/playwright/bug026-trip-save-custom-stop-smoke.spec.js`
+- QC:
+  - JS syntax checks passed for touched runtime files.
+  - `node --test tests/route-renderer-account-gate.test.js` passed 4/4.
+  - `node --test tests/trip-planner-day-pager.test.js` passed 7/7.
+  - `npm run test:rules` passed 24/24.
+  - `BARK_E2E_BASE_URL=http://localhost:4173/index.html BARK_E2E_STORAGE_STATE="$PWD/playwright/.auth/free-user.json" BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json" npx playwright test tests/playwright/bug026-trip-save-custom-stop-smoke.spec.js --workers=1 --reporter=list` passed 2/2.
+- Deployment note: this requires hosting plus Firestore rules deployment before the hosted test app will enforce the new saved-route premium gate.

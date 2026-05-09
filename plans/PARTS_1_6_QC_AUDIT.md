@@ -119,7 +119,7 @@ Playwright, local static server at `http://localhost:4173/index.html`:
 - Confirmed no Playwright storage states are tracked; `playwright/.auth/` is ignored.
 - Confirmed storage states exist locally for free, premium/test entitlement, and second account.
 - Confirmed no Lemon/ORS secret values were introduced in committed changes.
-- Confirmed Firestore rules still do not use `get()`, `exists()`, or `getAfter()`.
+- Confirmed during Parts 1-6 QC that Firestore rules did not use `get()`, `exists()`, or `getAfter()`. Follow-up saved-route premium gating intentionally added `exists()`/`get()` only for premium saved-route entitlement checks.
 - Confirmed generated `firebase-debug.log`, `firestore-debug.log`, `functions/.secret.local`, and `test-results/` artifacts were not included in the QC commit.
 
 ## 7. Bugs Found

@@ -13,6 +13,7 @@ const {
     deleteDoc,
     doc,
     getDoc,
+    getDocs,
     serverTimestamp,
     setDoc,
     updateDoc
@@ -368,22 +369,57 @@ describe('Firestore entitlement and admin field rules', () => {
         await assertFails(deleteDoc(doc(aliceDb, 'users', 'alice')));
     });
 
-    it('allows own savedRoutes and denies another user savedRoutes', async () => {
-        const aliceDb = authedDb('alice');
+    it('requires premium entitlement to read and write savedRoutes', async () => {
+        await seedDoc(['users', 'free-user'], {
+            settings: { mapStyle: 'default' }
+        });
+        await seedDoc(['users', 'free-user', 'savedRoutes', 'existing-free-route'], {
+            tripName: 'Existing Free Route',
+            createdAt: 1710000000000,
+            tripDays: []
+        });
+        await seedDoc(['users', 'premium-user'], {
+            entitlement: {
+                premium: true,
+                status: 'manual_active',
+                source: 'admin_override',
+                manualOverride: true,
+                currentPeriodEnd: null
+            },
+            settings: { mapStyle: 'default' }
+        });
 
-        await assertSucceeds(setDoc(doc(aliceDb, 'users', 'alice', 'savedRoutes', 'route-1'), {
+        const freeDb = authedDb('free-user');
+        const premiumDb = authedDb('premium-user');
+
+        await assertFails(setDoc(doc(freeDb, 'users', 'free-user', 'savedRoutes', 'route-1'), {
+            tripName: 'Free Route',
+            createdAt: 1710000000000,
+            tripDays: []
+        }));
+        await assertFails(getDoc(doc(freeDb, 'users', 'free-user', 'savedRoutes', 'existing-free-route')));
+        await assertFails(getDocs(collection(freeDb, 'users', 'free-user', 'savedRoutes')));
+        await assertFails(updateDoc(doc(freeDb, 'users', 'free-user', 'savedRoutes', 'existing-free-route'), {
+            tripName: 'Updated Free Route'
+        }));
+        await assertSucceeds(deleteDoc(doc(freeDb, 'users', 'free-user', 'savedRoutes', 'existing-free-route')));
+
+        await assertSucceeds(setDoc(doc(premiumDb, 'users', 'premium-user', 'savedRoutes', 'route-1'), {
             tripName: 'Rules Test Trip',
             createdAt: 1710000000000,
             tripDays: []
         }));
-
-        await assertSucceeds(getDoc(doc(aliceDb, 'users', 'alice', 'savedRoutes', 'route-1')));
-        await assertFails(setDoc(doc(aliceDb, 'users', 'bob', 'savedRoutes', 'route-1'), {
+        await assertSucceeds(getDoc(doc(premiumDb, 'users', 'premium-user', 'savedRoutes', 'route-1')));
+        await assertSucceeds(getDocs(collection(premiumDb, 'users', 'premium-user', 'savedRoutes')));
+        await assertSucceeds(updateDoc(doc(premiumDb, 'users', 'premium-user', 'savedRoutes', 'route-1'), {
+            tripName: 'Updated Rules Test Trip'
+        }));
+        await assertFails(setDoc(doc(premiumDb, 'users', 'bob', 'savedRoutes', 'route-1'), {
             tripName: 'Other User Trip',
             createdAt: 1710000000000,
             tripDays: []
         }));
-        await assertFails(getDoc(doc(aliceDb, 'users', 'bob', 'savedRoutes', 'route-1')));
+        await assertFails(getDoc(doc(premiumDb, 'users', 'bob', 'savedRoutes', 'route-1')));
     });
 
     it('allows owner to read and write their own achievements', async () => {

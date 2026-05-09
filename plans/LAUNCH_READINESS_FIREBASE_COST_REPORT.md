@@ -27,7 +27,7 @@ Key documentation facts applied:
 - Firestore bills document reads/writes/deletes, storage, network, aggregation queries, and index entries read; realtime listeners charge document reads when documents are added/updated/removed from the listener result and can re-bill after reconnects.
 - Firestore free quota exists for one free database per project, but production launch planning should use gross cost and budget alerts rather than relying on free quota.
 - Firestore best practices recommend cursors instead of offsets, query limits, avoiding hotspot documents and high write rates to narrow key ranges, using asynchronous/parallel reads where possible, and keeping security rules efficient.
-- Security rules `get()`, `exists()`, and `getAfter()` can add billed reads. Current `firestore.rules` does not use them.
+- Security rules `get()`, `exists()`, and `getAfter()` can add billed reads. Current `firestore.rules` uses `exists()`/`get()` only for saved-route premium checks; hot visited-place and leaderboard rules do not use them.
 - Firebase Functions billing includes invocations, compute time/memory/CPU, outbound networking, and related Google Cloud usage. Secrets are supported via environment/secrets configuration; this repo uses `runWith({ secrets: [...] })`.
 - Lemon Squeezy webhook signing uses an HMAC SHA256 signature over the raw request body. Webhook retries and duplicate deliveries should be expected, so handlers must be idempotent.
 - Lemon Squeezy test mode is separate from live mode. Test-mode checkouts/events are not a substitute for a live payment launch. **Project note:** the current test-mode-only implementation is a known intentional pre-release state and should be the final controlled switch before the release candidate, after the non-payment safety fixes are complete. **Owner approval lock: DO NOT TAKE OUT UNTIL CARTER APPROVES.** When Carter approves the live-mode switch, beta testers should be routed through real paid Lemon Squeezy checkout.
@@ -121,7 +121,7 @@ Main file: `functions/index.js`.
 | Visited places | `services/checkinService.js`, `services/firebaseService.js`, `repos/VaultRepo.js`, `firestore.rules` | `users/{uid}` snapshot | `users/{uid}.visitedPlaces` whole-array writes | Yes for cloud | Free 5 cap rules-enforced; premium more | Duplicate listeners; premium document growth. |
 | Stats/passport | `modules/profileEngine.js`, `gamificationLogic.js` | Local visits/parks; achievements subcollection once/session | Achievement batch writes | Yes for persisted achievements | Mostly free | Achievement spoofing. |
 | Leaderboard | `modules/profileEngine.js`, `renderers/leaderboardRenderer.js`, `functions/index.js` scheduled top 100 | `leaderboard` limited queries; REST aggregation; unused `system/leaderboardData` | Client writes `leaderboard/{uid}` | Read public; write signed-in | Main pagination is already good | Client score spoof; repeated rank aggregation. |
-| Routes/trips | `renderers/routeRenderer.js`, `services/firebaseService.js`, `services/orsService.js`, `functions/index.js` | Saved route subcollection; ORS callable | Saved route docs, deletes | Save/load yes | Manual planning free; route generation premium | Route callable spam; saved-route shape not validated. |
+| Routes/trips | `renderers/routeRenderer.js`, `services/firebaseService.js`, `services/orsService.js`, `functions/index.js` | Premium saved route subcollection; ORS callable | Premium saved route docs, owner deletes | Save/load yes and premium; delete owner cleanup | Manual planning free; save/load and route generation premium | Route callable spam; saved-route shape not validated. |
 | Premium/paywall | `modules/paywallController.js`, `services/premiumService.js`, `services/authPremiumUi.js` | User entitlement listener | Checkout callable only; webhook writes entitlement | Yes | Premium unlocks tools | Test-mode-only live blocker. |
 | Account/profile | `services/authService.js`, `services/authAccountUi.js` | Firebase Auth, `users/{uid}` listener | Profile seed/settings writes | Yes | Same; billing visible by entitlement | Account-switch must stay tested. |
 | Feedback | `modules/uiController.js` | None | `feedback.add()` | No/optional | All users | Rules likely deny. |
@@ -279,8 +279,8 @@ Initial confirmed rankings:
 | Leaderboard score sync | `modules/profileEngine.js` `syncScoreToLeaderboard` | `users/{uid}.set`, `leaderboard/{uid}.set`, rank aggregation | Score changes, debounced | 2 writes + aggregation | Debounced but repeated with marks/walks | Risky integrity | Server derive, cap aggregation. |
 | Leaderboard initial | `profileEngine.loadLeaderboard` | `leaderboard.limit(5).get()` | Auth boot/profile | 5 doc reads + optional aggregation | Once/session or manual | Good/Risky | Use cached top doc and rank TTL. |
 | Leaderboard See More | `profileEngine.loadMoreLeaderboard` | `startAfter(lastDoc).limit(5).get()` | User clicks | 5 doc reads + optional aggregation | Per click | Good pagination; optional aggregation risk | No offset; keep UX; exact-rank cache only if monitoring shows a problem. |
-| Saved routes list | `firebaseService.loadSavedRoutes` | `users/{uid}/savedRoutes.orderBy(...).startAfter(cursor).limit(n).get()` | Route panel | 3 initial, 5 more | Per panel/page | Good | Keep cursor pagination. |
-| Saved route open/delete | `firebaseService.loadSavedRoute/deleteSavedRoute` | One doc get/delete | User action | 1 read or 1 delete | User action | Good | Keep. |
+| Saved routes list | `firebaseService.loadSavedRoutes` | Premium-gated `users/{uid}/savedRoutes.orderBy(...).startAfter(cursor).limit(n).get()` | Route panel | 3 initial, 5 more | Per panel/page | Good; now premium-only | Keep cursor pagination and premium rules check. |
+| Saved route open/delete | `firebaseService.loadSavedRoute/deleteSavedRoute` | Premium-gated one doc get; owner cleanup delete | User action | 1 read or 1 delete | User action | Good; load now premium-only | Keep delete cleanup for owners. |
 | Route generation | `services/orsService.js`; `functions/index.js` `getPremiumRoute` | Function checks per-user rate limit, then reads `users/{uid}` entitlement | Premium route request | 1 rate-limit read/write within limit, 1 entitlement read, function/network; over-limit stops before entitlement/ORS | Per generation | Lower after rate limit; App Check still needed | Keep 30/hour default; add App Check before public scale. |
 | Global geocode | `searchEngine.fetchGlobalGeocode`; `functions/index.js` `getPremiumGeocode` | Function checks per-user rate limit, then reads `users/{uid}` entitlement | Premium global search | 1 rate-limit read/write within limit, 1 entitlement read, function/network; over-limit stops before entitlement/ORS | Per uncached query | Lower after rate limit; App Check still needed | Keep 120/hour default; keep client cache. |
 | Checkout start | `paywallController.startCheckout`; `functions/index.js` `createCheckoutSession` | No Firestore write | User clicks checkout | Function invocation only | Per click | Test-mode blocker | Live/test config and anti-double-click exists client-side. |
@@ -362,8 +362,8 @@ Recommended tier design:
 | Achievements | View local | Yes | Yes/enhanced | Client writes achievements | Treat as cosmetic or server derive | Medium |
 | Leaderboard | Top 10/50 | Existing cursor browsing + own rank | Deep browse | Public cursor pages | Keep current cursor UX; only add a flagged depth cap if monitoring shows abuse | Medium |
 | Route generation | No | No | Yes | Server premium callable with per-user rate limit | Keep; App Check still recommended | Medium if abused |
-| Trip planner manual stops | Limited | Yes | Yes | Mostly client/local/saved routes | Keep free planning; premium route generation | Medium |
-| Saved routes | No | Small cap | Higher cap | Saved routes owner subcollection | Cap free count if needed | Low/Medium |
+| Trip planner manual stops | Limited | Yes | Yes | Mostly client/local | Keep free manual planning; saved route persistence and route generation are premium | Medium |
+| Saved routes | No | No | Yes | Premium-gated saved routes owner subcollection | Keep save/load premium-only; owner delete allowed for cleanup | Low/Medium |
 | Global town search | No | No | Yes | Server premium geocode with per-user rate limit | Keep; client cache and App Check still recommended | Medium |
 | Account/profile | Prompt | Yes | Yes | Auth UI/user doc | Keep | Low |
 | Manage subscription | No | If inactive history | Yes | Static Lemon portal URL | Verify portal URL/user flow | Medium |
@@ -427,9 +427,9 @@ Strengths:
 
 - Users can read/write only their own `users/{uid}` document.
 - Client create/update is blocked from entitlement, premium, subscription, provider, role/admin, and custom-claims fields.
-- Saved routes are scoped to owner.
+- Saved routes are scoped to owner and save/load/read/update are premium-gated through the parent user entitlement.
 - Public `system` docs are read-only.
-- Rules do not use `get()` or `exists()`, so there is no extra rules-read cost in the current rules.
+- Rules now use `exists()`/`get()` only on the premium-only `savedRoutes` subcollection to check the parent user entitlement. Hot visited-place and leaderboard rules still do not use `get()`/`exists()`.
 
 Risks:
 
@@ -445,10 +445,10 @@ Risks:
 | Free visit limit | Rules-enforced 5 max for non-premium users; premium can exceed | Keep rules tests and runtime smoke current | Low/Medium | Low/Medium | Done for free cap; consider callable/subcollection if premium storage grows. |
 | Achievements | Owner-only, shape validation | Criteria validation, malicious unlock | Medium | Low | Server-derived or cosmetic-only. |
 | Leaderboard | Owner-only doc, key allowlist | Fake high score, negative values, weird types | High | Low/Medium | Server-only leaderboard writes. |
-| Saved routes | Owner-only | Size/shape/count limits | Medium | Medium | Add max fields/size and free cap if needed. |
+| Saved routes | Premium owner-only for read/create/update; owner delete allowed for cleanup | Size/shape/count limits | Medium | Medium | Add max fields/size if needed. |
 | Feedback | Denied by default | Desired success + spam/malicious fields | Low functional bug | Low | Callable with rate limit or validated rules. |
 | Admin-only paths | `_adminRateLimits` not matched, default denied to clients | Admin path tests | Low | Low | Keep server-only. |
-| Rules read cost | No `get/exists` calls | N/A | Low | Low | Preserve simple rules; avoid expensive `get()` in hot rules. |
+| Rules read cost | `get/exists` only on saved-route premium checks | Saved-route entitlement rules coverage | Low | Low | Keep `get/exists` out of hot rules; acceptable for premium saved-route reads/writes. |
 
 ## 9. QA, Bugs, and Release Blockers
 

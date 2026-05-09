@@ -24,23 +24,30 @@ function loadRouteRenderer(options = {}) {
         ['saved-routes-list', createElement('saved-routes-list')],
         ['saved-routes-count', createElement('saved-routes-count')]
     ]);
-    const promptCalls = [];
-    const profileTab = createElement('profile-tab');
+    const paywallCalls = [];
+    const alertCalls = [];
+    const loadCalls = [];
 
     const context = {
         window: {
             BARK: {
                 services: {
+                    premium: {
+                        isPremium: () => options.premium === true
+                    },
                     firebase: {
                         getCurrentUser: () => options.user || null,
-                        loadSavedRoutes: async () => ({ routes: [], nextCursor: null, hasMore: false })
+                        loadSavedRoutes: async () => {
+                            loadCalls.push('loadSavedRoutes');
+                            return { routes: [], nextCursor: null, hasMore: false };
+                        }
                     }
                 },
-                authAccountUi: options.withoutAccountUi
+                paywall: options.withoutPaywall
                     ? null
                     : {
-                        openAccountPrompt(payload) {
-                            promptCalls.push(payload);
+                        openPaywall(payload) {
+                            paywallCalls.push(payload);
                         }
                     }
             }
@@ -50,12 +57,15 @@ function loadRouteRenderer(options = {}) {
                 return elements.get(id) || null;
             },
             querySelector(selector) {
-                return selector === '.nav-item[data-target="profile-view"]' ? profileTab : null;
+                return null;
             },
             querySelectorAll() {
                 return [];
             },
             createElement: createElement
+        },
+        alert(message) {
+            alertCalls.push(message);
         },
         console,
         Date
@@ -68,27 +78,50 @@ function loadRouteRenderer(options = {}) {
     return {
         window: context.window,
         element: id => elements.get(id),
-        promptCalls,
-        profileTab
+        paywallCalls,
+        alertCalls,
+        loadCalls
     };
 }
 
-test('planner load button opens free account prompt when signed out', () => {
+test('planner load button opens premium paywall when signed out', () => {
     const harness = loadRouteRenderer();
 
     harness.window.togglePlannerRoutes();
 
     assert.equal(harness.element('planner-saved-routes-container').style.display, 'block');
-    assert.match(harness.element('planner-saved-routes-list').innerHTML, /free account/);
-    assert.equal(harness.promptCalls.length, 1);
-    assert.equal(harness.promptCalls[0].source, 'load-route');
-    assert.equal(harness.promptCalls[0].mode, 'create');
+    assert.match(harness.element('planner-saved-routes-list').innerHTML, /Premium/);
+    assert.equal(harness.paywallCalls.length, 1);
+    assert.equal(harness.paywallCalls[0].source, 'load-route');
+    assert.equal(harness.loadCalls.length, 0);
 });
 
-test('planner load button falls back to profile sign-up form when account prompt is unavailable', () => {
-    const harness = loadRouteRenderer({ withoutAccountUi: true });
+test('planner load button blocks signed-in free users before saved-route reads', () => {
+    const harness = loadRouteRenderer({ user: { uid: 'free-user' }, premium: false });
 
     harness.window.togglePlannerRoutes();
 
-    assert.equal(harness.profileTab.clickCount, 1);
+    assert.match(harness.element('planner-saved-routes-list').innerHTML, /Premium/);
+    assert.equal(harness.paywallCalls.length, 1);
+    assert.equal(harness.paywallCalls[0].source, 'load-route');
+    assert.equal(harness.loadCalls.length, 0);
+});
+
+test('planner load button loads saved routes for premium users', async () => {
+    const harness = loadRouteRenderer({ user: { uid: 'premium-user' }, premium: true });
+
+    harness.window.togglePlannerRoutes();
+    await Promise.resolve();
+
+    assert.equal(harness.loadCalls.length, 1);
+    assert.equal(harness.paywallCalls.length, 0);
+});
+
+test('planner load button falls back to an alert when paywall is unavailable', () => {
+    const harness = loadRouteRenderer({ user: { uid: 'free-user' }, premium: false, withoutPaywall: true });
+
+    harness.window.togglePlannerRoutes();
+
+    assert.equal(harness.alertCalls.length, 1);
+    assert.match(harness.alertCalls[0], /Premium/);
 });

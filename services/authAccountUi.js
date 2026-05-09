@@ -30,13 +30,13 @@
             source: 'verified check-in'
         },
         'saved-route': {
-            title: 'Create a free account to save this trip',
-            body: 'Save routes, day notes, and B.A.R.K. stops so your planning work is still here later.',
+            title: 'Sign in to upgrade and save this trip',
+            body: 'Saved routes are a Premium feature. Sign in so Premium can be attached to your B.A.R.K. Ranger account.',
             source: 'saved route'
         },
         'load-route': {
-            title: 'Create a free account to load saved trips',
-            body: 'Saved routes live in your free B.A.R.K. account so you can reopen trips from any device.',
+            title: 'Sign in to upgrade and load saved trips',
+            body: 'Saved routes are a Premium feature. Sign in to upgrade, then reopen trips from any device.',
             source: 'load route'
         },
         expedition: {
@@ -46,12 +46,12 @@
         },
         profile: {
             title: 'Create a free account to unlock your profile',
-            body: 'Your visited parks, stats, achievements, and saved trips live in your account.',
+            body: 'Your visited parks, stats, and achievements live in your account. Saved trips require Premium.',
             source: 'profile'
         },
         default: {
             title: "Create a free account to save where you've been",
-            body: 'Your B.A.R.K. passport, visited parks, verified check-ins, and saved trips stay with your account.',
+            body: 'Your B.A.R.K. passport, visited parks, and verified check-ins stay with your account. Saved trips require Premium.',
             source: 'map'
         }
     };

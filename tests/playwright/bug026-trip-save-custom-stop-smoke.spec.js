@@ -4,16 +4,18 @@ const { test, expect } = require('@playwright/test');
 const { newBarkContext, expectBarkAppIdentity } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL;
-const STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
+const FREE_STORAGE_STATE = process.env.BARK_E2E_STORAGE_STATE;
+const PREMIUM_STORAGE_STATE = process.env.BARK_E2E_PREMIUM_STORAGE_STATE;
 const DEFAULT_BASE_URL = 'http://localhost:4173/index.html';
 
 const missingEnv = [
     !BASE_URL ? 'BARK_E2E_BASE_URL' : null,
-    !STORAGE_STATE ? 'BARK_E2E_STORAGE_STATE' : null
+    !FREE_STORAGE_STATE ? 'BARK_E2E_STORAGE_STATE' : null,
+    !PREMIUM_STORAGE_STATE ? 'BARK_E2E_PREMIUM_STORAGE_STATE' : null
 ].filter(Boolean);
 
-const storageStatePath = STORAGE_STATE ? path.resolve(STORAGE_STATE) : null;
-const storageStateExists = storageStatePath ? fs.existsSync(storageStatePath) : false;
+const freeStorageStatePath = FREE_STORAGE_STATE ? path.resolve(FREE_STORAGE_STATE) : null;
+const premiumStorageStatePath = PREMIUM_STORAGE_STATE ? path.resolve(PREMIUM_STORAGE_STATE) : null;
 
 function buildEnvHelp() {
     return [
@@ -24,6 +26,7 @@ function buildEnvHelp() {
         '  python3 -m http.server 4173 --bind localhost',
         `  export BARK_E2E_BASE_URL=${DEFAULT_BASE_URL}`,
         '  export BARK_E2E_STORAGE_STATE="$PWD/playwright/.auth/free-user.json"',
+        '  export BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json"',
         '  npx playwright test tests/playwright/bug026-trip-save-custom-stop-smoke.spec.js --workers=1 --reporter=list'
     ].join('\n');
 }
@@ -38,8 +41,13 @@ test.beforeAll(() => {
     if (!BASE_URL) return;
     new URL(BASE_URL);
 
-    if (STORAGE_STATE && !storageStateExists) {
-        throw new Error(`BARK_E2E_STORAGE_STATE points to a missing file: ${storageStatePath}`);
+    for (const [name, storagePath] of [
+        ['BARK_E2E_STORAGE_STATE', freeStorageStatePath],
+        ['BARK_E2E_PREMIUM_STORAGE_STATE', premiumStorageStatePath]
+    ]) {
+        if (storagePath && !fs.existsSync(storagePath)) {
+            throw new Error(`${name} points to a missing file: ${storagePath}`);
+        }
     }
 });
 
@@ -47,12 +55,13 @@ function withCacheBuster(url) {
     return `${url}${url.includes('?') ? '&' : '?'}tripSaveCustomStopSmoke=${Date.now()}`;
 }
 
-async function openSignedInApp(page) {
+async function openSignedInApp(page, expectedPremium) {
     await page.goto(withCacheBuster(BASE_URL));
     await expectBarkAppIdentity(page, expect);
-    await page.waitForFunction(() => {
+    await page.waitForFunction((premium) => {
         const repo = window.BARK && window.BARK.repos && window.BARK.repos.ParkRepo;
         const user = window.firebase && window.firebase.auth && window.firebase.auth().currentUser;
+        const premiumService = window.BARK && window.BARK.services && window.BARK.services.premium;
         const saveRouteBtn = window.BARK && window.BARK.DOM && window.BARK.DOM.saveRouteBtn
             ? window.BARK.DOM.saveRouteBtn()
             : null;
@@ -61,11 +70,14 @@ async function openSignedInApp(page) {
             typeof repo.getAll === 'function' &&
             repo.getAll().length > 5 &&
             user &&
+            premiumService &&
+            typeof premiumService.isPremium === 'function' &&
+            premiumService.isPremium() === premium &&
             saveRouteBtn &&
             typeof saveRouteBtn.onclick === 'function' &&
             typeof window.BARK.buildSavedRouteData === 'function'
         );
-    }, { timeout: 30000 });
+    }, expectedPremium, { timeout: 30000 });
 }
 
 async function seedRouteWithCustomStops(page, tripName) {
@@ -145,16 +157,50 @@ async function deleteSavedRoute(page, routeId) {
 }
 
 test.describe('BUG-026 trip save custom stops', () => {
+    test('free users see the saved-route premium gate before Firestore save', async ({ browser }) => {
+        test.setTimeout(60000);
+
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
+        const page = await context.newPage();
+        const tripName = `BUG-026 Free Save Block ${Date.now()}`;
+
+        try {
+            await openSignedInApp(page, false);
+            await page.evaluate(() => {
+                window.__barkBug026Paywalls = [];
+                window.BARK.paywall.openPaywall = (options = {}) => {
+                    window.__barkBug026Paywalls.push(options);
+                };
+            });
+            await seedRouteWithCustomStops(page, tripName);
+            await page.locator('.nav-item[data-target="planner-view"]').click();
+            await expect(page.locator('#planner-view')).toHaveClass(/active/);
+
+            await page.locator('#save-route-btn').click();
+            const paywalls = await page.waitForFunction(() => {
+                return Array.isArray(window.__barkBug026Paywalls) && window.__barkBug026Paywalls.length > 0
+                    ? window.__barkBug026Paywalls
+                    : false;
+            }, null, { timeout: 5000 })
+                .then(handle => handle.jsonValue());
+
+            expect(paywalls).toHaveLength(1);
+            expect(paywalls[0]).toMatchObject({ source: 'saved-route' });
+        } finally {
+            await context.close();
+        }
+    });
+
     test('saving optimized-style trips omits undefined ids and restores custom bookends', async ({ browser }) => {
         test.setTimeout(90000);
 
-        const context = await newBarkContext(browser, { storageState: storageStatePath });
+        const context = await newBarkContext(browser, { storageState: premiumStorageStatePath });
         const page = await context.newPage();
         const tripName = `BUG-026 Custom Stop Save ${Date.now()}`;
         let savedRouteId = null;
 
         try {
-            await openSignedInApp(page);
+            await openSignedInApp(page, true);
             await seedRouteWithCustomStops(page, tripName);
             await page.locator('.nav-item[data-target="planner-view"]').click();
             await expect(page.locator('#planner-view')).toHaveClass(/active/);

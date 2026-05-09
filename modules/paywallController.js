@@ -181,6 +181,16 @@
             return 'premium-map-filters';
         }
 
+        if ([
+            'saved-route',
+            'saved-routes',
+            'load-route',
+            'route-save',
+            'route-load'
+        ].includes(normalized)) {
+            return 'saved-routes';
+        }
+
         return normalized || 'manual';
     }
 
@@ -210,6 +220,15 @@
                 title: 'Premium map filters are a Premium feature',
                 eyebrow: 'Premium map tools',
                 body: 'Upgrade to use visited-aware filters, premium map styles, and route pin filtering while planning.',
+                primaryText: 'Upgrade Now'
+            };
+        }
+
+        if (normalized === 'saved-routes') {
+            return {
+                title: 'Saved routes are a Premium feature',
+                eyebrow: 'Premium trip planning',
+                body: 'Upgrade to save trip plans, reload routes later, and keep multi-day route notes with your account.',
                 primaryText: 'Upgrade Now'
             };
         }

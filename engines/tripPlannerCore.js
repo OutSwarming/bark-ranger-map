@@ -175,15 +175,14 @@ function openRoutePremiumPaywall() {
     alert('Premium is required to generate driving routes.');
 }
 
-function openFreeAccountPrompt(source) {
-    const accountUi = window.BARK && window.BARK.authAccountUi;
-    if (accountUi && typeof accountUi.openAccountPrompt === 'function') {
-        accountUi.openAccountPrompt({ source });
+function openSavedRoutePremiumPaywall(source = 'saved-route') {
+    const paywall = window.BARK && window.BARK.paywall;
+    if (paywall && typeof paywall.openPaywall === 'function') {
+        paywall.openPaywall({ source });
         return;
     }
 
-    const profileTab = document.querySelector('.nav-item[data-target="profile-view"]');
-    if (profileTab) profileTab.click();
+    alert('Saved routes are a Premium feature.');
 }
 
 function clearRouteTelemetryStatus() {
@@ -1285,15 +1284,19 @@ function initTripPlanner() {
     async function saveCurrentTrip() {
         const user = (typeof firebase !== 'undefined') ? firebase.auth().currentUser : null;
         if (!user) {
-            openFreeAccountPrompt('saved-route');
+            openSavedRoutePremiumPaywall('saved-route');
             return false;
         }
-        window.BARK.incrementRequestCount();
+        if (!isPremiumRoutingUnlocked()) {
+            openSavedRoutePremiumPaywall('saved-route');
+            return false;
+        }
         if (getTotalStops() === 0) { alert('Nothing to save — add some stops first!'); return false; }
         const nameInput = window.BARK.DOM.tripNameInput();
         const tripName = nameInput ? nameInput.value.trim() : "";
         if (!tripName) { alert('Please enter a name for your trip.'); if (nameInput) nameInput.focus(); return false; }
         try {
+            window.BARK.incrementRequestCount();
             const tripDays = window.BARK.tripDays;
             const routeData = buildSavedRouteData(tripName, tripDays);
             routeData.createdAt = firebase.firestore.FieldValue.serverTimestamp();

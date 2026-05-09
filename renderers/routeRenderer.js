@@ -7,6 +7,25 @@ window.BARK.renderers = window.BARK.renderers || {};
 let savedRoutesCursor = null;
 let savedRoutesCount = 0;
 
+function isSavedRoutesPremiumUnlocked() {
+    const premiumService = window.BARK.services && window.BARK.services.premium;
+    return Boolean(
+        premiumService &&
+        typeof premiumService.isPremium === 'function' &&
+        premiumService.isPremium()
+    );
+}
+
+function openSavedRoutesPaywall(source = 'load-route') {
+    const paywall = window.BARK && window.BARK.paywall;
+    if (paywall && typeof paywall.openPaywall === 'function') {
+        paywall.openPaywall({ source });
+        return;
+    }
+
+    alert('Saved routes are a Premium feature.');
+}
+
 function getRouteDate(route) {
     return route.createdAt ? new Date(route.createdAt.seconds * 1000).toLocaleDateString() : 'Unknown date';
 }
@@ -74,18 +93,12 @@ function renderRoutesMessage(message) {
     if (plannerList) plannerList.innerHTML = html;
 }
 
-function openFreeAccountPrompt(source) {
-    const accountUi = window.BARK && window.BARK.authAccountUi;
-    if (accountUi && typeof accountUi.openAccountPrompt === 'function') {
-        accountUi.openAccountPrompt({ source, mode: 'create' });
+async function loadRouteIntoPlanner(uid, routeId) {
+    if (!isSavedRoutesPremiumUnlocked()) {
+        openSavedRoutesPaywall('load-route');
         return;
     }
 
-    const profileTab = document.querySelector('.nav-item[data-target="profile-view"]');
-    if (profileTab) profileTab.click();
-}
-
-async function loadRouteIntoPlanner(uid, routeId) {
     const firebaseService = window.BARK.services && window.BARK.services.firebase;
     if (!firebaseService || typeof firebaseService.loadSavedRoute !== 'function') return;
 
@@ -145,6 +158,14 @@ async function loadSavedRoutes(uid, isLoadMore = false) {
     if (!firebaseService || typeof firebaseService.loadSavedRoutes !== 'function') return;
     if (!savedList && !plannerList) return;
 
+    if (!isSavedRoutesPremiumUnlocked()) {
+        savedRoutesCursor = null;
+        savedRoutesCount = 0;
+        if (savedCount) savedCount.textContent = 'Premium';
+        renderRoutesMessage('Saved routes are a Premium feature. Upgrade to save and reload trip plans.');
+        return;
+    }
+
     if (!isLoadMore) {
         savedRoutesCursor = null;
         savedRoutesCount = 0;
@@ -190,11 +211,17 @@ function togglePlannerRoutes() {
             ? firebaseService.getCurrentUser()
             : null;
         if (user) {
-            loadSavedRoutes(user.uid);
+            if (!isSavedRoutesPremiumUnlocked()) {
+                const list = document.getElementById('planner-saved-routes-list');
+                if (list) list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Saved routes are a Premium feature. Upgrade to save and reload trip plans.</p>';
+                openSavedRoutesPaywall('load-route');
+            } else {
+                loadSavedRoutes(user.uid);
+            }
         } else {
             const list = document.getElementById('planner-saved-routes-list');
-            if (list) list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Create a free account to save and load trips.</p>';
-            openFreeAccountPrompt('load-route');
+            if (list) list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Sign in and upgrade to Premium to save and load trips.</p>';
+            openSavedRoutesPaywall('load-route');
         }
     } else {
         container.style.display = 'none';

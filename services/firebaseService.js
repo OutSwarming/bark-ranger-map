@@ -46,6 +46,20 @@ function getCurrentUser() {
     return firebase.auth().currentUser;
 }
 
+function isPremiumActive() {
+    const premiumService = window.BARK.services && window.BARK.services.premium;
+    return Boolean(
+        premiumService &&
+        typeof premiumService.isPremium === 'function' &&
+        premiumService.isPremium()
+    );
+}
+
+function requireSavedRoutesPremium() {
+    if (isPremiumActive()) return;
+    throw new Error('Saved routes are a Premium feature.');
+}
+
 function getLocalDateKey(date = new Date()) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -618,6 +632,7 @@ async function removeVisitedPlace(placeOrId) {
 
 async function loadSavedRoutes(uid, cursor = null, limit = null) {
     try {
+        requireSavedRoutesPremium();
         const fetchLimit = limit || (cursor ? 5 : 3);
         window.BARK.incrementRequestCount();
 
@@ -644,6 +659,7 @@ async function loadSavedRoutes(uid, cursor = null, limit = null) {
 
 async function loadSavedRoute(uid, routeId) {
     try {
+        requireSavedRoutesPremium();
         window.BARK.incrementRequestCount();
         const docSnap = await firebase.firestore()
             .collection('users').doc(uid)
