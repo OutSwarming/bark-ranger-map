@@ -340,3 +340,36 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
   - `node --check renderers/panelRenderer.js`: PASS.
   - `node --test tests/render-safety.test.js`: PASS, 6/6.
   - `BARK_E2E_BASE_URL=http://localhost:4173/index.html BARK_E2E_STORAGE_STATE="$PWD/playwright/.auth/free-user.json" BARK_E2E_PREMIUM_STORAGE_STATE="$PWD/playwright/.auth/premium-user.json" npx playwright test tests/playwright/bug015-free-visited-limit-smoke.spec.js --workers=1 --reporter=list`: PASS, 5/5.
+
+## No Account, Free, And Premium Consistency Sweep
+
+- Date: 2026-05-09.
+- Scope: no-account, signed-in free, signed-in Premium/test entitlement, and second-account switch behavior after the free-visit paywall polish.
+- Result: no new functional, entitlement, or layout regressions found.
+- Coverage run:
+  - Full signed-in/signed-out smoke matrix with free, premium/test, and second-account storage states:
+    - `npm run test:e2e:smoke`: PASS, 41/41.
+  - Mobile-ish layout and console sweep:
+    - `tests/playwright/final-mobile-console-beta-sweep.spec.js`: PASS, 3/3.
+  - Extra account/auth/entitlement/flag specs outside the main smoke script:
+    - `account-auth-smoke.spec.js`
+    - `account-switch-premium-matrix.spec.js`
+    - `bug001-achievement-permission-smoke.spec.js`
+    - `phase4c-premium-entitlement-smoke.spec.js`
+    - `phase4c-global-search-entitlement-smoke.spec.js`
+    - `stage0-launch-flags-smoke.spec.js`
+    - Combined result: PASS, 17/17.
+  - Baseline backend/rules/render checks:
+    - `npm run test:rules`: PASS, 24/24.
+    - `npm --prefix functions test`: PASS, 82/82.
+    - `node --test tests/render-safety.test.js`: PASS, 6/6.
+- Confirmed behaviors:
+  - Signed-out users can browse, search locally, open account prompts, and see readable Premium prompts.
+  - Free users stay locked out of premium filters/tools, route generation, global geocode, saved routes, and the 6th visited park.
+  - Free 5-park cap opens the Premium modal rather than a browser alert.
+  - Premium/test entitlement users can use premium map tools, route/geocode paths, saved-route flows, and over-limit visit tracking.
+  - Switching accounts clears stale premium and visited-place state.
+  - Mobile paywall/profile/search/settings/planner views remain console-clean and inside viewport.
+- Notes:
+  - Firebase emulator still warns that Java 21 will be required by firebase-tools v15; current tests pass on Java 18.
+  - Functions deploy tooling still warns that Node.js 20 runtime is deprecated and should be upgraded before final public launch.
