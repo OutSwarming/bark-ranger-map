@@ -736,6 +736,19 @@ function renderLeaderboard(topUsers) {
 
     controlsEl.innerHTML = '';
     if (window._lastLeaderboardDoc) {
+        if (
+            window.BARK &&
+            typeof window.BARK.isLaunchFlagEnabled === 'function' &&
+            !window.BARK.isLaunchFlagEnabled('leaderboardDeepBrowsingEnabled')
+        ) {
+            const pausedNote = document.createElement('div');
+            pausedNote.id = 'lb-load-more-disabled';
+            pausedNote.textContent = window.BARK.getLaunchFlagMessage('leaderboardDeepBrowsingEnabled');
+            pausedNote.style.cssText = 'color: #64748b; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 10px; font-size: 12px; font-weight: 700; text-align: center; margin-top: 5px;';
+            controlsEl.appendChild(pausedNote);
+            return;
+        }
+
         const showMoreBtn = document.createElement('button');
         showMoreBtn.id = 'lb-load-more-btn';
         showMoreBtn.textContent = 'Show More (+5)';
@@ -776,6 +789,14 @@ async function loadLeaderboard() {
 
 async function loadMoreLeaderboard() {
     if (!window._lastLeaderboardDoc || isFetchingMoreLeaderboard) return;
+    if (
+        window.BARK &&
+        typeof window.BARK.isLaunchFlagEnabled === 'function' &&
+        !window.BARK.isLaunchFlagEnabled('leaderboardDeepBrowsingEnabled')
+    ) {
+        renderLeaderboard(cachedLeaderboardData);
+        return;
+    }
     isFetchingMoreLeaderboard = true;
     const btn = document.getElementById('lb-load-more-btn');
     if (btn) btn.textContent = 'Loading...';

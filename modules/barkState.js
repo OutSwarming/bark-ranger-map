@@ -20,6 +20,65 @@ window.SESSION_MAX_REQUESTS = 2000;
 window._SESSION_REQUEST_COUNT = 0;
 window._cloudSettingsLoaded = false;
 
+const DEFAULT_LAUNCH_FLAGS = Object.freeze({
+    checkoutEnabled: true,
+    routePlannerEnabled: true,
+    routeGenerationEnabled: true,
+    premiumGeocodeEnabled: true,
+    leaderboardDeepBrowsingEnabled: true,
+    feedbackEnabled: false,
+    premiumRiskyToolsEnabled: true
+});
+
+const LAUNCH_FLAG_MESSAGES = Object.freeze({
+    checkoutEnabled: 'Premium checkout is paused for this beta. Please try again after the next release update.',
+    routePlannerEnabled: 'Route planner tools are paused for beta safety. Your saved map and visited places still work.',
+    routeGenerationEnabled: 'Route generation is paused for beta safety. You can still plan stops manually.',
+    premiumGeocodeEnabled: 'Global town search is paused for beta safety. Local B.A.R.K. stop search still works.',
+    leaderboardDeepBrowsingEnabled: 'Leaderboard browsing is limited for beta safety. The top results and your rank are still available.',
+    feedbackEnabled: 'In-app feedback is paused for beta safety. Use the email suggestion option above for now.',
+    premiumRiskyToolsEnabled: 'Premium map tools are paused for beta safety. Your account and saved progress are unchanged.'
+});
+
+function readSessionLaunchFlagOverrides() {
+    try {
+        const raw = localStorage.getItem('barkLaunchFlags');
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (error) {
+        console.warn('[launchFlags] Ignoring invalid barkLaunchFlags local override.', error);
+        return {};
+    }
+}
+
+function normalizeLaunchFlags(...sources) {
+    const normalized = { ...DEFAULT_LAUNCH_FLAGS };
+    sources.forEach(source => {
+        if (!source || typeof source !== 'object' || Array.isArray(source)) return;
+        Object.keys(DEFAULT_LAUNCH_FLAGS).forEach(key => {
+            if (typeof source[key] === 'boolean') normalized[key] = source[key];
+        });
+    });
+    return normalized;
+}
+
+window.BARK.launchFlags = normalizeLaunchFlags(window.BARK_LAUNCH_FLAGS, readSessionLaunchFlagOverrides());
+window.BARK.LAUNCH_FLAG_DEFAULTS = DEFAULT_LAUNCH_FLAGS;
+window.BARK.LAUNCH_FLAG_MESSAGES = LAUNCH_FLAG_MESSAGES;
+window.BARK.isLaunchFlagEnabled = function (flagName) {
+    if (!Object.prototype.hasOwnProperty.call(DEFAULT_LAUNCH_FLAGS, flagName)) return true;
+    return window.BARK.launchFlags[flagName] !== false;
+};
+window.BARK.getLaunchFlagMessage = function (flagName, fallback) {
+    return LAUNCH_FLAG_MESSAGES[flagName] || fallback || 'This feature is paused for beta safety.';
+};
+window.BARK.setLaunchFlagForSession = function (flagName, enabled) {
+    if (!Object.prototype.hasOwnProperty.call(DEFAULT_LAUNCH_FLAGS, flagName)) return false;
+    window.BARK.launchFlags[flagName] = enabled === true;
+    return true;
+};
+
 function incrementRequestCount() {
     globalRequestCounter++;
     window._SESSION_REQUEST_COUNT = globalRequestCounter;

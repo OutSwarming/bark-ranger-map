@@ -94,6 +94,7 @@ function scoreSearchItem(item, queryNorm) {
 }
 
 function isPremiumGlobalSearchUnlocked() {
+    if (!isPremiumGeocodeEnabled()) return false;
     return Boolean(
         window.BARK &&
         window.BARK.services &&
@@ -101,6 +102,26 @@ function isPremiumGlobalSearchUnlocked() {
         typeof window.BARK.services.premium.isPremium === 'function' &&
         window.BARK.services.premium.isPremium()
     );
+}
+
+function isPremiumGeocodeEnabled() {
+    const flags = window.BARK && typeof window.BARK.isLaunchFlagEnabled === 'function'
+        ? window.BARK
+        : null;
+    if (!flags) return true;
+    return flags.isLaunchFlagEnabled('premiumRiskyToolsEnabled') &&
+        flags.isLaunchFlagEnabled('premiumGeocodeEnabled');
+}
+
+function getPremiumGeocodeDisabledMessage() {
+    if (window.BARK && typeof window.BARK.getLaunchFlagMessage === 'function') {
+        if (!window.BARK.isLaunchFlagEnabled('premiumRiskyToolsEnabled')) {
+            return window.BARK.getLaunchFlagMessage('premiumRiskyToolsEnabled');
+        }
+        return window.BARK.getLaunchFlagMessage('premiumGeocodeEnabled');
+    }
+
+    return 'Global town search is paused for beta safety. Local B.A.R.K. stop search still works.';
 }
 
 function isSignedInForGlobalSearchPrompt() {
@@ -116,6 +137,13 @@ function isSignedInForGlobalSearchPrompt() {
 }
 
 function getGlobalSearchLockCopy() {
+    if (!isPremiumGeocodeEnabled()) {
+        return {
+            hint: 'Global search paused',
+            alert: getPremiumGeocodeDisabledMessage()
+        };
+    }
+
     if (isSignedInForGlobalSearchPrompt()) {
         return {
             hint: 'Upgrade to unlock global search',
@@ -186,6 +214,11 @@ function getAutoGlobalSearchRun(targetType) {
 async function fetchGlobalGeocode(query, options = {}) {
     const trimmedQuery = String(query || '').trim();
     if (!trimmedQuery) return { features: [] };
+    if (!isPremiumGeocodeEnabled()) {
+        const error = new Error(getPremiumGeocodeDisabledMessage());
+        error.code = 'launch-disabled';
+        throw error;
+    }
 
     const requestOptions = {
         size: 5,
@@ -749,7 +782,9 @@ function initSearchEngine() {
                 if (normalizeText(window.BARK.activeSearchQuery) !== normalizeText(activeQuery)) return;
                 searchSuggestions.innerHTML = '';
                 appendSearchStatus(
-                    'Town search is unavailable right now.',
+                    error && error.code === 'launch-disabled'
+                        ? getPremiumGeocodeDisabledMessage()
+                        : 'Town search is unavailable right now.',
                     'background: #fef2f2; color: #b91c1c; font-weight: 800;'
                 );
                 searchSuggestions.style.display = 'block';
@@ -1047,7 +1082,9 @@ async function executeGeocode(query, targetType) {
         renderGeocodeResults(query, targetType, data);
     } catch (err) {
         console.error('Search geocode failed:', err);
-        alert("Search service unavailable.");
+        alert(err && err.code === 'launch-disabled'
+            ? getPremiumGeocodeDisabledMessage()
+            : "Search service unavailable.");
     }
 }
 

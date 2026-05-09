@@ -7,7 +7,8 @@ const {
     __test: {
         buildCheckoutReturnUrl,
         buildLemonSqueezyCheckoutPayload,
-        handleCreateCheckoutSession
+        handleCreateCheckoutSession,
+        isFunctionFlagEnabled
     }
 } = require("../index.js");
 
@@ -72,6 +73,31 @@ describe("Lemon Squeezy checkout session helpers", () => {
 });
 
 describe("Lemon Squeezy checkout session callable", () => {
+    it("can disable checkout server-side without touching Lemon Squeezy test mode", async () => {
+        let postCalls = 0;
+
+        assert.equal(isFunctionFlagEnabled("createCheckoutSession", {
+            env: { BARK_ENABLE_CHECKOUT: "false" }
+        }), false);
+
+        await assertRejectsCode(
+            handleCreateCheckoutSession(
+                {},
+                authedContext("checkout-paused-user"),
+                {
+                    env: { BARK_ENABLE_CHECKOUT: "false" },
+                    axiosPost: async () => {
+                        postCalls += 1;
+                        throw new Error("should not call Lemon Squeezy when checkout is paused");
+                    }
+                }
+            ),
+            "failed-precondition"
+        );
+
+        assert.equal(postCalls, 0);
+    });
+
     it("rejects unauthenticated checkout requests", async () => {
         await assertRejectsCode(
             handleCreateCheckoutSession({}, {}, {

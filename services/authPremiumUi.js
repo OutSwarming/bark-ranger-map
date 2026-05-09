@@ -12,6 +12,14 @@ window.BARK = window.BARK || {};
     const PREMIUM_VISITED_FILTERS = new Set(['visited', 'unvisited', 'route']);
 
     function isPremiumActive() {
+        if (
+            window.BARK &&
+            typeof window.BARK.isLaunchFlagEnabled === 'function' &&
+            !window.BARK.isLaunchFlagEnabled('premiumRiskyToolsEnabled')
+        ) {
+            return false;
+        }
+
         const premiumService = window.BARK && window.BARK.services && window.BARK.services.premium;
         return Boolean(
             premiumService &&
@@ -88,6 +96,10 @@ window.BARK = window.BARK || {};
 
     function applyPremiumGating(isPremium, options = {}) {
         try {
+            const riskyToolsEnabled = !window.BARK ||
+                typeof window.BARK.isLaunchFlagEnabled !== 'function' ||
+                window.BARK.isLaunchFlagEnabled('premiumRiskyToolsEnabled');
+            const effectivePremium = isPremium === true && riskyToolsEnabled;
             const premiumWrap = document.getElementById('premium-filters-wrap');
             const visitedSelect = document.getElementById('visited-filter');
             const mapStyleSelectF = document.getElementById('map-style-select');
@@ -95,10 +107,10 @@ window.BARK = window.BARK || {};
                 document.getElementById('toggle-virtual-trail'),
                 document.getElementById('toggle-completed-trails')
             ].filter(Boolean);
-            const trailsUnlocked = options.trailsUnlocked === undefined ? isPremium : options.trailsUnlocked === true;
+            const trailsUnlocked = effectivePremium && (options.trailsUnlocked === undefined ? true : options.trailsUnlocked === true);
 
             if (premiumWrap) {
-                if (isPremium) {
+                if (effectivePremium) {
                     premiumWrap.classList.remove('premium-locked');
                     premiumWrap.classList.add('premium-unlocked');
                     if (visitedSelect) visitedSelect.disabled = false;
@@ -112,7 +124,15 @@ window.BARK = window.BARK || {};
             }
 
             setTrailButtonState(trailButtons, trailsUnlocked);
-            if (!isPremium && options.sanitizePremiumState === true) {
+            if (
+                premiumWrap &&
+                window.BARK &&
+                typeof window.BARK.isLaunchFlagEnabled === 'function' &&
+                !riskyToolsEnabled
+            ) {
+                premiumWrap.title = window.BARK.getLaunchFlagMessage('premiumRiskyToolsEnabled');
+            }
+            if (!effectivePremium && options.sanitizePremiumState === true) {
                 applyNonPremiumRuntimeDefaults();
             }
         } catch (error) {

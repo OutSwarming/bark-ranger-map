@@ -126,6 +126,32 @@ function isPremiumRoutingUnlocked() {
     );
 }
 
+function isRoutePlannerEnabled() {
+    return !window.BARK ||
+        typeof window.BARK.isLaunchFlagEnabled !== 'function' ||
+        window.BARK.isLaunchFlagEnabled('routePlannerEnabled');
+}
+
+function isRouteGenerationEnabled() {
+    if (!isRoutePlannerEnabled()) return false;
+    if (!window.BARK || typeof window.BARK.isLaunchFlagEnabled !== 'function') return true;
+    return window.BARK.isLaunchFlagEnabled('routeGenerationEnabled') &&
+        window.BARK.isLaunchFlagEnabled('premiumRiskyToolsEnabled');
+}
+
+function getRouteDisabledMessage() {
+    if (!window.BARK || typeof window.BARK.getLaunchFlagMessage !== 'function') {
+        return 'Route generation is paused for beta safety.';
+    }
+    if (!window.BARK.isLaunchFlagEnabled('routePlannerEnabled')) {
+        return window.BARK.getLaunchFlagMessage('routePlannerEnabled');
+    }
+    if (!window.BARK.isLaunchFlagEnabled('premiumRiskyToolsEnabled')) {
+        return window.BARK.getLaunchFlagMessage('premiumRiskyToolsEnabled');
+    }
+    return window.BARK.getLaunchFlagMessage('routeGenerationEnabled');
+}
+
 function setPlannerActionButtonLabel(button, label, icon = '', detail = '') {
     if (!button) return;
     const iconMarkup = icon ? `<span class="planner-action-icon">${icon}</span>` : '';
@@ -135,6 +161,11 @@ function setPlannerActionButtonLabel(button, label, icon = '', detail = '') {
 }
 
 function openRoutePremiumPaywall() {
+    if (!isRouteGenerationEnabled()) {
+        alert(getRouteDisabledMessage());
+        return;
+    }
+
     const paywall = window.BARK && window.BARK.paywall;
     if (paywall && typeof paywall.openPaywall === 'function') {
         paywall.openPaywall({ source: 'route-generation' });
@@ -246,6 +277,16 @@ function updateRouteGenerationButtonState() {
     button.classList.remove('planner-action-route-generating', 'planner-action-route-slow', 'planner-action-route-notice');
     delete button.dataset.routeStatus;
     delete button.dataset.routeNoticeId;
+
+    if (!isRouteGenerationEnabled()) {
+        button.classList.add('planner-action-premium-locked');
+        button.dataset.premiumRequired = 'false';
+        button.setAttribute('aria-disabled', 'false');
+        button.disabled = false;
+        button.title = getRouteDisabledMessage();
+        setPlannerActionButtonLabel(button, 'Routing Paused');
+        return;
+    }
 
     const isPremium = isPremiumRoutingUnlocked();
     button.classList.toggle('planner-action-premium-locked', !isPremium);
@@ -1221,6 +1262,11 @@ function initTripPlanner() {
 
     if (startRouteBtn) {
         startRouteBtn.onclick = () => {
+            if (!isRouteGenerationEnabled()) {
+                alert(getRouteDisabledMessage());
+                updateRouteGenerationButtonState();
+                return;
+            }
             if (!isPremiumRoutingUnlocked()) {
                 openRoutePremiumPaywall();
                 updateRouteGenerationButtonState();
@@ -1264,6 +1310,11 @@ function initTripPlanner() {
     async function generateAndRenderTripRoute() {
         const user = (typeof firebase !== 'undefined') ? firebase.auth().currentUser : null;
         if (!user) { alert("Please sign in to generate routes."); return; }
+        if (!isRouteGenerationEnabled()) {
+            alert(getRouteDisabledMessage());
+            updateRouteGenerationButtonState();
+            return;
+        }
         if (!isPremiumRoutingUnlocked()) {
             openRoutePremiumPaywall();
             updateRouteGenerationButtonState();

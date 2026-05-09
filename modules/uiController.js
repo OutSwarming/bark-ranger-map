@@ -392,7 +392,35 @@ document.addEventListener('click', (e) => {
 
 // ====== FEEDBACK PORTAL ======
 const submitFeedbackBtn = document.getElementById('submit-feedback-btn');
-if (submitFeedbackBtn && typeof firebase !== 'undefined') {
+function isFeedbackEnabled() {
+    return !window.BARK ||
+        typeof window.BARK.isLaunchFlagEnabled !== 'function' ||
+        window.BARK.isLaunchFlagEnabled('feedbackEnabled');
+}
+
+function disableFeedbackPortal(message) {
+    const portal = document.getElementById('feedback-portal');
+    const textArea = document.getElementById('feedback-text');
+    const copy = portal ? portal.querySelector('p') : null;
+    if (portal) portal.dataset.launchDisabled = 'true';
+    if (copy) copy.textContent = message;
+    if (textArea) {
+        textArea.value = '';
+        textArea.placeholder = message;
+        textArea.disabled = true;
+    }
+    if (submitFeedbackBtn) {
+        submitFeedbackBtn.textContent = 'Feedback paused';
+        submitFeedbackBtn.disabled = true;
+    }
+}
+
+if (submitFeedbackBtn && !isFeedbackEnabled()) {
+    const message = window.BARK && typeof window.BARK.getLaunchFlagMessage === 'function'
+        ? window.BARK.getLaunchFlagMessage('feedbackEnabled')
+        : 'In-app feedback is paused for beta safety. Use the email suggestion option above for now.';
+    disableFeedbackPortal(message);
+} else if (submitFeedbackBtn && typeof firebase !== 'undefined') {
     submitFeedbackBtn.addEventListener('click', () => {
         const textArea = document.getElementById('feedback-text');
         const text = textArea ? textArea.value : '';

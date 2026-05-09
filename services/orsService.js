@@ -18,7 +18,29 @@
         return firebase.functions().httpsCallable(name);
     }
 
+    function isFlagEnabled(flagName) {
+        return !window.BARK ||
+            typeof window.BARK.isLaunchFlagEnabled !== 'function' ||
+            window.BARK.isLaunchFlagEnabled(flagName);
+    }
+
+    function makeDisabledError(flagName, fallback) {
+        const message = window.BARK && typeof window.BARK.getLaunchFlagMessage === 'function'
+            ? window.BARK.getLaunchFlagMessage(flagName, fallback)
+            : fallback;
+        const error = new Error(message || 'This feature is paused for beta safety.');
+        error.code = 'launch-disabled';
+        return error;
+    }
+
     async function geocode(query, options = {}) {
+        if (!isFlagEnabled('premiumRiskyToolsEnabled')) {
+            throw makeDisabledError('premiumRiskyToolsEnabled', 'Premium tools are paused for beta safety.');
+        }
+        if (!isFlagEnabled('premiumGeocodeEnabled')) {
+            throw makeDisabledError('premiumGeocodeEnabled', 'Global town search is paused for beta safety.');
+        }
+
         try {
             const callable = getCallable('getPremiumGeocode');
             const payload = {
@@ -37,6 +59,16 @@
     }
 
     async function directions(coordinates, options = {}) {
+        if (!isFlagEnabled('routePlannerEnabled')) {
+            throw makeDisabledError('routePlannerEnabled', 'Route planner tools are paused for beta safety.');
+        }
+        if (!isFlagEnabled('routeGenerationEnabled')) {
+            throw makeDisabledError('routeGenerationEnabled', 'Route generation is paused for beta safety.');
+        }
+        if (!isFlagEnabled('premiumRiskyToolsEnabled')) {
+            throw makeDisabledError('premiumRiskyToolsEnabled', 'Premium tools are paused for beta safety.');
+        }
+
         try {
             const callable = getCallable('getPremiumRoute');
             const payload = { coordinates };

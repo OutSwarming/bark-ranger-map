@@ -7,6 +7,7 @@ const {
     __test: {
         normalizeEntitlement,
         isEffectivePremium,
+        isFunctionFlagEnabled,
         requirePremiumCallable,
         handlePremiumRoute,
         handlePremiumGeocode,
@@ -142,6 +143,68 @@ describe("ORS premium callable entitlement helpers", () => {
 });
 
 describe("ORS premium callable handlers", () => {
+    it("can disable route generation server-side before entitlement reads or ORS calls", async () => {
+        let postCalls = 0;
+        const firestore = makeFirestore({ entitlement: premiumEntitlement });
+
+        assert.equal(isFunctionFlagEnabled("getPremiumRoute", {
+            env: { BARK_ENABLE_PREMIUM_ROUTE: "false" }
+        }), false);
+
+        await assertRejectsCode(
+            handlePremiumRoute(
+                {
+                    data: {
+                        coordinates: [[-122.4, 37.8], [-122.5, 37.9]]
+                    }
+                },
+                authedContext("premium-user"),
+                {
+                    env: { BARK_ENABLE_PREMIUM_ROUTE: "false" },
+                    firestore,
+                    getOrsApiKey: () => "test-key",
+                    axiosPost: async () => {
+                        postCalls += 1;
+                        return { data: { ok: true } };
+                    }
+                }
+            ),
+            "failed-precondition"
+        );
+
+        assert.equal(firestore.state.reads, 0);
+        assert.equal(postCalls, 0);
+    });
+
+    it("can disable premium geocode server-side before entitlement reads or ORS calls", async () => {
+        let getCalls = 0;
+        const firestore = makeFirestore({ entitlement: premiumEntitlement });
+
+        assert.equal(isFunctionFlagEnabled("getPremiumGeocode", {
+            env: { BARK_ENABLE_PREMIUM_GEOCODE: "off" }
+        }), false);
+
+        await assertRejectsCode(
+            handlePremiumGeocode(
+                { data: { text: "Seattle" } },
+                authedContext("premium-user"),
+                {
+                    env: { BARK_ENABLE_PREMIUM_GEOCODE: "off" },
+                    firestore,
+                    getOrsApiKey: () => "test-key",
+                    axiosGet: async () => {
+                        getCalls += 1;
+                        return { data: { features: [] } };
+                    }
+                }
+            ),
+            "failed-precondition"
+        );
+
+        assert.equal(firestore.state.reads, 0);
+        assert.equal(getCalls, 0);
+    });
+
     it("normalizes route coordinate pairs and rejects malformed waypoint lists", () => {
         assert.deepEqual(
             normalizeRouteCoordinates([["-86.3447388", "46.5482534"], [-86.65, 46.41]]),

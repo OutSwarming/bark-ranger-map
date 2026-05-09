@@ -47,6 +47,18 @@
         );
     }
 
+    function isCheckoutEnabled() {
+        return !window.BARK ||
+            typeof window.BARK.isLaunchFlagEnabled !== 'function' ||
+            window.BARK.isLaunchFlagEnabled('checkoutEnabled');
+    }
+
+    function getCheckoutDisabledMessage() {
+        return window.BARK && typeof window.BARK.getLaunchFlagMessage === 'function'
+            ? window.BARK.getLaunchFlagMessage('checkoutEnabled')
+            : 'Premium checkout is paused for this beta. Please try again after the next release update.';
+    }
+
     function getEntitlement() {
         const premiumService = getPremiumService();
         return premiumService && typeof premiumService.getEntitlement === 'function'
@@ -345,6 +357,19 @@
             };
         }
 
+        if (!isCheckoutEnabled() && !isPremiumActive()) {
+            return {
+                mode: 'checkout-disabled',
+                title: 'Premium checkout is paused',
+                eyebrow: 'Beta safety',
+                body: getCheckoutDisabledMessage(),
+                primaryText: 'Checkout paused',
+                primaryDisabled: true,
+                secondaryVisible: true,
+                clearVisible: returnState !== null
+            };
+        }
+
         if (!user) {
             const signedOutCopy = getSignedOutUpgradeCopy();
             return {
@@ -438,6 +463,17 @@
             setButtonState(getElement('profile-premium-action'), {
                 text: mode === 'verification-delayed' ? 'Refresh account status' : 'Checking account...',
                 disabled: mode !== 'verification-delayed',
+                mode
+            });
+            return;
+        }
+
+        if (mode === 'checkout-disabled') {
+            setText('profile-premium-status', 'Checkout paused');
+            setText('profile-premium-copy', state.body);
+            setButtonState(getElement('profile-premium-action'), {
+                text: 'Checkout paused',
+                disabled: true,
                 mode
             });
             return;
@@ -539,6 +575,11 @@
     }
 
     async function startCheckout() {
+        if (!isCheckoutEnabled()) {
+            renderCurrentState();
+            return;
+        }
+
         const state = getState();
 
         if (state.mode === 'signed-out' || state.mode === 'verify-signed-out') {
@@ -569,7 +610,10 @@
             window.location.assign(checkoutUrl);
         } catch (error) {
             console.error('[paywallController] createCheckoutSession failed:', error);
-            setText('paywall-body', 'Checkout could not start. Please try again in a moment or contact support.');
+            const message = error && error.message && /paused|disabled|unavailable/i.test(error.message)
+                ? error.message
+                : 'Checkout could not start. Please try again in a moment or contact support.';
+            setText('paywall-body', message);
             setButtonState(getElement('paywall-primary-btn'), {
                 text: 'Try again',
                 disabled: false,

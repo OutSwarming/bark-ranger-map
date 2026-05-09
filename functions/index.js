@@ -17,6 +17,51 @@ const ADMIN_RATE_LIMITS = {
     syncToSpreadsheet: { maxRequests: 10, windowMs: 60 * 1000 }
 };
 
+const FUNCTION_FLAG_CONFIG = Object.freeze({
+    getPremiumRoute: {
+        envKey: "BARK_ENABLE_PREMIUM_ROUTE",
+        message: "Route generation is paused for beta safety. Please try again after the next release update."
+    },
+    getPremiumGeocode: {
+        envKey: "BARK_ENABLE_PREMIUM_GEOCODE",
+        message: "Global town search is paused for beta safety. Local B.A.R.K. stop search still works."
+    },
+    createCheckoutSession: {
+        envKey: "BARK_ENABLE_CHECKOUT",
+        message: "Premium checkout is paused for this beta. Please try again after the next release update."
+    }
+});
+
+function isDisabledFlagValue(value) {
+    if (value === false) return true;
+    if (value === true || value === undefined || value === null || value === "") return false;
+    return ["0", "false", "off", "disabled", "no"].includes(String(value).trim().toLowerCase());
+}
+
+function isFunctionFlagEnabled(action, options = {}) {
+    const config = FUNCTION_FLAG_CONFIG[action];
+    if (!config) return true;
+
+    const optionFlags = options.functionFlags || options.launchFlags || {};
+    if (Object.prototype.hasOwnProperty.call(optionFlags, action)) {
+        return optionFlags[action] !== false;
+    }
+
+    const env = options.env || process.env;
+    return !isDisabledFlagValue(env[config.envKey]);
+}
+
+function requireFunctionFlagEnabled(action, options = {}) {
+    if (isFunctionFlagEnabled(action, options)) return;
+
+    const config = FUNCTION_FLAG_CONFIG[action] || {};
+    console.warn("[launchFlags] Callable blocked by Stage 0 kill switch.", { action });
+    throw new functions.https.HttpsError(
+        "failed-precondition",
+        config.message || "This feature is paused for beta safety."
+    );
+}
+
 function getCallableUid(context) {
     return context && context.auth && context.auth.uid ? context.auth.uid : null;
 }
@@ -602,6 +647,7 @@ function extractLemonSqueezyCheckoutUrl(response) {
 }
 
 async function handleCreateCheckoutSession(requestOrData, context, options = {}) {
+    requireFunctionFlagEnabled("createCheckoutSession", options);
     const uid = requireAuthCallable(context);
     const config = getLemonSqueezyConfig(options);
     const token = context && context.auth && context.auth.token ? context.auth.token : {};
@@ -885,6 +931,7 @@ async function handleLemonSqueezyWebhook(req, res, options = {}) {
 }
 
 async function handlePremiumRoute(requestOrData, context, options = {}) {
+    requireFunctionFlagEnabled("getPremiumRoute", options);
     await requirePremiumCallable(context, "getPremiumRoute", options);
 
     const payload = getCallablePayload(requestOrData);
@@ -933,6 +980,7 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
 }
 
 async function handlePremiumGeocode(requestOrData, context, options = {}) {
+    requireFunctionFlagEnabled("getPremiumGeocode", options);
     await requirePremiumCallable(context, "getPremiumGeocode", options);
 
     const payload = getCallablePayload(requestOrData);
@@ -997,6 +1045,8 @@ if (process.env.NODE_ENV === "test") {
     exports.__test = {
         normalizeEntitlement,
         isEffectivePremium,
+        isFunctionFlagEnabled,
+        requireFunctionFlagEnabled,
         requirePremiumCallable,
         handlePremiumRoute,
         handlePremiumGeocode,
