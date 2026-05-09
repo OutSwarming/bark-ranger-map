@@ -662,6 +662,12 @@ function cleanOptionalString(value) {
     return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function cleanOptionalId(value) {
+    if (value === undefined || value === null) return null;
+    const text = String(value).trim();
+    return text || null;
+}
+
 function getLemonSqueezyConfig(options = {}) {
     const env = options.env || process.env;
     const apiKey = cleanOptionalString(options.apiKey) || cleanOptionalString(env.LEMONSQUEEZY_API_KEY);
@@ -778,7 +784,7 @@ async function handleCreateCheckoutSession(requestOrData, context, options = {})
     }
 }
 
-function getHeaderValue(req, name) {
+function getRequestHeaderValue(req, name) {
     if (req && typeof req.get === "function") {
         const value = req.get(name);
         if (value) return value;
@@ -832,7 +838,7 @@ function deriveLemonSqueezyEventId(payload, rawBody) {
 
 function getLemonSqueezyEventName(payload, req) {
     const meta = payload && payload.meta && typeof payload.meta === "object" ? payload.meta : {};
-    return cleanOptionalString(meta.event_name) || cleanOptionalString(getHeaderValue(req, "X-Event-Name")) || "unknown";
+    return cleanOptionalString(meta.event_name) || cleanOptionalString(getRequestHeaderValue(req, "X-Event-Name")) || "unknown";
 }
 
 function getLemonSqueezyCustomData(payload) {
@@ -854,6 +860,19 @@ function getLemonSqueezyAttributes(payload) {
         !Array.isArray(payload.data.attributes)
         ? payload.data.attributes
         : {};
+}
+
+function getLemonSqueezyVariantId(payload, attributes = getLemonSqueezyAttributes(payload)) {
+    const directVariantId = cleanOptionalId(attributes.variant_id) || cleanOptionalId(attributes.variantId);
+    if (directVariantId) return directVariantId;
+
+    const variantRelationship = payload &&
+        payload.data &&
+        payload.data.relationships &&
+        payload.data.relationships.variant &&
+        payload.data.relationships.variant.data;
+
+    return cleanOptionalId(variantRelationship && variantRelationship.id);
 }
 
 function getCurrentPeriodEnd(attributes) {
@@ -931,6 +950,11 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
 
     if (attributes.store_id !== undefined && String(attributes.store_id) !== DEFAULT_LEMONSQUEEZY_STORE_ID) {
         return { action: "ignore", reason: "store_mismatch" };
+    }
+
+    const variantId = getLemonSqueezyVariantId(payload, attributes);
+    if (variantId && String(variantId) !== DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID) {
+        return { action: "ignore", reason: "variant_mismatch" };
     }
 
     const providerStatus = cleanOptionalString(attributes.status);
@@ -1105,7 +1129,7 @@ async function handleLemonSqueezyWebhook(req, res, options = {}) {
         return safeResponse(res, 400, { ok: false, error: "missing_raw_body" });
     }
 
-    const signature = getHeaderValue(req, "X-Signature");
+    const signature = getRequestHeaderValue(req, "X-Signature");
     if (!signature) {
         return safeResponse(res, 401, { ok: false, error: "missing_signature" });
     }

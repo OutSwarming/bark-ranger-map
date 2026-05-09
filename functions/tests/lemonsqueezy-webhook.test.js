@@ -753,6 +753,23 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
         assert.equal(firestore.state.writes.length, 0);
     });
 
+    it("ignores signed test-mode events for a different variant when the provider includes one", async () => {
+        const payload = makePayload({
+            uid: "wrong-variant-user",
+            eventId: "evt_wrong_variant",
+            attributes: {
+                variant_id: 999999,
+                status: "active"
+            }
+        });
+        const { res, firestore } = await invoke({ req: signedReq(payload) });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.reason, "variant_mismatch");
+        assert.equal(firestore.state.reads, 0);
+        assert.equal(firestore.state.writes.length, 0);
+    });
+
     it("ignores signed live-mode payloads during test-mode phase", async () => {
         const payload = makePayload({
             uid: "live-mode-user",

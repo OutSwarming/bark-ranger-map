@@ -494,6 +494,55 @@ describe('Firestore entitlement and admin field rules', () => {
         }));
     });
 
+    it('denies client access to server-only rate-limit and webhook receipt collections', async () => {
+        await seedDoc(['_premiumCallableRateLimits', 'getPremiumRoute_alice_1700000000000'], {
+            uid: 'alice',
+            action: 'getPremiumRoute',
+            count: 1
+        });
+        await seedDoc(['_lemonSqueezyWebhookEvents', 'receipt-1'], {
+            provider: 'lemon_squeezy',
+            processingStatus: 'processed'
+        });
+
+        const aliceDb = authedDb('alice');
+        const publicDb = unauthDb();
+
+        await assertFails(getDoc(doc(aliceDb, '_premiumCallableRateLimits', 'getPremiumRoute_alice_1700000000000')));
+        await assertFails(setDoc(doc(aliceDb, '_premiumCallableRateLimits', 'getPremiumRoute_alice_1700000000000'), {
+            uid: 'alice',
+            action: 'getPremiumRoute',
+            count: 0
+        }));
+        await assertFails(setDoc(doc(publicDb, '_premiumCallableRateLimits', 'getPremiumGeocode_public_1700000000000'), {
+            uid: 'public',
+            action: 'getPremiumGeocode',
+            count: 99
+        }));
+
+        await assertFails(getDoc(doc(aliceDb, '_lemonSqueezyWebhookEvents', 'receipt-1')));
+        await assertFails(setDoc(doc(aliceDb, '_lemonSqueezyWebhookEvents', 'receipt-2'), {
+            provider: 'lemon_squeezy',
+            processingStatus: 'processed'
+        }));
+    });
+
+    it('denies direct feedback writes while the app-side feedback flag is disabled', async () => {
+        const aliceDb = authedDb('alice');
+        const publicDb = unauthDb();
+
+        await assertFails(setDoc(doc(aliceDb, 'feedback', 'alice-feedback'), {
+            text: 'Please add this park.',
+            sender: 'Alice',
+            timestamp: serverTimestamp()
+        }));
+        await assertFails(setDoc(doc(publicDb, 'feedback', 'public-feedback'), {
+            text: 'Anonymous feedback.',
+            sender: 'Anonymous Guest',
+            timestamp: serverTimestamp()
+        }));
+    });
+
     it('denies arbitrary top-level collections by default', async () => {
         await seedDoc(['randomCollection', 'doc1'], {
             seeded: true

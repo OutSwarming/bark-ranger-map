@@ -150,3 +150,53 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
 - The processed-event collection is server-only by default because there is no client rule match for `_lemonSqueezyWebhookEvents`; no client path was added.
 - Chargeback/dispute-specific provider event handling still needs a confirmed Lemon Squeezy event design before paid/public launch.
 - A real Lemon Squeezy test-mode delivery re-skim is still useful after deploy to confirm provider timestamp paths match the fixtures.
+
+## Parts 1-6 QC Audit Progress
+
+- Added `plans/PARTS_1_6_QC_AUDIT.md` as the detailed QC record for Stage 0 through Part 6.
+- Confirmed Lemon Squeezy remains hard-locked in test mode:
+  - checkout payload still uses `attributes.test_mode: true`,
+  - live-mode webhook payloads are still ignored,
+  - Carter approval lock remains documented.
+- Fixed a QC-discovered helper-name collision in `functions/index.js`: the webhook request header helper no longer shadows the ORS retry-header helper.
+- Added a conservative Lemon Squeezy variant-mismatch guard for webhook payloads that include `variant_id` or a variant relationship.
+- Added explicit rules tests that deny client reads/writes to `_premiumCallableRateLimits`, `_lemonSqueezyWebhookEvents`, and `feedback`.
+- Added `tests/playwright/stage0-launch-flags-smoke.spec.js` to verify risky flags fail closed and can be re-enabled without breaking normal browsing.
+
+### Parts 1-6 QC Test Run
+
+- `git diff --check`
+  - Result: PASS after generated emulator logs were cleaned.
+- Conflict-marker search with `rg -n "^(<<<<<<<|=======|>>>>>>>)"`
+  - Result: PASS, no conflict markers.
+- `node --check functions/index.js`
+  - Result: PASS.
+- `node --check functions/tests/lemonsqueezy-webhook.test.js`
+  - Result: PASS.
+- `node --check tests/playwright/stage0-launch-flags-smoke.spec.js`
+  - Result: PASS.
+- `npm ls --depth=0`
+  - Result: PASS.
+- `npm --prefix functions ls --depth=0`
+  - Result: PASS.
+- `npm --prefix functions test`
+  - Result: PASS, 82/82.
+- `npm run test:rules`
+  - Result: PASS, 23/23.
+- `npm run test:functions:emulator`
+  - Result: PASS, 9/9.
+- `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/stage0-launch-flags-smoke.spec.js --workers=1 --reporter=list`
+  - Result: PASS, 2/2.
+- Signed-in focused Playwright group for free limit, route gating, premium-gating, and account matrix:
+  - Result: PASS, 13/13.
+- Signed-in auth/profile/settings/global-search group:
+  - Result: PASS, 23/23.
+- Public/mobile regression group:
+  - Result: PASS, 16/16.
+
+### Parts 1-6 QC Notes
+
+- Current free tracked-visit policy is 5, not 20, per Carter's later instruction. QC verified 5th-place success and 6th-place denial.
+- `playwright/.auth/free-user.json`, `playwright/.auth/premium-user.json`, and `playwright/.auth/free-user-b.json` exist locally and remain ignored.
+- Google Sheet polling kill switch was not implemented in Parts 1-6; no Sheet-polling flag was tested.
+- Parts 1-6 are safe for 5-10 private testers while Lemon Squeezy remains in test mode. Paid/public launch remains blocked.
