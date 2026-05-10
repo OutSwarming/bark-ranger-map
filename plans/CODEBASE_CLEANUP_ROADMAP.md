@@ -21,15 +21,15 @@ Required:
 PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm --prefix functions test
 PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm run test:rules
 PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm run test:functions:emulator
-BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bark-app-identity-smoke.spec.js tests/playwright/bug004-static-fallback-data-smoke.spec.js tests/playwright/promo-access-code-smoke.spec.js tests/playwright/stage0-launch-flags-smoke.spec.js --workers=1 --reporter=list
+BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bark-app-identity-smoke.spec.js tests/playwright/bug004-static-fallback-data-smoke.spec.js tests/playwright/lemon-coupon-checkout-smoke.spec.js tests/playwright/stage0-launch-flags-smoke.spec.js --workers=1 --reporter=list
 ```
 
 3. Verify on the deployed URL:
    - public map loads,
    - local search works,
-   - Premium modal shows `Promo / Access Code`,
+   - Premium modal has no app-side code box and sends users to Lemon checkout for coupons,
    - free account stops at 5 visits,
-   - Premium/access-code account can exceed 5,
+   - Premium/legacy access-code account can exceed 5,
    - saved routes are Premium-only,
    - checkout still uses Lemon test mode,
    - feature flags can disable route/geocode/checkout.
@@ -87,7 +87,7 @@ Recommended work:
    - Suggested modules:
      - `payments/checkout`
      - `payments/webhook`
-     - `accessCodes`
+     - `legacyAccessCodes`
      - `entitlement`
      - `ors`
      - `leaderboard`

@@ -30,12 +30,12 @@ Do not rewrite everything before beta. The right move is to keep the hardened sa
 | Map/rendering | `modules/mapEngine.js`, `modules/renderEngine.js`, `modules/MarkerLayerManager.js`, `modules/TripLayerManager.js`, `MapMarkerConfig.js`, `renderers/panelRenderer.js` | Leaflet map, marker layers, panel rendering, visited/trip visuals | State, repos, premium gates, search | Mixed | Medium |
 | Search/geocode | `modules/searchEngine.js`, `services/orsService.js` | Local search, premium global town geocode, inline trip search | ParkRepo, ORS callable, paywall | Mixed | Medium |
 | Auth/account | `services/authService.js`, `services/authAccountUi.js` | Firebase init, auth lifecycle, account UI, email verification, cloud settings hydration | Firebase SDK, user docs, premiumService, VaultRepo | Tangled | High |
-| Entitlement/paywall | `services/premiumService.js`, `modules/paywallController.js`, `services/authPremiumUi.js` | Normalize Premium state, paywall UI, checkout/access code flow, gating UI | Auth, Functions, Firestore entitlement | Mixed, much safer after hardening | High |
+| Entitlement/paywall | `services/premiumService.js`, `modules/paywallController.js`, `services/authPremiumUi.js` | Normalize Premium state, paywall UI, Lemon checkout flow, gating UI | Auth, Functions, Firestore entitlement | Mixed, much safer after hardening | High |
 | User progress | `repos/VaultRepo.js`, `services/checkinService.js`, `services/firebaseService.js` | Local visit store, 5-free cap UI, Firestore visited writes, route persistence | Auth, rules, profile, map | Mixed | High |
 | Profile/leaderboard | `modules/profileEngine.js`, `renderers/leaderboardRenderer.js`, `gamificationLogic.js` | Stats, achievements, rank, leaderboard pagination/sync | Firebase, VaultRepo, scoring utils | Tangled | Medium/High |
 | Trip planner | `engines/tripPlannerCore.js`, `renderers/routeRenderer.js` | Manual trip days/stops, route generation, saved route UI | Search, ORS, Firebase, premiumService | Tangled | Medium |
-| Backend Functions | `functions/index.js` | ORS callables, Lemon checkout/webhook, access codes, leaderboard sync, admin Gemini/Sheets | Firebase Admin, Lemon, ORS, Google APIs | Too large | High |
-| Firestore rules | `firestore.rules` | Client access boundaries for user docs, saved routes, leaderboard, access codes, system docs | Firebase deployment | Clean/compact | Medium |
+| Backend Functions | `functions/index.js` | ORS callables, Lemon checkout/webhook, disabled legacy access-code callable, leaderboard sync, admin Gemini/Sheets | Firebase Admin, Lemon, ORS, Google APIs | Too large | High |
+| Firestore rules | `firestore.rules` | Client access boundaries for user docs, saved routes, leaderboard, legacy access-code collections, system docs | Firebase deployment | Clean/compact | Medium |
 | Tests | `functions/tests/*`, `tests/rules/*`, `tests/*.test.js`, `tests/playwright/*` | Unit, rules, emulator, browser smoke and signed-in flows | Node 20, emulators, Playwright auth states | Strong but environment-dependent | Medium |
 | Plans/docs | `plans/*`, `HARDENING_PROGRESS.md`, `ACTION_TRACKER.md` | Launch/hardening/legal/QA records | Humans only; ignored by Hosting | Useful but voluminous | Low |
 | Assets/data/images | `assets/data/*`, `assets/images/*`, root `data/*` | Fallback data, logos/images, snapshots | Hosted assets and docs | Mixed provenance | Legal/product risk |
@@ -45,14 +45,14 @@ Do not rewrite everything before beta. The right move is to keep the hardened sa
 | Dimension | Score | Evidence |
 |---|---:|---|
 | Frontend modularity | 58 | Many modules exist, but `window.BARK`, raw `window.*`, and script order are the integration layer. `index.html:1430-1473` loads 30+ scripts directly. |
-| Backend/functions organization | 55 | `functions/index.js` is 2,223 lines and includes ORS, Lemon, access codes, leaderboard, Gemini, and Sheets in one file. |
+| Backend/functions organization | 55 | `functions/index.js` is 2,223 lines and includes ORS, Lemon, legacy access-code compatibility, leaderboard, Gemini, and Sheets in one file. |
 | Firebase/Auth/Firestore separation | 62 | Firestore CRUD is partly in `services/firebaseService.js`, but auth hydration and user-doc listener logic still live in `services/authService.js`. |
 | Entitlement/payment separation | 72 | `premiumService.js` is a clear read-side source; Functions write entitlement server-side; UI states are centralized in paywall/account code. |
 | Testability | 76 | Strong functions/rules/Playwright coverage exists, with explicit storage-state skips. Still tied to local server/auth state setup. |
 | Readability | 62 | File names are understandable, but large files and inline HTML/style strings make local reasoning slow. |
 | Launch safety | 74 | Kill switches, rate limits, server-side free cap, server-authoritative leaderboard, and test-mode Lemon lock are strong. |
 | Maintainability | 60 | Acceptable if changes stay scoped. Risky if features continue to be added into existing large files. |
-| Security/data integrity structure | 72 | Entitlement/access codes/leaderboard/rate-limit paths are server-authoritative/protected. Achievements and walk inputs remain lower-trust/cosmetic. |
+| Security/data integrity structure | 72 | Entitlement/legacy access-code/leaderboard/rate-limit paths are server-authoritative/protected. Achievements and walk inputs remain lower-trust/cosmetic. |
 | Debug production issues | 64 | Many explicit logs and docs exist, but global state and duplicated listeners make root cause analysis harder. |
 
 Overall: **66 / 100**
@@ -66,7 +66,7 @@ Overall: **66 / 100**
 | Raw legacy globals remain | `window.currentWalkPoints`, `window.tripStartNode`, `window.tripEndNode`, `window.isAdmin`, `window._lastSyncedScore` in `modules/barkState.js`, `authService.js`, `profileEngine.js`, `tripPlannerCore.js` | Account switching and premium state can leak if reset paths miss one global | P1 | No, because tests cover current paths | Yes before major scale | Create an account-scoped runtime reset contract and add regression tests before migrating. |
 | Duplicate user document listeners | `services/authService.js:821-885` listens to `users/{uid}`; `repos/VaultRepo.js:631` also subscribes for `visitedPlaces` | Duplicates initial and update reads; same doc drives unrelated concerns | P2 | No | No, but cost/noise grows | Later split `visitedPlaces` into subcollection or make one listener fan out. |
 | Auth service does too many jobs | `services/authService.js` is 990 lines and handles Firebase init, auth UI visibility, cloud settings, premium entitlement, admin flag, walk points, route list loading, leaderboard boot | Hard to change account behavior safely | P1 | No | Yes for public launch polish | Extract user-doc hydration handlers after beta with tests. |
-| Backend index file is too large | `functions/index.js` is 2,223 lines; exports ORS, checkout, access codes, webhook, leaderboard, scheduled leaderboard, Gemini extraction, Sheets sync | New backend features will increase risk of accidental coupling | P1 | No | Yes before continued paid feature work | Split after private beta into `payments`, `accessCodes`, `ors`, `leaderboard`, `adminData`, `shared/entitlement`. |
+| Backend index file is too large | `functions/index.js` is 2,223 lines; exports ORS, checkout, disabled legacy access-code callable, webhook, leaderboard, scheduled leaderboard, Gemini extraction, Sheets sync | New backend features will increase risk of accidental coupling | P1 | No | Yes before continued paid feature work | Split after private beta into `payments`, `legacyAccessCompat`, `ors`, `leaderboard`, `adminData`, `shared/entitlement`. |
 | Inline HTML generation is widespread | `profileEngine.js`, `tripPlannerCore.js`, `routeRenderer.js`, `shareEngine.js`, `authService.js` use `innerHTML` for UI | Harder to sanitize and test; user/data-origin strings can slip into templates | P1/P2 | No if no new input paths are added | Yes for trust/privacy polish | For user-generated strings, prefer DOM construction/textContent or small escape helpers. |
 | Feature flags exist in multiple layers | `modules/barkState.js`, `modules/launchFlags.js`, `services/orsService.js`, `modules/paywallController.js`, `functions/index.js` | Good defense-in-depth, but behavior must stay consistent | P2 | No | No | Keep; document flag names and add a one-page ops runbook. |
 | Achievement writes remain client-owned | `gamificationLogic.js:230-269`, rules allow owner achievement writes with shape validation | Cosmetic spoofing remains possible | P2 | No | No unless achievements become competitive/rewarded | Mark achievements cosmetic until server-derived. |
@@ -79,35 +79,35 @@ Overall: **66 / 100**
 Current shape:
 
 - Read-side Premium source: `services/premiumService.js`.
-- Write-side Premium sources: Functions only, mainly Lemon webhook and `redeemAccessOrPromoCode`.
+- Write-side Premium sources: Functions only, mainly Lemon webhook. The old `redeemAccessOrPromoCode` callable is now disabled for new redemptions.
 - UI state: `modules/paywallController.js` and `services/authAccountUi.js`.
-- Server enforcement: `functions/index.js` for checkout/access-code/route/geocode; `firestore.rules` for client writes.
+- Server enforcement: `functions/index.js` for checkout/route/geocode; `firestore.rules` for client writes.
 
 Answers:
 
 1. One clear source of truth for Premium? **Mostly yes.** The effective app answer is `premiumService.isPremium()` on the client and `normalizeEntitlement()` on the server.
-2. Can Lemon accidentally downgrade access-code Premium? **Tests and code are designed to prevent this.** `functions/index.js` has access-code fallback logic and webhook ordering/idempotency. Keep regression tests mandatory.
-3. Can access-code users accidentally see billing UI? **Current UI intends no.** Account billing logic checks entitlement source/status before showing billing controls.
-4. Can unverified users bypass gates? **Server callables require verified email for checkout/access-code/premium route/geocode.** Client UI also blocks for password users.
+2. Can Lemon accidentally downgrade legacy access-code Premium? **Tests and code are designed to prevent this.** `functions/index.js` has access-code fallback logic for existing records and webhook ordering/idempotency. Keep regression tests mandatory.
+3. Can legacy access-code users accidentally see billing UI? **Current UI intends no.** Account billing logic checks entitlement source/status before showing billing controls.
+4. Can unverified users bypass gates? **Server callables require verified email for checkout/premium route/geocode.** Client UI also blocks for password users.
 5. Are UI and server entitlement logic consistent? **Mostly.** Both recognize active, manual active, past_due, cancelled_active, and active unexpired access_code. Risk is future drift because logic exists in both JS client and Functions.
-6. Are entitlement states too complex? **Acceptable for private beta; complex for a solo project.** Access code + Lemon + cancellation + refund + past_due is necessarily more than one boolean.
+6. Are entitlement states too complex? **Acceptable for private beta; complex for a solo project.** Lemon cancellation + refund + past_due + legacy compatibility is necessarily more than one boolean.
 7. What should be simplified before public launch? Add an entitlement-state matrix document and one shared test fixture table. Do not invent another entitlement system.
 
 Private beta recommendation: keep as-is, do not refactor payment code before 5-10 testers.
 
-Public launch recommendation: split payment/access-code logic out of `functions/index.js`, keep state machine tests, and add monitoring for webhook events.
+Public launch recommendation: split payment/legacy access-code compatibility logic out of `functions/index.js`, keep state machine tests, and add monitoring for webhook events.
 
 ## 6. Firestore and Data Model Review
 
 | Path | Current Purpose | Structure Assessment | Risk |
 |---|---|---|---|
 | `users/{uid}` | Profile, settings, entitlement, visitedPlaces array, walk/expedition mirrors | Understandable but overloaded | Medium/High |
-| `users/{uid}.entitlement` | Premium state from Lemon/access codes/manual | Good boundary; client protected | Medium |
+| `users/{uid}.entitlement` | Premium state from Lemon/manual/legacy access-code compatibility | Good boundary; client protected | Medium |
 | `users/{uid}.visitedPlaces` | Embedded array of visits | Good for 5-free cap and beta; document-size risk for premium power users | Medium |
 | `users/{uid}/savedRoutes/{routeId}` | Premium saved trips | Owner-scoped and premium-gated | Low/Medium |
 | `users/{uid}/achievements/{achievementId}` | Client-generated achievements | Cosmetic trust only | Low/Medium |
 | `leaderboard/{uid}` | Public leaderboard row | Now server-written only; reads unchanged | Low |
-| `accessCodes/{codeHash}` | Server-only promo/access code definitions | Good; deny client read/write | Low |
+| `accessCodes/{codeHash}` | Legacy server-only promo/access code definitions; new user-facing flow no longer uses them | Good; deny client read/write | Low |
 | `accessCodeRedemptions/{redemptionId}` | Redemption receipts | Good; deny client read/write | Low |
 | `_lemonSqueezyWebhookEvents/{id}` | Durable webhook idempotency | Good; default-denied by catch-all | Low |
 | `_premiumCallableRateLimits/{id}` | Route/geocode rate limits | Good; default-denied by catch-all | Low |
@@ -133,7 +133,7 @@ Exported backend functions found in `functions/index.js`:
 - `getPremiumRoute`
 - `getPremiumGeocode`
 - `createCheckoutSession`
-- `redeemAccessOrPromoCode`
+- `redeemAccessOrPromoCode` (disabled for new user-facing redemptions)
 - `getCustomerPortalUrl`
 - `lemonSqueezyWebhook`
 - `syncLeaderboardScore`
@@ -191,7 +191,7 @@ Specific risks:
 
 Good news:
 
-- There is one visible `Promo / Access Code` box in the paywall modal.
+- There is no app-side coupon box; users enter Lemon coupons on Lemon checkout.
 - Premium route/geocode never sends ORS secrets to the browser.
 - Saved routes are now Premium-gated in UI and rules.
 - Public map/search is not forced into auth/payment.
@@ -204,12 +204,12 @@ Test inventory:
 - Functions emulator: `functions/tests/ors-callable-emulator.test.js`.
 - Firestore rules: `tests/rules/firestore-entitlement.rules.test.js`.
 - Node/browserless unit-ish tests: scoring, data integrity, auth account UI, route renderer, VaultRepo, trip planner, gamification.
-- Playwright public smoke: identity, fallback data, settings nav, static UI, promo/access code.
-- Playwright signed-in smoke: free cap, route gating, premium gating, account switching, settings persistence, profile/manage, trip planner visited styling, access-code/premium entitlement.
+- Playwright public smoke: identity, fallback data, settings nav, static UI, Lemon coupon checkout.
+- Playwright signed-in smoke: free cap, route gating, premium gating, account switching, settings persistence, profile/manage, trip planner visited styling, Lemon/legacy entitlement.
 
 Strengths:
 
-- The riskiest launch work has tests: payment state machine, checkout test mode, access codes, leaderboard sync, rules, free cap, route/geocode entitlement/rate limits, kill switches.
+- The riskiest launch work has tests: payment state machine, checkout test mode, Lemon coupon checkout, leaderboard sync, rules, free cap, route/geocode entitlement/rate limits, kill switches.
 - Signed-in Playwright tests document how to skip when storage states are missing.
 - Rules tests are now much stronger than the original launch audit state.
 
@@ -228,7 +228,7 @@ Private beta gate:
 PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm --prefix functions test
 PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm run test:rules
 PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm run test:functions:emulator
-BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bark-app-identity-smoke.spec.js tests/playwright/bug004-static-fallback-data-smoke.spec.js tests/playwright/promo-access-code-smoke.spec.js tests/playwright/stage0-launch-flags-smoke.spec.js --workers=1 --reporter=list
+BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/bark-app-identity-smoke.spec.js tests/playwright/bug004-static-fallback-data-smoke.spec.js tests/playwright/lemon-coupon-checkout-smoke.spec.js tests/playwright/stage0-launch-flags-smoke.spec.js --workers=1 --reporter=list
 ```
 
 Pre-expansion gate:
@@ -301,7 +301,7 @@ P1 before 25-50 broader beta:
 
 P2 before paid public launch:
 
-- Split `functions/index.js` into payment/access-code/ORS/leaderboard/admin modules.
+- Split `functions/index.js` into payment/legacy-access-compat/ORS/leaderboard/admin modules.
 - Reduce `authService.js` responsibility or at least isolate user-doc snapshot hydration.
 - Add entitlement-state matrix docs/tests that cover UI + server together.
 - Add budget/monitoring/runbook work.
@@ -321,7 +321,7 @@ P3 after launch:
 | Map rendering and marker layers | Complex Leaflet state; currently works and is performance-sensitive | Public map smoke, mobile viewport, cluster/zoom tests, visited styling |
 | VaultRepo visited reconciliation | Account switching and pending mutation rollback are subtle | VaultRepo unit tests, free cap Playwright, account-switch tests |
 | Auth switch handling | Risk of leaking premium/visited state between accounts | Account-switch matrix, premium/free storage-state tests |
-| Paywall/access-code controller | Payment UX is sensitive and recently tested | Promo/access Playwright, checkout unit tests, account UI billing states |
+| Paywall/checkout controller | Payment UX is sensitive and recently tested | Lemon coupon checkout Playwright, checkout unit tests, account UI billing states |
 | Route planner core | Large and global-heavy, but user-facing and working | Route bookends, saved routes, trip visited styling, mobile smoke |
 | Leaderboard UX | Pagination is already good and recently hardened server-side | Leaderboard initial/See More Playwright and leaderboard sync unit tests |
 
@@ -339,7 +339,7 @@ rg -n "window\\.|window\\.BARK|globalThis|localStorage|sessionStorage|TODO|FIXME
 rg -n "premium|entitlement|access_code|lemon|checkout|billing|customer_portal|test_mode"
 rg -n "leaderboard|visitedPlaces|savedRoutes|achievements|rateLimit|accessCodes"
 rg -n "exports\\.[A-Za-z0-9_]+|functions\\.https|onRequest|onCall|pubsub|scheduler|runWith" functions/index.js
-rg -n "<script|<link|paywall|Promo / Access Code|account-verification|profile-premium|leaderboard|saved-routes|map" index.html
+rg -n "<script|<link|paywall|coupon|account-verification|profile-premium|leaderboard|saved-routes|map" index.html
 rg -n "match /|function |allow |get\\(|exists\\(" firestore.rules
 find tests functions/tests -maxdepth 3 -type f | sort
 rg -n "BARK_E2E|storage state|storageState|\\.auth|skip|test\\.skip|process\\.env" tests/playwright scripts/save-playwright-storage-state.js playwright.config.js

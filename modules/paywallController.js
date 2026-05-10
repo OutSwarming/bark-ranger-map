@@ -17,7 +17,6 @@
     let returnStateStartedAt = null;
     let returnStateUserUid = null;
     let checkoutInFlight = false;
-    let codeInFlight = false;
     let unsubscribePremium = null;
     let verificationFallbackTimer = null;
 
@@ -51,7 +50,7 @@
     }
 
     function getEmailVerificationMessage() {
-        return 'Please verify your email before using Premium checkout, access codes, or premium routing.';
+        return 'Please verify your email before using Premium checkout, coupons, or premium routing.';
     }
 
     function isPremiumActive() {
@@ -152,24 +151,6 @@
         button.dataset.mode = options.mode || '';
     }
 
-    function setPromoCodeMessage(message, tone = 'neutral') {
-        const node = getElement('paywall-promo-code-message');
-        if (!node) return;
-        node.textContent = message || '';
-        node.dataset.tone = tone;
-    }
-
-    function normalizePromoCodeInput() {
-        const input = getElement('paywall-promo-code-input');
-        const value = input && typeof input.value === 'string' ? input.value.trim().toUpperCase() : '';
-        return /^[A-Z0-9][A-Z0-9_-]{1,63}$/.test(value) ? value : null;
-    }
-
-    function hasPromoCodeInput() {
-        const input = getElement('paywall-promo-code-input');
-        return Boolean(input && typeof input.value === 'string' && input.value.trim());
-    }
-
     function formatAccessDate(value) {
         if (!value) return 'Not set';
         let date = null;
@@ -196,7 +177,7 @@
 
     function getInactiveCopy(status) {
         if (status === 'access_code_expired') {
-            return 'Free Premium access ended. Enter a new access code or subscribe to continue Premium.';
+            return 'Free Premium access ended. Subscribe through Lemon Squeezy to continue Premium.';
         }
         if (status === 'expired') {
             return 'Premium has expired on this account. You can upgrade again when ready.';
@@ -493,7 +474,7 @@
                 eyebrow = 'Free access';
                 title = 'Free Premium Access';
                 primaryText = 'Free access active';
-                activeCopy = `${getAccessCodeAudienceLabel(entitlement.accessCodeAudience)}. Access ends: ${formatAccessDate(entitlement.expiresAt)}. Auto-renew: No. No payment method attached.`;
+                activeCopy = `${getAccessCodeAudienceLabel(entitlement.accessCodeAudience)}. Access ends: ${formatAccessDate(entitlement.expiresAt)}. Auto-renew: No. Payment method: None.`;
             } else if (entitlement.status === 'past_due') {
                 eyebrow = 'Payment attention';
                 activeCopy = 'Premium remains active while Lemon Squeezy retries your payment. Manage billing to keep access uninterrupted.';
@@ -632,12 +613,7 @@
 
         setButtonState(getElement('paywall-primary-btn'), {
             text: checkoutInFlight ? 'Opening checkout...' : state.primaryText,
-            disabled: state.primaryDisabled === true || checkoutInFlight || codeInFlight,
-            mode: state.mode
-        });
-        setButtonState(getElement('paywall-promo-code-btn'), {
-            text: codeInFlight ? 'Checking...' : 'Apply',
-            disabled: state.mode === 'premium' || codeInFlight || checkoutInFlight,
+            disabled: state.primaryDisabled === true || checkoutInFlight,
             mode: state.mode
         });
 
@@ -688,13 +664,6 @@
         return firebase.functions().httpsCallable('createCheckoutSession');
     }
 
-    function getPromoCodeCallable() {
-        if (typeof firebase === 'undefined' || typeof firebase.functions !== 'function') {
-            throw new Error('Firebase Functions SDK is not available.');
-        }
-        return firebase.functions().httpsCallable('redeemAccessOrPromoCode');
-    }
-
     function validateCheckoutUrl(value) {
         if (typeof value !== 'string' || !value.trim()) return null;
         try {
@@ -702,71 +671,6 @@
             return url.protocol === 'https:' ? url.toString() : null;
         } catch (error) {
             return null;
-        }
-    }
-
-    async function applyPromoCode() {
-        const state = getState();
-        if (state.mode === 'signed-out' || state.mode === 'verify-signed-out') {
-            setPromoCodeMessage('Sign in first so this code can be attached to your BARK Ranger account.', 'error');
-            focusSignIn();
-            return null;
-        }
-
-        if (state.mode === 'premium') {
-            setPromoCodeMessage('Premium is already active on this account.', 'success');
-            return null;
-        }
-
-        const user = getCurrentUser();
-        if (needsEmailVerification(user)) {
-            setPromoCodeMessage('Please verify your email before redeeming access codes.', 'error');
-            return null;
-        }
-
-        const code = normalizePromoCodeInput();
-        if (!code) {
-            setPromoCodeMessage('That code was not recognized or has expired.', 'error');
-            return null;
-        }
-
-        codeInFlight = true;
-        setPromoCodeMessage('Checking code...', 'neutral');
-        renderCurrentState();
-
-        try {
-            const redeemCode = getPromoCodeCallable();
-            if (typeof window.BARK.incrementRequestCount === 'function') {
-                window.BARK.incrementRequestCount();
-            }
-            const result = await redeemCode({ code });
-            const data = result && result.data ? result.data : {};
-
-            if (data.status === 'access_code_granted') {
-                const input = getElement('paywall-promo-code-input');
-                if (input) input.value = '';
-                setPromoCodeMessage(`Premium access activated. Access ends: ${formatAccessDate(data.grantExpiresAt)}. Auto-renew: No. No payment method attached.`, 'success');
-                return data;
-            }
-
-            if (data.status === 'lemon_coupon_checkout') {
-                const checkoutUrl = validateCheckoutUrl(data.checkoutUrl);
-                if (!checkoutUrl) throw new Error('Checkout URL was missing from the backend response.');
-                setPromoCodeMessage('Opening checkout with your promo code applied.', 'success');
-                window.location.assign(checkoutUrl);
-                return data;
-            }
-
-            throw new Error('That code was not recognized or has expired.');
-        } catch (error) {
-            const message = error && error.message && !/internal|function/i.test(error.message)
-                ? error.message
-                : 'That code was not recognized or has expired.';
-            setPromoCodeMessage(message, 'error');
-            return null;
-        } finally {
-            codeInFlight = false;
-            renderCurrentState();
         }
     }
 
@@ -795,15 +699,6 @@
         const user = getCurrentUser();
         if (needsEmailVerification(user)) {
             setText('paywall-body', getEmailVerificationMessage());
-            setPromoCodeMessage('Please verify your email before continuing.', 'error');
-            return;
-        }
-
-        if (hasPromoCodeInput()) {
-            const codeResult = await applyPromoCode();
-            if (codeResult && (codeResult.status === 'access_code_granted' || codeResult.status === 'lemon_coupon_checkout')) {
-                return;
-            }
             return;
         }
 
@@ -896,7 +791,6 @@
         bindClick('paywall-secondary-btn', closePaywall);
         bindClick('paywall-clear-url-btn', clearCheckoutParams);
         bindClick('paywall-primary-btn', startCheckout);
-        bindClick('paywall-promo-code-btn', applyPromoCode);
         bindClick('profile-premium-action', () => openPaywall({ source: 'profile-premium-card' }));
         bindClick('premium-upgrade-btn', () => openPaywall({ source: 'premium-map-tools' }));
 
@@ -926,7 +820,6 @@
         openPaywall,
         closePaywall,
         startCheckout,
-        applyPromoCode,
         clearCheckoutParams,
         renderCurrentState
     };

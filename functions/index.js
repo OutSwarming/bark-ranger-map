@@ -839,7 +839,7 @@ const LEMONSQUEEZY_EVENT_STATUS_RANK = Object.freeze({
 });
 const ACCESS_CODES_COLLECTION = "accessCodes";
 const ACCESS_CODE_REDEMPTIONS_COLLECTION = "accessCodeRedemptions";
-const SAFE_PROMO_CODE_PATTERN = /^[A-Z0-9][A-Z0-9_-]{1,63}$/;
+const SAFE_PROMO_CODE_PATTERN = /^[A-Z0-9]{3,64}$/;
 const ACCESS_CODE_TYPES = new Set(["premium_free_year", "premium_free_days", "lemon_coupon_passthrough"]);
 const ACCESS_CODE_AUDIENCES = new Set(["admin_mod", "vip", "support", "tester", "general"]);
 const ACCESS_CODE_HASH_PREFIX = "bark-ranger-access-code-v1:";
@@ -984,7 +984,7 @@ async function handleCreateCheckoutSession(requestOrData, context, options = {})
     const rawDiscountCode = data && data.discountCode;
     const discountCode = rawDiscountCode ? normalizePromoCode(rawDiscountCode) : null;
     if (rawDiscountCode && !discountCode) {
-        throw new functions.https.HttpsError("invalid-argument", "Promo code format is not supported.");
+        throw new functions.https.HttpsError("invalid-argument", "Discount code format is not supported.");
     }
     const config = getLemonSqueezyConfig(options);
     const token = context && context.auth && context.auth.token ? context.auth.token : {};
@@ -1151,7 +1151,12 @@ function buildAccessCodeEntitlement({ codeData, grantExpiresAt, nowMs, options =
 }
 
 async function handleRedeemAccessOrPromoCode(requestOrData, context, options = {}) {
+    void requestOrData;
+    void options;
     const uid = requireVerifiedEmailCallable(context);
+    void uid;
+    throw accessCodeError("Coupon codes are entered on the Lemon Squeezy checkout page.");
+
     const payload = getCallablePayload(requestOrData);
     const code = normalizePromoCode(payload && payload.code);
     if (!code) throw accessCodeError();

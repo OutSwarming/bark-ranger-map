@@ -68,8 +68,8 @@ Final passing automated count after the fix: **263 tests passed** across functio
 - Confirmed Firestore rules deny direct leaderboard writes, access-code writes, access-code redemption writes, entitlement writes, and server-only rate-limit docs.
 - Confirmed free visit policy is 5 in client UI/tests/rules.
 - Confirmed saved route save/load is premium-gated in browser smoke.
-- Confirmed access-code UI uses one visible `Promo / Access Code` box.
-- Confirmed access-code users show no auto-renew, no payment method, and no Manage Billing.
+- Superseded note: the app-side `Promo / Access Code` box was later removed. Coupons are now entered on Lemon checkout only.
+- Confirmed legacy access-code users, if any exist, still show no auto-renew, no payment method, and no Manage Billing.
 
 ## 8. Bugs Found and Fixed
 
@@ -116,23 +116,22 @@ Paid public launch remains blocked until Carter approves the live-mode RC switch
 
 ## 12. Access-Code Status
 
-Access-code behavior is private-beta ready:
+Coupon/access behavior was simplified after this QC:
 
-- Internal free codes grant Premium directly with `source: access_code`.
-- Free codes do not create Lemon subscriptions, do not require a card, do not auto-renew, and do not show Manage Billing.
-- Free codes expire by `expiresAt`; default policy is one year.
-- Lemon coupon passthrough goes to Lemon checkout and does not grant Premium directly.
-- Invalid, inactive, expired, used-up, and duplicate one-use-per-user codes are covered by tests.
-- Redemptions are transactional.
+- New user-facing flow: all codes are Lemon Squeezy discount codes entered on Lemon checkout.
+- The app-side `Promo / Access Code` box is removed.
+- The old `redeemAccessOrPromoCode` callable is disabled for new redemptions.
+- Premium is granted only after Lemon webhook confirmation.
+- Legacy `source: access_code` entitlements remain display/evaluation compatibility only.
 
-Remaining admin task: Carter still needs to create actual `accessCodes/{codeHash}` docs before real users can redeem codes.
+Remaining admin task: Carter needs to create Lemon Squeezy test-mode discounts for admin/mod/VIP/support and launch coupons.
 
 ## 13. Email Verification Status
 
 Email verification is covered:
 
 - Account UI unit tests cover verification sent, unverified banner, resend cooldown, and refresh-to-verified.
-- Promo/access-code Playwright tests cover unverified users blocked from access-code redemption and checkout.
+- Lemon coupon checkout Playwright tests cover unverified users blocked before checkout.
 - ORS emulator tests now cover unverified users blocked before premium callable work.
 - Google sign-in users are not blocked by email/password-only verification checks.
 
@@ -214,8 +213,8 @@ Safe for paid public launch: **No; RED** until Carter explicitly approves the li
 - Lemon Squeezy remains `test_mode: true`.
 - Carter approval lock still exists.
 - No secrets, storage states, local auth files, or new debug logs are included in this QC commit.
-- One-box Promo / Access Code UX exists.
-- Free access codes do not auto-renew.
-- Free access codes do not create Lemon subscriptions.
-- Manage Billing is hidden for free-code users.
+- No app-side Promo / Access Code box exists; users enter coupons on Lemon checkout.
+- New free/admin/mod/VIP codes should be Lemon Squeezy 100%-off discounts.
+- Legacy access-code entitlements, if any, do not auto-renew and do not create Lemon subscriptions.
+- Manage Billing is hidden for legacy access-code users.
 - Paid Lemon users still have a billing/customer portal path.

@@ -17,7 +17,7 @@ Critical final private-beta QC audit using these source-of-truth docs:
 - `PARTS_1_6_QC_AUDIT.md`
 - recent hardening docs in `plans/`
 
-The audit covers public app basics, auth/account flows, email verification, promo/access codes, Lemon Squeezy test-mode checkout and lifecycle handling, cancellation, free visit cap, premium tools, kill switches, route/geocode rate limits, leaderboard integrity, achievements, feedback, Firebase security rules, cost/abuse safety, and regression checks.
+The audit covers public app basics, auth/account flows, email verification, Lemon Squeezy coupon checkout, Lemon Squeezy test-mode lifecycle handling, cancellation, free visit cap, premium tools, kill switches, route/geocode rate limits, leaderboard integrity, achievements, feedback, Firebase security rules, cost/abuse safety, and regression checks.
 
 Hard locks:
 
@@ -31,8 +31,8 @@ Hard locks:
 
 - [ ] A. Public app basics
 - [ ] B. Auth and account creation
-- [ ] C. Promo / Access Code system
-- [ ] D. Admin/mod/VIP/support free access
+- [ ] C. Lemon coupon checkout system
+- [ ] D. Admin/mod/VIP/support Lemon discounts
 - [ ] E. Lemon Squeezy paid checkout
 - [ ] F. Lemon subscription lifecycle
 - [ ] G. Test-mode cancellation
@@ -71,7 +71,7 @@ Hard locks:
 | `node --test tests/*.test.js` | Pass | 53/53 passed. Covers account UI, email verification UI, data integrity, profile/leaderboard callable path, render safety, route account gate, search gating, and trip planner logic. |
 | `BARK_E2E_BASE_URL=http://127.0.0.1:4173/index.html ... npm run test:e2e:smoke` | Invalid run | Interrupted after repeated signed-in timeouts. Root cause was test setup: saved Playwright auth states are origin-bound to `http://localhost:4173`, so `127.0.0.1` loaded the public app but no signed-in Firebase auth state. Rerun uses `localhost`. |
 | `BARK_E2E_BASE_URL=http://localhost:4173/index.html ... npm run test:e2e:smoke` | Pass | 41/41 passed with free, premium/test-entitlement, and second-account storage states. Covers public load, fallback pins, free cap at 5, route gating, saved-route premium gate, premium product rules, settings, account switching, profile/manage, trip visited styling, and related regressions. |
-| `npx playwright test account-auth + promo-access-code + stage0-launch-flags + final-mobile-console + phase4c global/premium entitlement` | Pass | 22/22 passed. Covers auth UI, mobile-ish console-clean flows, one-box promo/access-code UI, unverified checkout/code blocks, kill switches, global search entitlement, and premium entitlement isolation. |
+| `npx playwright test account-auth + promo-access-code + stage0-launch-flags + final-mobile-console + phase4c global/premium entitlement` | Historical pass | 22/22 passed before the Lemon-only coupon simplification. The app-side promo/access-code UI was later removed and replaced by `tests/playwright/lemon-coupon-checkout-smoke.spec.js`. |
 | `git diff --check` final rerun | Pass | No whitespace errors after QC edits. |
 | Conflict marker search final rerun | Pass | No conflict markers found. |
 | `git ls-files playwright/.auth node_modules/.cache/bark-e2e functions/.secret.local test-results` | Pass | No auth storage states, local secret files, or test-results are tracked. |

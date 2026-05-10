@@ -491,9 +491,10 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
   - Firebase emulator still warns that Java 21 will be required by firebase-tools v15; current tests pass on Java 18.
   - Functions deploy tooling still warns that Node.js 20 runtime is deprecated and should be upgraded before final public launch.
 
-## Promo / Access Code Premium System
+## Promo / Access Code Premium System (Superseded)
 
 - Date: 2026-05-09.
+- Status: superseded later the same day by the Lemon-only coupon simplification below.
 - Scope: unified user-facing `Promo / Access Code` field for free BARK Premium grants and Lemon coupon checkout passthrough.
 - Lemon Squeezy status: unchanged and still locked in test mode. Checkout live mode was not enabled and the Carter approval lock remains required.
 - Data model:
@@ -531,3 +532,23 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
   - Carter still needs to create actual `accessCodes/{codeHash}` docs in Firebase Console or admin tooling before real users can redeem codes.
   - There is no client-accessible access-code admin UI, intentionally.
   - Lemon live mode remains a later final-RC task only after Carter explicitly approves it.
+
+## Lemon-Only Coupon Simplification
+
+- Date: 2026-05-09.
+- Product decision: Carter does not want internal BARK access codes. All admin/mod/VIP/support free codes and paid discount codes should be created as Lemon Squeezy discounts.
+- Lemon Squeezy status: unchanged and still locked in test mode. Checkout live mode was not enabled and the Carter approval lock remains required.
+- Runtime changes:
+  - Removed the app-side `Promo / Access Code` field from the Premium modal.
+  - Removed the paywall UI path that called `redeemAccessOrPromoCode`.
+  - Disabled `redeemAccessOrPromoCode` for new server-side redemptions; it now tells callers to enter coupon codes on the Lemon checkout page.
+  - Kept legacy `source: access_code` entitlement evaluation/display compatibility only for any existing records until `expiresAt`.
+  - Kept optional sanitized `discountCode` support inside `createCheckoutSession` for future controlled prefilled checkout links.
+- Lemon discount-field finding:
+  - The app does not set `checkout_options.discount: false`.
+  - If Lemon's discount field is missing, the likely cause is Lemon dashboard/test-mode discount setup: discount-code toggle off, no active test-mode discount for the product/variant, live/test-mode mismatch, expired/limited discount, or a stale checkout URL.
+- Docs:
+  - Updated `plans/PROMO_ACCESS_CODE_RUNBOOK.md` into the Lemon coupon runbook.
+- Tests:
+  - Added `tests/playwright/lemon-coupon-checkout-smoke.spec.js`.
+  - Updated `functions/tests/access-code.test.js` to assert old app-side redemption is disabled and Lemon checkout still supports optional `checkout_data.discount_code`.
