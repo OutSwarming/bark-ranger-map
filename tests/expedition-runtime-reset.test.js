@@ -29,9 +29,16 @@ function createElement(tagName = 'div') {
         style: {},
         classList: createClassList(),
         attributes: {},
+        listeners: {},
         value: '',
         className: '',
-        addEventListener() {},
+        addEventListener(type, handler) {
+            this.listeners[type] = handler;
+        },
+        click() {
+            if (typeof this.listeners.click === 'function') return this.listeners.click();
+            return undefined;
+        },
         setAttribute(name, value) {
             this.attributes[name] = String(value);
         },
@@ -91,7 +98,7 @@ function createDocument(elementIds) {
     };
 }
 
-function loadExpeditionEngine() {
+function loadExpeditionEngine(options = {}) {
     const ids = [
         'cancel-training-btn',
         'celebration-trail-name',
@@ -105,6 +112,7 @@ function loadExpeditionEngine() {
         'expedition-progress-text',
         'expedition-trophy-case',
         'lifetime-miles-display',
+        'log-manual-miles-btn',
         'manage-walks-count',
         'manage-walks-list',
         'miles-input',
@@ -114,13 +122,22 @@ function loadExpeditionEngine() {
         'training-desc'
     ];
     const document = createDocument(ids);
+    const promptQueue = Array.isArray(options.prompts) ? [...options.prompts] : [];
     const context = {
         console,
         document,
-        window: { BARK: {} },
+        window: {
+            BARK: {
+                incrementRequestCount() {},
+                syncScoreToLeaderboard: options.syncScoreToLeaderboard || (async () => {})
+            }
+        },
+        firebase: options.firebase,
         alert() {},
         confirm() { return true; },
-        prompt() { return null; },
+        prompt() {
+            return promptQueue.length > 0 ? promptQueue.shift() : null;
+        },
         setTimeout,
         clearTimeout,
         setInterval,
@@ -207,4 +224,260 @@ test('empty completed expeditions render clears stale completed trail cards', ()
 
     assert.equal(element('expedition-trophy-case').style.display, 'none');
     assert.equal(element('completed-expeditions-grid').textContent, 'No expeditions completed yet. Spin the wheel to start!');
+});
+
+test('manual walk honor entries log miles without adding walk points', async () => {
+    const writes = [];
+    const fieldValue = {
+        increment(value) {
+            return { __increment: value };
+        }
+    };
+    function firestore() {
+        return {
+            collection() {
+                return {
+                    doc() {
+                        return {
+                            async get() {
+                                return {
+                                    data() {
+                                        return {
+                                            virtual_expedition: { history: [] },
+                                            lifetime_miles: 0
+                                        };
+                                    }
+                                };
+                            },
+                            async set(payload, options) {
+                                writes.push({ payload, options });
+                            }
+                        };
+                    }
+                };
+            }
+        };
+    }
+    firestore.FieldValue = fieldValue;
+
+    let syncCalls = 0;
+    const { bark, element, window } = loadExpeditionEngine({
+        firebase: {
+            auth() {
+                return { currentUser: { uid: 'walk-user' } };
+            },
+            firestore
+        },
+        syncScoreToLeaderboard: async () => {
+            syncCalls += 1;
+        }
+    });
+
+    bark.initManualMiles();
+    element('miles-input').value = '3.2';
+    await element('log-manual-miles-btn').click();
+
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].payload.walkPoints, undefined);
+    assert.equal(writes[0].payload.lifetime_miles.__increment, 3.2);
+    assert.equal(writes[0].payload.virtual_expedition.history[0].pointMiles, 0);
+    assert.equal(window.currentWalkPoints || 0, 0);
+    assert.equal(syncCalls, 0);
+    assert.equal(element('miles-input').value, '');
+});
+
+test('manual-only expedition completion does not award walk points', async () => {
+    const updates = [];
+    const fieldValue = {
+        increment(value) {
+            return { __increment: value };
+        }
+    };
+    function firestore() {
+        return {
+            collection() {
+                return {
+                    doc() {
+                        return {
+                            async get() {
+                                return {
+                                    data() {
+                                        return {
+                                            virtual_expedition: {
+                                                active_trail: 'honor-trail',
+                                                trail_name: 'Honor Trail',
+                                                miles_logged: 3.2,
+                                                trail_total_miles: 3.2,
+                                                history: [
+                                                    { ts: 1, miles: 3.2, pointMiles: 0, type: 'Manual Entry', trailName: 'Honor Trail' }
+                                                ]
+                                            },
+                                            completed_expeditions: []
+                                        };
+                                    }
+                                };
+                            },
+                            async update(payload) {
+                                updates.push(payload);
+                            }
+                        };
+                    }
+                };
+            }
+        };
+    }
+    firestore.FieldValue = fieldValue;
+
+    let syncCalls = 0;
+    const { window } = loadExpeditionEngine({
+        firebase: {
+            auth() {
+                return { currentUser: { uid: 'walk-user' } };
+            },
+            firestore
+        },
+        syncScoreToLeaderboard: async () => {
+            syncCalls += 1;
+        }
+    });
+
+    await window.claimRewardAndReset();
+
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].walkPoints, undefined);
+    assert.equal(updates[0].completed_expeditions[0].points_earned, 0);
+    assert.equal(window.currentWalkPoints || 0, 0);
+    assert.equal(syncCalls, 0);
+});
+
+test('gps expedition completion still awards eligible walk points', async () => {
+    const updates = [];
+    const fieldValue = {
+        increment(value) {
+            return { __increment: value };
+        }
+    };
+    function firestore() {
+        return {
+            collection() {
+                return {
+                    doc() {
+                        return {
+                            async get() {
+                                return {
+                                    data() {
+                                        return {
+                                            virtual_expedition: {
+                                                active_trail: 'gps-trail',
+                                                trail_name: 'GPS Trail',
+                                                miles_logged: 10,
+                                                trail_total_miles: 10,
+                                                history: [
+                                                    { ts: 1, miles: 10, pointMiles: 10, type: 'GPS Active Track', trailName: 'GPS Trail' }
+                                                ]
+                                            },
+                                            completed_expeditions: []
+                                        };
+                                    }
+                                };
+                            },
+                            async update(payload) {
+                                updates.push(payload);
+                            }
+                        };
+                    }
+                };
+            }
+        };
+    }
+    firestore.FieldValue = fieldValue;
+
+    let syncCalls = 0;
+    const { window } = loadExpeditionEngine({
+        firebase: {
+            auth() {
+                return { currentUser: { uid: 'walk-user' } };
+            },
+            firestore
+        },
+        syncScoreToLeaderboard: async () => {
+            syncCalls += 1;
+        }
+    });
+
+    await window.claimRewardAndReset();
+
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].walkPoints.__increment, 5);
+    assert.equal(updates[0].completed_expeditions[0].points_earned, 5);
+    assert.equal(window.currentWalkPoints, 5);
+    assert.equal(syncCalls, 1);
+});
+
+test('editing a gps walk upward does not mint manual score points', async () => {
+    const updates = [];
+    const fieldValue = {
+        increment(value) {
+            return { __increment: value };
+        }
+    };
+    const ts = Date.UTC(2026, 4, 10, 12, 0, 0);
+    function firestore() {
+        return {
+            collection() {
+                return {
+                    doc() {
+                        return {
+                            async get() {
+                                return {
+                                    data() {
+                                        return {
+                                            virtual_expedition: {
+                                                active_trail: 'gps-trail',
+                                                trail_name: 'GPS Trail',
+                                                miles_logged: 3,
+                                                trail_total_miles: 10,
+                                                history: [
+                                                    { ts, miles: 3, pointMiles: 3, type: 'GPS Active Track', trailName: 'GPS Trail' }
+                                                ]
+                                            },
+                                            lifetime_miles: 3
+                                        };
+                                    }
+                                };
+                            },
+                            async update(payload) {
+                                updates.push(payload);
+                            }
+                        };
+                    }
+                };
+            }
+        };
+    }
+    firestore.FieldValue = fieldValue;
+
+    let syncCalls = 0;
+    const { window } = loadExpeditionEngine({
+        firebase: {
+            auth() {
+                return { currentUser: { uid: 'walk-user' } };
+            },
+            firestore
+        },
+        prompts: ['8', 'GPS Trail', '2026-05-10T12:00'],
+        syncScoreToLeaderboard: async () => {
+            syncCalls += 1;
+        }
+    });
+    window.currentWalkPoints = 3;
+
+    await window.editWalkMiles(ts);
+
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].walkPoints, undefined);
+    assert.equal(updates[0]['lifetime_miles'].__increment, 5);
+    assert.equal(updates[0]['virtual_expedition.history'][0].pointMiles, 3);
+    assert.equal(window.currentWalkPoints, 3);
+    assert.equal(syncCalls, 0);
 });

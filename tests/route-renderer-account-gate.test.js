@@ -18,6 +18,7 @@ function createElement(id) {
 }
 
 function loadRouteRenderer(options = {}) {
+    let premiumActive = options.premium === true;
     const elements = new Map([
         ['planner-saved-routes-container', createElement('planner-saved-routes-container')],
         ['planner-saved-routes-list', createElement('planner-saved-routes-list')],
@@ -33,7 +34,7 @@ function loadRouteRenderer(options = {}) {
             BARK: {
                 services: {
                     premium: {
-                        isPremium: () => options.premium === true
+                        isPremium: () => premiumActive
                     },
                     firebase: {
                         getCurrentUser: () => options.user || null,
@@ -80,7 +81,10 @@ function loadRouteRenderer(options = {}) {
         element: id => elements.get(id),
         paywallCalls,
         alertCalls,
-        loadCalls
+        loadCalls,
+        setPremium(value) {
+            premiumActive = value === true;
+        }
     };
 }
 
@@ -114,6 +118,22 @@ test('planner load button loads saved routes for premium users', async () => {
     await Promise.resolve();
 
     assert.equal(harness.loadCalls.length, 1);
+    assert.equal(harness.paywallCalls.length, 0);
+});
+
+test('premium route refresh replaces stale premium prompt without saved-route reads', () => {
+    const harness = loadRouteRenderer({ user: { uid: 'premium-user' }, premium: false });
+
+    harness.window.BARK.refreshSavedRoutesEntitlementState('premium-user');
+    assert.equal(harness.element('saved-routes-count').textContent, 'Premium');
+    assert.match(harness.element('saved-routes-list').innerHTML, /Premium/);
+
+    harness.setPremium(true);
+    harness.window.BARK.refreshSavedRoutesEntitlementState('premium-user');
+
+    assert.equal(harness.element('saved-routes-count').textContent, 'Load');
+    assert.match(harness.element('saved-routes-list').innerHTML, /Load Past Routes/);
+    assert.equal(harness.loadCalls.length, 0);
     assert.equal(harness.paywallCalls.length, 0);
 });
 

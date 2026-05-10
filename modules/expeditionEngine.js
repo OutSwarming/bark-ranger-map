@@ -496,7 +496,45 @@ function updateLifetimeMilesDisplay(lifetimeMiles) {
     if (lifetimeEl) lifetimeEl.textContent = `${lifetimeMiles.toFixed(1)} mi`;
 }
 
-async function processMileageAddition(milesToAdd, typeLabel) {
+function isHonorWalkType(typeLabel) {
+    return String(typeLabel || '').toLowerCase().includes('manual');
+}
+
+function getWalkPointMiles(log) {
+    if (!log || typeof log !== 'object') return 0;
+
+    const explicitPointMiles = Number(log.pointMiles);
+    if (Number.isFinite(explicitPointMiles)) return Math.max(0, explicitPointMiles);
+    if (isHonorWalkType(log.type)) return 0;
+
+    const miles = Number(log.miles);
+    return Number.isFinite(miles) ? Math.max(0, miles) : 0;
+}
+
+function buildWalkPointUpdate(payload, pointDiff) {
+    if (!Number.isFinite(pointDiff) || pointDiff === 0) return payload;
+    return {
+        ...payload,
+        walkPoints: firebase.firestore.FieldValue.increment(pointDiff)
+    };
+}
+
+function calculateEligibleTrailPointMiles(expedition, trailName) {
+    const history = Array.isArray(expedition && expedition.history) ? expedition.history : [];
+    return history.reduce((sum, log) => {
+        if (!log || log.trailName !== trailName) return sum;
+        return sum + getWalkPointMiles(log);
+    }, 0);
+}
+
+function calculateExpeditionRewardPoints(expedition, trailName, trailMiles) {
+    const maxReward = Math.max(1, Math.round(trailMiles / 2));
+    const eligiblePointMiles = Math.min(trailMiles, calculateEligibleTrailPointMiles(expedition, trailName));
+    if (eligiblePointMiles <= 0) return 0;
+    return Math.min(maxReward, Math.max(1, Math.round(eligiblePointMiles / 2)));
+}
+
+async function processMileageAddition(milesToAdd, typeLabel, options = {}) {
     if (typeof firebase === 'undefined' || !firebase.auth || !firebase.firestore) {
         alert("Mileage logging is unavailable right now. Please refresh and try again.");
         return false;
@@ -519,19 +557,30 @@ async function processMileageAddition(milesToAdd, typeLabel) {
         let newTotal = context.currentMiles + milesLogged;
         if (context.totalMiles > 0 && newTotal > context.totalMiles) newTotal = context.totalMiles;
 
-        const logEntry = { ts: Date.now(), miles: milesLogged, type: typeLabel, trailName: context.trailName };
+        const requestedPointMiles = Number(options.pointMiles);
+        const pointMiles = Number.isFinite(requestedPointMiles)
+            ? Math.max(0, parseFloat(requestedPointMiles.toFixed(2)))
+            : isHonorWalkType(typeLabel) ? 0 : milesLogged;
+        const logEntry = {
+            ts: Date.now(),
+            miles: milesLogged,
+            pointMiles,
+            type: typeLabel,
+            trailName: context.trailName
+        };
         const history = [logEntry, ...context.history];
         const virtualExpedition = { ...context.expedition, history };
         if (context.hasActiveExpedition) virtualExpedition.miles_logged = newTotal;
 
-        await userRef.set({
+        const writePayload = buildWalkPointUpdate({
             virtual_expedition: virtualExpedition,
-            lifetime_miles: firebase.firestore.FieldValue.increment(milesLogged),
-            walkPoints: firebase.firestore.FieldValue.increment(milesLogged)
-        }, { merge: true });
+            lifetime_miles: firebase.firestore.FieldValue.increment(milesLogged)
+        }, pointMiles);
 
-        window.currentWalkPoints = (window.currentWalkPoints || 0) + milesLogged;
-        if (window.BARK && typeof window.BARK.syncScoreToLeaderboard === 'function') {
+        await userRef.set(writePayload, { merge: true });
+
+        if (pointMiles > 0) window.currentWalkPoints = (window.currentWalkPoints || 0) + pointMiles;
+        if (pointMiles > 0 && window.BARK && typeof window.BARK.syncScoreToLeaderboard === 'function') {
             await window.BARK.syncScoreToLeaderboard();
         }
 
@@ -564,7 +613,7 @@ function initManualMiles() {
             let milesToLog = parseFloat(inputEl.value);
             if (isNaN(milesToLog) || milesToLog <= 0) return;
             if (milesToLog > 15) { alert("Whoa there! You can only log a maximum of 15 miles per day manually."); milesToLog = 15; inputEl.value = 15; }
-            const logged = await processMileageAddition(milesToLog, 'Manual Entry');
+            const logged = await processMileageAddition(milesToLog, 'Manual Entry', { pointMiles: 0 });
             if (logged) inputEl.value = '';
         });
     }
@@ -794,10 +843,14 @@ window.editWalkMiles = async function (timestamp) {
         if (isNaN(newTs)) { alert("Invalid date format."); return; }
 
         const oldMiles = currentLog.miles;
+        const oldPointMiles = getWalkPointMiles(currentLog);
         const oldTrail = currentLog.trailName;
         const diff = newMiles - oldMiles;
+        const newPointMiles = isHonorWalkType(currentLog.type) ? 0 : Math.min(newMiles, oldPointMiles);
+        const pointDiff = newPointMiles - oldPointMiles;
 
         history[logIndex].miles = newMiles;
+        history[logIndex].pointMiles = newPointMiles;
         history[logIndex].trailName = newTrailName;
         history[logIndex].ts = newTs;
         history.sort((a, b) => b.ts - a.ts);
@@ -810,20 +863,21 @@ window.editWalkMiles = async function (timestamp) {
         const maxMiles = data.virtual_expedition.trail_total_miles || 10;
         if (currentProgress > maxMiles) currentProgress = maxMiles;
 
-        await userRef.update({
+        const updatePayload = buildWalkPointUpdate({
             "virtual_expedition.history": history,
             "virtual_expedition.miles_logged": currentProgress,
-            "lifetime_miles": firebase.firestore.FieldValue.increment(diff),
-            "walkPoints": firebase.firestore.FieldValue.increment(diff)
-        });
-        window.currentWalkPoints = (window.currentWalkPoints || 0) + diff;
-        await window.BARK.syncScoreToLeaderboard();
+            "lifetime_miles": firebase.firestore.FieldValue.increment(diff)
+        }, pointDiff);
+
+        await userRef.update(updatePayload);
+        if (pointDiff !== 0) window.currentWalkPoints = Math.max(0, (window.currentWalkPoints || 0) + pointDiff);
+        if (pointDiff !== 0) await window.BARK.syncScoreToLeaderboard();
         if (typeof window.BARK.showTripToast === 'function') window.BARK.showTripToast("Walk log updated ✏️");
     } catch (e) { console.error(e); alert("Failed to update walk."); }
 };
 
 window.deleteWalkLog = async function (timestamp) {
-    if (!confirm("Are you sure? Removing this walk will subtract these miles from your progress, but you keep your reward points.")) return;
+    if (!confirm("Are you sure? Removing this walk will subtract these miles from your progress and score where applicable.")) return;
     const user = getCurrentFirebaseUser();
     if (!user) { openFreeAccountPrompt('expedition'); return; }
     const userRef = firebase.firestore().collection('users').doc(user.uid);
@@ -835,6 +889,7 @@ window.deleteWalkLog = async function (timestamp) {
         if (logIndex === -1) return;
         const currentLog = history[logIndex];
         const milesToRemove = currentLog.miles;
+        const pointMilesToRemove = getWalkPointMiles(currentLog);
         const walkTrail = currentLog.trailName;
         const activeTrail = data.virtual_expedition.trail_name;
         history.splice(logIndex, 1);
@@ -842,14 +897,15 @@ window.deleteWalkLog = async function (timestamp) {
         if (walkTrail === activeTrail) currentProgress -= milesToRemove;
         if (currentProgress < 0) currentProgress = 0;
 
-        await userRef.update({
+        const updatePayload = buildWalkPointUpdate({
             "virtual_expedition.history": history,
             "virtual_expedition.miles_logged": currentProgress,
-            "lifetime_miles": firebase.firestore.FieldValue.increment(-milesToRemove),
-            "walkPoints": firebase.firestore.FieldValue.increment(-milesToRemove)
-        });
-        window.currentWalkPoints = Math.max(0, (window.currentWalkPoints || 0) - milesToRemove);
-        await window.BARK.syncScoreToLeaderboard();
+            "lifetime_miles": firebase.firestore.FieldValue.increment(-milesToRemove)
+        }, -pointMilesToRemove);
+
+        await userRef.update(updatePayload);
+        if (pointMilesToRemove > 0) window.currentWalkPoints = Math.max(0, (window.currentWalkPoints || 0) - pointMilesToRemove);
+        if (pointMilesToRemove > 0) await window.BARK.syncScoreToLeaderboard();
         if (typeof window.BARK.showTripToast === 'function') window.BARK.showTripToast("Walk removed 🗑️");
     } catch (e) { console.error(e); alert("Failed to delete walk."); }
 };
@@ -863,24 +919,33 @@ window.claimRewardAndReset = async function () {
         const docSnap = await userRef.get();
         const userData = docSnap.data();
         if (!userData || !userData.virtual_expedition) return;
-        const currentTrailName = userData.virtual_expedition.trail_name || "Expedition";
-        const trailMiles = userData.virtual_expedition.trail_total_miles || 0;
-        const pointsEarned = Math.max(1, Math.round(trailMiles / 2));
+        const expedition = userData.virtual_expedition;
+        const currentTrailName = expedition.trail_name || "Expedition";
+        const trailMiles = Number(expedition.trail_total_miles) || 0;
+        const pointsEarned = calculateExpeditionRewardPoints(expedition, currentTrailName, trailMiles);
 
-        const completedTrail = { id: userData.virtual_expedition.active_trail, name: currentTrailName, miles: trailMiles, points_earned: pointsEarned, date_completed: Date.now() };
+        const completedTrail = { id: expedition.active_trail, name: currentTrailName, miles: trailMiles, points_earned: pointsEarned, date_completed: Date.now() };
         const completedArray = userData.completed_expeditions || [];
         const existingIndex = completedArray.findIndex(exp => exp.id === completedTrail.id);
-        if (existingIndex > -1) completedArray[existingIndex].date_completed = Date.now();
+        if (existingIndex > -1) completedArray[existingIndex] = { ...completedArray[existingIndex], ...completedTrail };
         else completedArray.push(completedTrail);
 
-        await userRef.update({
+        const updatePayload = buildWalkPointUpdate({
             "completed_expeditions": completedArray,
             "virtual_expedition.active_trail": null, "virtual_expedition.trail_name": null, "virtual_expedition.miles_logged": 0, "virtual_expedition.trail_total_miles": 0,
-            "walkPoints": firebase.firestore.FieldValue.increment(pointsEarned)
-        });
-        window.currentWalkPoints = (window.currentWalkPoints || 0) + pointsEarned;
-        await window.BARK.syncScoreToLeaderboard();
-        if (typeof window.BARK.showTripToast === 'function') window.BARK.showTripToast(`🏆 +${pointsEarned} PTS! Reward Claimed: ${currentTrailName}`);
+        }, pointsEarned);
+
+        await userRef.update(updatePayload);
+        if (pointsEarned > 0) {
+            window.currentWalkPoints = (window.currentWalkPoints || 0) + pointsEarned;
+            await window.BARK.syncScoreToLeaderboard();
+        }
+        if (typeof window.BARK.showTripToast === 'function') {
+            const message = pointsEarned > 0
+                ? `🏆 +${pointsEarned} PTS! Reward Claimed: ${currentTrailName}`
+                : `🏆 Reward Claimed: ${currentTrailName}`;
+            window.BARK.showTripToast(message);
+        }
     } catch (e) { console.error(e); alert("Failed to claim reward."); }
 };
 
@@ -935,6 +1000,7 @@ window.BARK.renderCompletedExpeditions = renderCompletedExpeditions;
 // ====== WALK TRACKER (Advanced GPS Tracking) ======
 const WalkTracker = {
     watchId: null, wakeLock: null, points: [], totalMiles: 0, lastValidLocation: null,
+    manualFallbackMiles: 0,
     isBlackedOut: false, blackoutStartTime: 0, boundVisibilityHandler: null,
 
     async start() {
@@ -943,7 +1009,7 @@ const WalkTracker = {
             return;
         }
         if (!navigator.geolocation) return alert('GPS not supported');
-        this.points = []; this.totalMiles = 0; this.lastValidLocation = null;
+        this.points = []; this.totalMiles = 0; this.manualFallbackMiles = 0; this.lastValidLocation = null;
         try { if ('wakeLock' in navigator) this.wakeLock = await navigator.wakeLock.request('screen'); } catch (err) { console.warn('Wake Lock failed/denied:', err); }
 
         const btn = document.getElementById('training-action-btn');
@@ -987,14 +1053,19 @@ const WalkTracker = {
     triggerBlackoutFallback(minutesLost) {
         const manualMiles = prompt(`Welcome back! iOS paused your GPS for ${Math.round(minutesLost)} minutes.\n\nWe tracked ${this.totalMiles.toFixed(2)} miles before the pause. How many missing miles? (Enter 0 if none)`);
         const parsed = parseFloat(manualMiles);
-        if (!isNaN(parsed) && parsed > 0) { this.totalMiles += parsed; this.updateDistanceUI(); }
+        if (!isNaN(parsed) && parsed > 0) {
+            this.totalMiles += parsed;
+            this.manualFallbackMiles += parsed;
+            this.updateDistanceUI();
+        }
     },
 
     async stopAndSave() {
         const finalMiles = this.totalMiles;
+        const pointMiles = Math.max(0, finalMiles - this.manualFallbackMiles);
         this.cleanup();
         if (finalMiles < 0.05) alert("Not enough distance recorded to log an expedition.");
-        else { alert(`Expedition Complete! You logged ${finalMiles.toFixed(2)} miles.`); await processMileageAddition(finalMiles, 'GPS Active Track'); }
+        else { alert(`Expedition Complete! You logged ${finalMiles.toFixed(2)} miles.`); await processMileageAddition(finalMiles, 'GPS Active Track', { pointMiles }); }
         initTrainingUI();
     },
 
@@ -1005,7 +1076,7 @@ const WalkTracker = {
         if (this.boundVisibilityHandler) document.removeEventListener('visibilitychange', this.boundVisibilityHandler);
         if (this.wakeLock) { this.wakeLock.release().catch(() => {}); this.wakeLock = null; }
         this.hideFloatingBanner();
-        this.watchId = null; this.boundVisibilityHandler = null; this.points = []; this.totalMiles = 0; this.lastValidLocation = null; this.isBlackedOut = false;
+        this.watchId = null; this.boundVisibilityHandler = null; this.points = []; this.totalMiles = 0; this.manualFallbackMiles = 0; this.lastValidLocation = null; this.isBlackedOut = false;
     },
 
     showFloatingBanner() {

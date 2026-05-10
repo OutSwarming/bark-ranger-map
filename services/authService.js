@@ -540,6 +540,12 @@ function refreshPremiumUiFromEntitlement(reason) {
         reason,
         sanitizePremiumState: shouldSanitizePremiumRuntime(reason, isPremium)
     });
+
+    const user = typeof firebase !== 'undefined' && firebase.auth ? firebase.auth().currentUser : null;
+    const savedRoutesRefresh = window.BARK && window.BARK.refreshSavedRoutesEntitlementState;
+    if (typeof savedRoutesRefresh === 'function') {
+        savedRoutesRefresh(user && user.uid ? user.uid : null);
+    }
 }
 
 function shouldSanitizePremiumRuntime(reason, isPremium) {
@@ -882,17 +888,6 @@ function initFirebase() {
                                         // Streak & Walk Points
                                         const streakVal = data.streakCount || 0;
                                         let walkVal = data.walkPoints || 0;
-                                        const lifetimeVal = data.lifetime_miles || 0;
-
-                                        if (lifetimeVal > walkVal) {
-                                            walkVal = lifetimeVal;
-                                            try {
-                                                firebase.firestore().collection('users').doc(user.uid).update({ walkPoints: lifetimeVal })
-                                                    .catch(error => console.error("[authService] walkPoints backfill failed:", error));
-                                            } catch (error) {
-                                                console.error("[authService] walkPoints backfill failed:", error);
-                                            }
-                                        }
 
                                         const streakLabel = document.getElementById('streak-count-label');
                                         if (streakLabel) streakLabel.textContent = streakVal;
@@ -928,7 +923,11 @@ function initFirebase() {
                         showAuthFailureNotice('Sign-in connected, but account sync could not start. Saved progress may be offline for this session.');
                     }
 
-                    if (typeof loadSavedRoutes === 'function') loadSavedRoutes(user.uid);
+                    if (typeof window.BARK.refreshSavedRoutesEntitlementState === 'function') {
+                        window.BARK.refreshSavedRoutesEntitlementState(user.uid);
+                    } else if (typeof loadSavedRoutes === 'function') {
+                        loadSavedRoutes(user.uid);
+                    }
                     refreshPremiumUiFromEntitlement('auth-signed-in');
                 } else {
                     const shouldResetRuntime = authenticatedSessionSeen || lastAuthenticatedUid !== null;
