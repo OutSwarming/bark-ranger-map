@@ -78,10 +78,10 @@ async function getProfileCardOrder(page) {
             leaderboard: document.getElementById('leaderboard-container'),
             data: cardContaining('My Data & Routes'),
             account: document.getElementById('account-status-card'),
+            accountSignout: document.getElementById('account-signout-btn'),
             admin: document.getElementById('admin-controls-container'),
             missingLocation: document.getElementById('add-location-portal'),
-            feedback: document.getElementById('feedback-portal'),
-            logout: document.getElementById('logout-btn')
+            feedback: document.getElementById('feedback-portal')
         };
 
         Object.entries(nodes).forEach(([key, node]) => {
@@ -100,10 +100,10 @@ async function getProfileCardOrder(page) {
             dossierBeforeLeaderboard: before('dossier', 'leaderboard'),
             leaderboardBeforeData: before('leaderboard', 'data'),
             dataBeforeAccount: before('data', 'account'),
+            accountContainsSignout: nodes.account.contains(nodes.accountSignout),
             accountBeforeAdmin: before('account', 'admin'),
             adminBeforeMissingLocation: before('admin', 'missingLocation'),
-            missingLocationBeforeFeedback: before('missingLocation', 'feedback'),
-            feedbackBeforeLogout: before('feedback', 'logout')
+            missingLocationBeforeFeedback: before('missingLocation', 'feedback')
         };
     });
 }
@@ -233,10 +233,10 @@ test.describe('account auth UI smoke', () => {
             dossierBeforeLeaderboard: true,
             leaderboardBeforeData: true,
             dataBeforeAccount: true,
+            accountContainsSignout: true,
             accountBeforeAdmin: true,
             adminBeforeMissingLocation: true,
-            missingLocationBeforeFeedback: true,
-            feedbackBeforeLogout: true
+            missingLocationBeforeFeedback: true
         });
         expect(errors).toEqual([]);
     });
@@ -259,8 +259,10 @@ test.describe('account auth UI smoke', () => {
                 welcomeBeforePremium: true,
                 premiumBeforeAchievement: true,
                 dataBeforeAccount: true,
-                feedbackBeforeLogout: true
+                accountContainsSignout: true,
+                missingLocationBeforeFeedback: true
             });
+            await expect(page.locator('#account-signout-btn')).toBeVisible();
 
             await page.locator('#account-signout-btn').click();
             await page.waitForFunction(() => !window.firebase.auth().currentUser, { timeout: 30000 });

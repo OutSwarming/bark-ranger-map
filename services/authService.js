@@ -783,7 +783,6 @@ function initFirebase() {
 
                 const loginContainer = document.getElementById('login-container');
                 const offlineStatusContainer = document.getElementById('offline-status-container');
-                const logoutBtn = document.getElementById('logout-btn');
                 const profileName = document.getElementById('user-profile-name');
 
                 if (user) {
@@ -802,7 +801,6 @@ function initFirebase() {
 
                     if (loginContainer) loginContainer.style.display = 'none';
                     if (offlineStatusContainer) offlineStatusContainer.style.display = 'block';
-                    if (logoutBtn) logoutBtn.style.display = 'block';
                     if (profileName) profileName.textContent = user.displayName || user.email || 'Bark Ranger';
 
                     stopUserSnapshotSubscription();
@@ -901,7 +899,6 @@ function initFirebase() {
 
                     if (loginContainer) loginContainer.style.display = 'block';
                     if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
-                    if (logoutBtn) logoutBtn.style.display = 'none';
 
                     if (shouldResetRuntime) {
                         resetLoggedOutRuntimeState();
@@ -949,17 +946,6 @@ function initFirebase() {
             } catch (error) {
                 console.error("[authService] signInWithPopup failed:", error);
                 alert("Login Error: " + error.message);
-            }
-        });
-    }
-
-    const logoutBtnEl = document.getElementById('logout-btn');
-    if (logoutBtnEl) {
-        logoutBtnEl.addEventListener('click', async () => {
-            try {
-                await firebase.auth().signOut();
-            } catch (error) {
-                console.error("[authService] signOut failed:", error);
             }
         });
     }

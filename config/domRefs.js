@@ -96,7 +96,6 @@
 
         loginContainer: byId('login-container'),
         offlineStatusContainer: byId('offline-status-container'),
-        logoutBtn: byId('logout-btn'),
         userProfileName: byId('user-profile-name'),
         adminControlsContainer: byId('admin-controls-container'),
         devWarpContainer: byId('dev-warp-container'),

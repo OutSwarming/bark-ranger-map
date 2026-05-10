@@ -387,19 +387,22 @@
 
         if (isLemonSqueezyEntitlement(entitlement)) {
             let statusText = 'Paid Premium';
-            let copy = `Renews: ${formatEntitlementDate(entitlement.currentPeriodEnd)}. Auto-renew: Yes. Manage billing in Lemon Squeezy.`;
+            let copy = `Renews ${formatEntitlementDate(entitlement.currentPeriodEnd)} · Auto-renew on`;
+            let buttonText = 'Manage';
             if (entitlement.status === 'past_due') {
-                statusText = 'Payment attention needed';
-                copy = 'Premium remains active while Lemon Squeezy retries payment. Manage billing to keep access uninterrupted.';
+                statusText = 'Payment retry in progress';
+                copy = 'Premium stays active while Lemon Squeezy retries.';
             } else if (entitlement.status === 'cancelled_active') {
                 statusText = 'Premium cancelled';
-                copy = `Access ends: ${formatEntitlementDate(entitlement.currentPeriodEnd || entitlement.endsAt)}. Auto-renew: No. Manage billing in Lemon Squeezy.`;
+                copy = `Access ends ${formatEntitlementDate(entitlement.currentPeriodEnd || entitlement.endsAt)} · Auto-renew off`;
             } else if (entitlement.status === 'refunded') {
                 statusText = 'Subscription refunded';
                 copy = 'Premium is inactive after a refund. Contact support if this looks wrong.';
+                buttonText = 'Manage subscription';
             } else if (entitlement.status === 'canceled' || entitlement.status === 'expired') {
                 statusText = 'Premium inactive';
-                copy = 'Premium is inactive. You can subscribe again or contact support if this looks wrong.';
+                copy = 'Subscribe again or contact support if this looks wrong.';
+                buttonText = 'Manage subscription';
             }
             return {
                 visible: true,
@@ -407,7 +410,7 @@
                 eyebrow: 'Premium billing',
                 title: statusText,
                 copy,
-                buttonText: 'Manage subscription',
+                buttonText,
                 buttonMode: 'portal',
                 url: getSafeHttpsUrl(entitlement.customerPortalUrl) || LEMON_SQUEEZY_BILLING_PORTAL_URL
             };
