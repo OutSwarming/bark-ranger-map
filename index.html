@@ -673,46 +673,45 @@
                         <div id="performance-settings-registry" style="display: flex; flex-direction: column; gap: 15px;"></div>
 
                         <!-- 🔨 ULTRA-LOW SLEDGEHAMMER -->
-                        <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 5px 0;"></div>
-                        <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; margin-bottom: 15px;">Aggressive Recovery</div>
+                        <div style="border-top: 1px solid #f1f5f9; margin-top: 18px; padding-top: 14px;">
+                            <div style="font-size: 11px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px;">Aggressive Recovery</div>
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; background: rgba(239, 68, 68, 0.04); padding: 12px; border-radius: 10px; border: 1px dashed rgba(239, 68, 68, 0.22);">
+                                <div style="flex: 1;">
+                                    <div style="font-size: 14px; font-weight: 800; color: #ef4444;">Ultra Low Mode</div>
+                                    <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 3px; line-height: 1.35;">
+                                        <strong>iPhone 3 and lower only.</strong> Disables visual effects for maximum memory recovery.
+                                    </div>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" id="ultra-low-toggle">
+                                    <span class="slider round sledgehammer-slider"></span>
+                                </label>
+                            </div>
+                        </div>
 
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; background: rgba(239, 68, 68, 0.05); padding: 10px; border-radius: 8px; border: 1px dashed rgba(239, 68, 68, 0.2);">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #ef4444;">Ultra Low Mode</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    <strong>Iphone 3 and lower only!!!</strong> Disables all visual effects for maximum memory recovery. May disable some visual features.
+                        <!-- ☁️ Cloud sync + System reset paired footer -->
+                        <div style="border-top: 1px solid #f1f5f9; margin-top: 18px; padding-top: 14px; display: flex; flex-direction: column; gap: 12px;">
+                            <div>
+                                <button id="save-settings-cloud-btn" style="background: linear-gradient(135deg, #2196F3, #1976D2); color: white; border: none; padding: 11px 14px; border-radius: 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.4px; cursor: pointer; box-shadow: 0 3px 8px rgba(33, 150, 243, 0.22); width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                    ☁️ Premium Cloud Sync
+                                </button>
+                                <div id="save-settings-cloud-copy" style="font-size: 11px; color: #64748b; margin-top: 6px; line-height: 1.4; font-weight: 500; text-align: center;">
+                                    Local settings save automatically. Cloud sync is a Premium feature.
                                 </div>
                             </div>
-                            <label class="switch">
-                                <input type="checkbox" id="ultra-low-toggle">
-                                <span class="slider round sledgehammer-slider"></span>
-                            </label>
-                        </div>
 
-                        <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 25px 0 15px 0;"></div>
-                        <div style="text-align: center; margin-bottom: 25px;">
-                            <button id="save-settings-cloud-btn" style="background: #2196F3; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 10px rgba(33, 150, 243, 0.3); width: 100%;">
-                                ☁️ Premium Cloud Sync
-                            </button>
-                            <div id="save-settings-cloud-copy" style="font-size: 11px; color: #64748b; margin-top: 8px; line-height: 1.4; font-weight: 500;">
-                                Local settings save automatically on this device. Cloud settings sync is a Premium feature.
+                            <div style="background: rgba(239, 68, 68, 0.04); padding: 12px; border-radius: 10px; border: 1px dashed rgba(239, 68, 68, 0.25); text-align: center;">
+                                <div style="font-size: 11px; font-weight: 900; color: #ef4444; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px;">System Reset</div>
+                                <button id="terminate-reload-btn" style="background: white; color: #ef4444; border: 1.5px solid #ef4444; padding: 9px 18px; border-radius: 8px; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.6px; cursor: pointer;">
+                                    ☢️ Terminate & Reload App
+                                </button>
+                                <div style="font-size: 11px; color: #64748b; margin-top: 8px; line-height: 1.4; font-weight: 500;">
+                                    Wipes local settings, map cache, and signs you out. Cloud data stays safe.
+                                </div>
                             </div>
                         </div>
 
-                        <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 25px 0 15px 0;"></div>
-
-                        <div style="text-align: center; margin-bottom: 25px; background: rgba(239, 68, 68, 0.05); padding: 15px; border-radius: 12px; border: 1px dashed rgba(239, 68, 68, 0.3);">
-                            <div style="font-size: 13px; font-weight: 900; color: #ef4444; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">System Reset</div>
-                            <button id="terminate-reload-btn" style="background: white; color: #ef4444; border: 2px solid #ef4444; padding: 10px 20px; border-radius: 8px; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.15);">
-                                ☢️ Terminate & Reload App
-                            </button>
-                            <div style="font-size: 11px; color: #64748b; margin-top: 10px; line-height: 1.4; font-weight: 500;">
-                                Wipes all local settings, map cache, and logs you out. Cloud data remains safe.
-                            </div>
-                        </div>
-
-                        <p
-                            style="font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border-top: 1px solid #f1f5f9; padding-top: 15px; margin: 0;">
+                        <p style="font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border-top: 1px solid #f1f5f9; padding-top: 12px; margin: 16px 0 0 0; text-align: center;">
                             US BARK Ranger © v<span id="settings-app-version">12</span>
                         </p>
 
