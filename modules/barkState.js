@@ -125,7 +125,10 @@ if (
 // ====== GAMIFICATION ENGINE INSTANCE ======
 window.gamificationEngine = new GamificationEngine();
 window.currentWalkPoints = window.currentWalkPoints || 0;
-window._lastSyncedScore = window._lastSyncedScore || 0;
+window._lastSyncedScore = Number.isFinite(Number(window._lastSyncedScore)) ? Number(window._lastSyncedScore) : -1;
+window._lastSyncedLeaderboardFingerprint = typeof window._lastSyncedLeaderboardFingerprint === 'string'
+    ? window._lastSyncedLeaderboardFingerprint
+    : null;
 
 // ====== EXPOSE STATE TO BARK NAMESPACE ======
 // Using property accessors so modules always get live references

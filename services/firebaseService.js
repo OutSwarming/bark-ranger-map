@@ -37,6 +37,8 @@
 window.BARK = window.BARK || {};
 window.BARK.services = window.BARK.services || {};
 
+let visitedPlacesWriteInFlightCount = 0;
+
 function getParkRepo() {
     return window.BARK.repos && window.BARK.repos.ParkRepo;
 }
@@ -418,6 +420,17 @@ function clearVisitedPlacePendingMutations() {
     if (vaultRepo && typeof vaultRepo.clearPendingMutations === 'function') vaultRepo.clearPendingMutations();
 }
 
+function beginVisitedPlacesWrite() {
+    visitedPlacesWriteInFlightCount++;
+    return function endVisitedPlacesWrite() {
+        visitedPlacesWriteInFlightCount = Math.max(0, visitedPlacesWriteInFlightCount - 1);
+    };
+}
+
+function hasVisitedPlacesWriteInFlight() {
+    return visitedPlacesWriteInFlightCount > 0;
+}
+
 function reconcileVisitedPlacesSnapshot(placeList, metadata = {}) {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.reconcileSnapshot === 'function') {
@@ -498,6 +511,7 @@ async function attemptDailyStreakIncrement() {
 
 async function syncUserProgress() {
     let visitedArray = [];
+    let endVisitedPlacesWrite = null;
     try {
         const user = getCurrentUser();
         if (!user) return;
@@ -507,6 +521,7 @@ async function syncUserProgress() {
 
         visitedArray = getVisitedPlacesArray();
         visitedArray.forEach(stageVisitedPlaceUpsert);
+        endVisitedPlacesWrite = beginVisitedPlacesWrite();
         await db.collection('users').doc(user.uid).set({
             visitedPlaces: visitedArray
         }, { merge: true });
@@ -516,11 +531,14 @@ async function syncUserProgress() {
         visitedArray.forEach(place => clearVisitedPlacePendingMutation(place && place.id));
         console.error("[firebaseService] syncUserProgress failed:", error);
         throw error;
+    } finally {
+        if (endVisitedPlacesWrite) endVisitedPlacesWrite();
     }
 }
 
 async function updateCurrentUserVisitedPlaces(visitedArray) {
     let nextVisitedArray = [];
+    let endVisitedPlacesWrite = null;
     try {
         const user = getCurrentUser();
         if (!user) return;
@@ -529,11 +547,15 @@ async function updateCurrentUserVisitedPlaces(visitedArray) {
         assertVisitedWriteIsNotDestructive(nextVisitedArray);
         nextVisitedArray.forEach(stageVisitedPlaceUpsert);
         window.BARK.incrementRequestCount();
+        endVisitedPlacesWrite = beginVisitedPlacesWrite();
         await firebase.firestore().collection('users').doc(user.uid).update({ visitedPlaces: nextVisitedArray });
+        if (typeof window.syncState === 'function') window.syncState();
     } catch (error) {
         nextVisitedArray.forEach(place => clearVisitedPlacePendingMutation(place && place.id));
         console.error("[firebaseService] updateCurrentUserVisitedPlaces failed:", error);
         throw error;
+    } finally {
+        if (endVisitedPlacesWrite) endVisitedPlacesWrite();
     }
 }
 
@@ -750,6 +772,7 @@ const firebaseService = {
     stageVisitedPlaceDelete,
     clearVisitedPlacePendingMutation,
     clearVisitedPlacePendingMutations,
+    hasVisitedPlacesWriteInFlight,
     loadSavedRoutes,
     loadSavedRoute,
     deleteSavedRoute,

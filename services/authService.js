@@ -713,6 +713,8 @@ function resetLoggedOutRuntimeState() {
     window._cloudSettingsLoaded = false;
     window._leaderboardLoadedOnce = false;
     window._lastKnownLeaderboardRank = null;
+    window._lastSyncedScore = -1;
+    window._lastSyncedLeaderboardFingerprint = null;
     window.currentWalkPoints = 0;
     window.isAdmin = false;
     resetAdminUi();
@@ -742,6 +744,7 @@ function resetAccountScopedRuntimeState() {
     window._lastKnownLeaderboardRank = null;
     window._lastLeaderboardDoc = null;
     window._lastSyncedScore = -1;
+    window._lastSyncedLeaderboardFingerprint = null;
     window.currentWalkPoints = 0;
     window.isAdmin = false;
     resetAdminUi();
@@ -773,7 +776,10 @@ function initFirebase() {
     try {
         firebase.auth().onAuthStateChanged((user) => {
             try {
-                window._lastSyncedScore = window._lastSyncedScore || 0;
+                if (!Number.isFinite(Number(window._lastSyncedScore))) window._lastSyncedScore = -1;
+                if (typeof window._lastSyncedLeaderboardFingerprint !== 'string') {
+                    window._lastSyncedLeaderboardFingerprint = null;
+                }
                 window.isAdmin = false;
                 window._serverPayloadSettled = false;
                 window._firstServerPayloadReceived = false;

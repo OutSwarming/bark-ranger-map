@@ -97,6 +97,43 @@ describe("server-authoritative leaderboard sync", () => {
         });
     });
 
+    it("collapses legacy/current duplicate physical visits without consulting current spreadsheet data", () => {
+        const score = calculateServerLeaderboardScore({
+            visitedPlaces: [
+                {
+                    id: "legacy-headwaters",
+                    name: "Headwaters Forest Reserve",
+                    lat: 40.6327009,
+                    lng: -124.0651375,
+                    verified: false
+                },
+                {
+                    id: "current-headwaters",
+                    name: "Headwaters Forest Reserve  ",
+                    lat: 40.6327009,
+                    lng: -124.0651375,
+                    verified: true
+                },
+                {
+                    id: "removed-from-sheet",
+                    name: "Removed But Earned Site",
+                    lat: 30.123456,
+                    lng: -81.123456,
+                    verified: false
+                }
+            ],
+            walkPoints: 0
+        });
+
+        assert.deepEqual(score, {
+            totalPoints: 3,
+            totalVisited: 2,
+            verifiedCount: 1,
+            walkPoints: 0,
+            hasVerified: true
+        });
+    });
+
     it("rejects unauthenticated leaderboard sync requests", async () => {
         await assertRejectsCode(
             handleSyncLeaderboardScore({}, {}, { firestore: makeFirestore() }),

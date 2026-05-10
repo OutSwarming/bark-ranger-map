@@ -117,6 +117,57 @@ test('Fort Caroline and Kingsley Plantation count as separate Florida sites', ()
     assert.equal(progress.stateVisitsTotalMap.FL, 2);
 });
 
+test('removed spreadsheet rows do not erase already collected visit progress', () => {
+    const points = [
+        { id: 'current-site', name: 'Current Site', state: 'Florida', lat: 30.1, lng: -81.1 }
+    ];
+    const Engine = loadGamificationEngine(points);
+    const engine = new Engine();
+    engine.updateCanonicalCountsFromPoints(points);
+
+    const progress = engine.getVisitProgressMaps([
+        { id: 'removed-site', name: 'Removed Site', state: 'Florida', lat: 30.2, lng: -81.2, verified: true }
+    ]);
+
+    assert.equal(progress.totalVisitedSites, 1);
+    assert.equal(progress.verifiedVisitedSites, 1);
+    assert.equal(progress.stateVisitsTotalMap.FL, 1);
+});
+
+test('new spreadsheet rows increase completion requirements without clearing existing visits', () => {
+    const points = [
+        { id: 'site-a', name: 'Site A', state: 'Florida', lat: 30.1, lng: -81.1 }
+    ];
+    const Engine = loadGamificationEngine(points);
+    const engine = new Engine();
+    engine.updateCanonicalCountsFromPoints(points);
+
+    let result = engine.evaluate([
+        { id: 'site-a', name: 'Site A', state: 'Florida', lat: 30.1, lng: -81.1, verified: true }
+    ]);
+    let floridaBadge = result.stateBadges.find(badge => badge.id === 'state-fl');
+
+    assert.equal(result.nationalProgress.totalVisited, 1);
+    assert.equal(result.nationalProgress.totalParks, 1);
+    assert.equal(floridaBadge.status, 'unlocked');
+
+    engine.updateCanonicalCountsFromPoints([
+        ...points,
+        { id: 'site-b', name: 'Site B', state: 'Florida', lat: 30.2, lng: -81.2 }
+    ]);
+
+    result = engine.evaluate([
+        { id: 'site-a', name: 'Site A', state: 'Florida', lat: 30.1, lng: -81.1, verified: true }
+    ]);
+    floridaBadge = result.stateBadges.find(badge => badge.id === 'state-fl');
+
+    assert.equal(result.nationalProgress.totalVisited, 1);
+    assert.equal(result.nationalProgress.totalParks, 2);
+    assert.equal(result.nationalProgress.percentComplete, 50);
+    assert.equal(floridaBadge.percentComplete, 50);
+    assert.equal(floridaBadge.status, 'locked');
+});
+
 test('alpha dog mystery feat unlocks only when leaderboard rank is first', () => {
     const Engine = loadGamificationEngine();
     const engine = new Engine();

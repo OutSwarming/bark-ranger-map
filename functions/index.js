@@ -500,16 +500,37 @@ function getLeaderboardVisitId(visit, index) {
     return id || `unknown_${index}`;
 }
 
+function getNormalizedLeaderboardSiteName(value) {
+    return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function getLeaderboardCoordinateKey(lat, lng) {
+    const parsedLat = Number(lat);
+    const parsedLng = Number(lng);
+    if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return "";
+    return `${parsedLat.toFixed(5)},${parsedLng.toFixed(5)}`;
+}
+
+function getLeaderboardVisitSiteKey(visit, index) {
+    if (!visit || typeof visit !== "object") return getLeaderboardVisitId(visit, index);
+
+    const nameKey = getNormalizedLeaderboardSiteName(visit.name);
+    const coordinateKey = getLeaderboardCoordinateKey(visit.lat, visit.lng);
+    if (nameKey && coordinateKey) return `${nameKey}|${coordinateKey}`;
+
+    return getLeaderboardVisitId(visit, index);
+}
+
 function calculateServerLeaderboardScore(userData) {
     const data = userData && typeof userData === "object" && !Array.isArray(userData) ? userData : {};
     const visits = Array.isArray(data.visitedPlaces) ? data.visitedPlaces : [];
     const uniqueVisits = new Map();
 
     visits.forEach((visit, index) => {
-        const id = getLeaderboardVisitId(visit, index);
-        const existing = uniqueVisits.get(id) || { verified: false };
+        const siteKey = getLeaderboardVisitSiteKey(visit, index);
+        const existing = uniqueVisits.get(siteKey) || { verified: false };
         existing.verified = existing.verified || Boolean(visit && visit.verified === true);
-        uniqueVisits.set(id, existing);
+        uniqueVisits.set(siteKey, existing);
     });
 
     let verifiedCount = 0;

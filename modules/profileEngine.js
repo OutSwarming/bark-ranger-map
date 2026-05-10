@@ -181,8 +181,10 @@ window.BARK.renderManagePortal = renderManagePortal;
 // ====== LEADERBOARD SYNC ======
 let cachedLeaderboardData = [];
 let _leaderboardSyncInProgress = false;
-let _lastLeaderboardSyncTime = 0;
-const LEADERBOARD_SYNC_DEBOUNCE_MS = 10000;
+let _leaderboardSyncQueued = false;
+let _lastLeaderboardSyncAttemptTime = 0;
+let _lastLeaderboardSyncAttemptFingerprint = null;
+const LEADERBOARD_SYNC_RETRY_DELAY_MS = 10000;
 
 function getCurrentFirebaseUser() {
     if (typeof firebase === 'undefined' || !firebase.auth) return null;
@@ -206,11 +208,35 @@ function getFunctionsForLeaderboardSync() {
     }
 }
 
-async function syncScoreToLeaderboard() {
-    if (_leaderboardSyncInProgress) return;
+function getFirebaseVisitedWriteState() {
+    const firebaseService = window.BARK.services && window.BARK.services.firebase;
+    return Boolean(
+        firebaseService &&
+        typeof firebaseService.hasVisitedPlacesWriteInFlight === 'function' &&
+        firebaseService.hasVisitedPlacesWriteInFlight()
+    );
+}
 
+function getLeaderboardSyncFingerprint(totalScore, totalVisitedCount, hasVerified) {
+    const score = Number.isFinite(Number(totalScore)) ? Number(totalScore) : 0;
+    const visited = Number.isFinite(Number(totalVisitedCount)) ? Number(totalVisitedCount) : 0;
+    return JSON.stringify({
+        totalPoints: score,
+        totalVisited: visited,
+        hasVerified: hasVerified === true
+    });
+}
+
+function scheduleQueuedLeaderboardSync() {
+    if (!_leaderboardSyncQueued) return;
+    _leaderboardSyncQueued = false;
+    setTimeout(() => {
+        syncScoreToLeaderboard();
+    }, 0);
+}
+
+async function syncScoreToLeaderboard() {
     const now = Date.now();
-    if (now - _lastLeaderboardSyncTime < LEADERBOARD_SYNC_DEBOUNCE_MS) return;
 
     const user = getCurrentFirebaseUser();
     if (!user) return;
@@ -219,10 +245,31 @@ async function syncScoreToLeaderboard() {
     const scoreSummary = window.BARK.calculateVisitScore(visitedPlaces, window.currentWalkPoints);
     const totalScore = scoreSummary.totalScore;
     const totalVisitedCount = getProfileTotalVisitedCount(visitedPlaces, scoreSummary);
+    const hasVerified = hasProfileVerifiedVisit(visitedPlaces);
+    const localFingerprint = getLeaderboardSyncFingerprint(totalScore, totalVisitedCount, hasVerified);
 
-    if (totalScore === window._lastSyncedScore) return;
+    if (localFingerprint === window._lastSyncedLeaderboardFingerprint) return;
+
+    if (_leaderboardSyncInProgress) {
+        _leaderboardSyncQueued = true;
+        return;
+    }
+
+    if (getFirebaseVisitedWriteState()) {
+        _leaderboardSyncQueued = true;
+        return;
+    }
+
+    if (
+        _lastLeaderboardSyncAttemptFingerprint === localFingerprint &&
+        now - _lastLeaderboardSyncAttemptTime < LEADERBOARD_SYNC_RETRY_DELAY_MS
+    ) {
+        return;
+    }
 
     _leaderboardSyncInProgress = true;
+    _lastLeaderboardSyncAttemptTime = now;
+    _lastLeaderboardSyncAttemptFingerprint = localFingerprint;
     try {
         const functionsService = getFunctionsForLeaderboardSync();
         if (!functionsService || typeof functionsService.httpsCallable !== 'function') return;
@@ -238,8 +285,14 @@ async function syncScoreToLeaderboard() {
         const syncedVisited = Number(synced.totalVisited);
         const leaderboardScore = Number.isFinite(syncedScore) ? syncedScore : totalScore;
         const leaderboardVisitedCount = Number.isFinite(syncedVisited) ? syncedVisited : totalVisitedCount;
+        const leaderboardHasVerified = synced.hasVerified === undefined ? hasVerified : !!synced.hasVerified;
 
         window._lastSyncedScore = leaderboardScore;
+        window._lastSyncedLeaderboardFingerprint = getLeaderboardSyncFingerprint(
+            leaderboardScore,
+            leaderboardVisitedCount,
+            leaderboardHasVerified
+        );
         const exactRank = await fetchExactLeaderboardRankForScore(leaderboardScore, 'score-sync');
         setCurrentLeaderboardRank(exactRank, { refreshAchievements: true });
 
@@ -248,12 +301,12 @@ async function syncScoreToLeaderboard() {
             if (me) {
                 me.totalPoints = leaderboardScore;
                 me.totalVisited = leaderboardVisitedCount;
-                me.hasVerified = synced.hasVerified === undefined ? me.hasVerified : !!synced.hasVerified;
+                me.hasVerified = leaderboardHasVerified;
                 if (me.isPersonalFallback) me.exactRank = exactRank;
             } else {
                 const fallback = buildPersonalLeaderboardFallback(user, visitedPlaces, leaderboardScore, exactRank);
                 fallback.totalVisited = leaderboardVisitedCount;
-                fallback.hasVerified = synced.hasVerified === undefined ? fallback.hasVerified : !!synced.hasVerified;
+                fallback.hasVerified = leaderboardHasVerified;
                 cachedLeaderboardData.push(fallback);
             }
             cachedLeaderboardData.sort((a, b) => b.totalPoints - a.totalPoints);
@@ -263,7 +316,7 @@ async function syncScoreToLeaderboard() {
         console.warn('[profileEngine] Server leaderboard sync failed; local profile rendering will continue.', error);
     } finally {
         _leaderboardSyncInProgress = false;
-        _lastLeaderboardSyncTime = Date.now();
+        scheduleQueuedLeaderboardSync();
     }
 }
 
