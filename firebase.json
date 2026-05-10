@@ -8,7 +8,13 @@
         ".git",
         ".secret.local",
         "firebase-debug.log",
-        "firebase-debug.*.log"
+        "firebase-debug.*.log",
+        "firestore-debug.log",
+        "firestore-debug.*.log",
+        "*.log",
+        ".env",
+        ".env.*",
+        ".env*"
       ]
     }
   ],
@@ -41,6 +47,7 @@
       "**/.*/**",
       "**/.DS_Store",
       "**/node_modules/**",
+      "node_modules/**",
       "functions/**",
       "raw_trails/**",
       "data/**",
@@ -49,6 +56,7 @@
       "tests/**",
       "playwright/**",
       "test-results/**",
+      "playwright-report/**",
       "coverage/**",
       "plans/**",
       "docs/**",
@@ -64,6 +72,11 @@
       "*service_account*.json",
       "firebase-debug.log",
       "firebase-debug.*.log",
+      "firestore-debug.log",
+      "firestore-debug.*.log",
+      ".env",
+      ".env.*",
+      ".env*",
       "*.log"
     ]
   }

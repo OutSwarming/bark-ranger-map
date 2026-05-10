@@ -2,73 +2,74 @@
 
 Date: 2026-05-10
 Repository: `OutSwarming/bark-ranger-map`
+Current local branch: `main`
 
-Goal: reduce public GitHub exposure without changing app behavior.
+Goal: reduce public GitHub and Firebase Hosting exposure without changing app behavior.
+
+## Status After This Cleanup
+
+Completed in the current working tree:
+
+- Current `main` does not track `firebase-debug.log` or `firestore-debug.log`.
+- `.gitignore` explicitly ignores debug logs, `.env` files, Playwright auth states, test reports, service-account JSON naming patterns, and private-key JSON naming patterns.
+- `firebase.json` Hosting ignores explicitly cover internal docs, plans, tests, functions, logs, `.env*`, Playwright artifacts, and node modules.
+- `plans/github-tracked-files.txt` and `plans/github-all-history-filepaths.txt` were regenerated for audit evidence.
+- No history rewrite was performed.
+- No app payment behavior changed.
+
+Remaining decisions:
+
+- The GitHub repo is still public.
+- Internal legal/QC/payment/codebase docs are still tracked and therefore public on GitHub.
+- Old public branches still contain `firebase-debug.log`.
+- Git history still contains `firebase-debug.log` and internal docs.
 
 ## Immediate Before Broader Beta
 
-### 1. Decide Visibility
+### 1. Decide Repo Visibility
 
 Recommended: make the repository private now.
 
 Why:
 
-- Public `main` currently exposes `firebase-debug.log`.
-- Public branches expose internal hardening docs.
-- Legal/IP/payment/QC docs are public.
-- Data and brand assets are not fully cleared.
+- Internal legal, launch, payment, QC, and codebase risk docs are tracked.
+- Old branches still expose `firebase-debug.log`.
+- Data/brand provenance is not legally cleared.
+- A public repo is not needed for tester access to the deployed app.
 
 Suggested GitHub UI path:
 
-1. Open GitHub repo settings.
+1. Open `https://github.com/OutSwarming/bark-ranger-map/settings`.
 2. Go to `Settings -> General -> Danger Zone`.
 3. Change visibility to private.
-4. Confirm Pages behavior after the visibility change.
+4. Confirm GitHub Pages behavior after the visibility change.
 
-If the repo must remain public, do the rest of this plan before any broader beta link is shared.
+### 2. Delete Stale Public Branches After Merge Check
 
-### 2. Remove Debug Logs From Tracking
-
-Current branch already ignores logs. Public `main` still exposes `firebase-debug.log`.
-
-Recommended cleanup command on a cleanup branch based on `main`:
+Current stale branches with old debug/internal exposure:
 
 ```bash
-git checkout main
-git pull --ff-only origin main
-git checkout -b cleanup/public-exposure
-git rm --cached firebase-debug.log
-git status --short
+git push origin --delete codex/e2e-storage-states-qc
+git push origin --delete codex/fix-bug017-premium-gating-smoke
+git push origin --delete codex/payment-webhook-hardening-test-mode
+git push origin --delete codex/server-free-visit-limit-5
+git push origin --delete codex/server-route-geocode-rate-limits
+git push origin --delete codex/stage-0-hardening-kill-switches
+git push origin --delete phase-1-vaultrepo-refactor
+git push origin --delete zoom-fix-revisited
 ```
 
-Do not delete local copies unless Carter wants them gone. Removing from tracking is enough for the next commit.
+Do this only after Carter confirms those branches are no longer needed. `codex/promo-access-code-premium` was merged to `main`, but it also contains internal docs; delete it too if no longer needed:
 
-### 3. Merge Stronger `.gitignore`
-
-Ensure `main` includes:
-
-```gitignore
-firebase-debug.log
-firestore-debug.log
-*.log
-test-results/
-.env
-.env.*
-!.env.example
-playwright/.auth/
-tests/.auth/
-*.storageState.json
-storageState*.json
-*Service Account*.json
-*service-account*.json
-*service_account*.json
+```bash
+git push origin --delete codex/promo-access-code-premium
 ```
 
-### 4. Remove Internal Legal/QC Docs From Public Tracking Or Make Repo Private
+### 3. Keep Or Remove Internal Docs
 
-If the repo becomes private, keep the docs.
+If the repo becomes private, keeping `plans/**` tracked is acceptable.
 
-If the repo remains public, move/remove these from public branches:
+If the repo remains public, remove internal docs from public tracking and keep them in a private repo or local/private branch:
 
 ```bash
 git rm --cached plans/LEGAL_LICENSE_DILIGENCE_PACKET.md
@@ -82,30 +83,9 @@ git rm --cached plans/root-npm-ls-all.json
 git rm --cached plans/functions-npm-ls-all.json
 ```
 
-Do not use this list blindly if Carter still wants a private branch to retain the files. For public cleanup, prefer moving these docs to a separate private repo.
+Do not run this blindly; it removes files from the public branch index. Make sure Carter has a private copy or private repo first.
 
-### 5. Confirm Firebase Hosting Ignores Internal Docs
-
-Current `firebase.json` already ignores:
-
-- `plans/**`
-- `docs/**`
-- `**/*.md`
-- `functions/**`
-- `tests/**`
-- `playwright/**`
-- `test-results/**`
-- `data/**`
-- `raw_trails/**`
-- logs
-
-Verify after any merge:
-
-```bash
-rg -n '"plans/\\*\\*"|"docs/\\*\\*"|"\\*\\*/\\*\\.md"|"firebase-debug\\.log"|"test-results/\\*\\*"' firebase.json
-```
-
-### 6. Confirm No Secrets/Auth States Are Tracked
+### 4. Confirm No Sensitive Local Artifacts Are Tracked
 
 Run:
 
@@ -113,138 +93,123 @@ Run:
 git ls-files | rg '(^|/)(firebase-debug|firestore-debug|.*\.log$|\.env$|\.env\.|serviceAccount|service-account|service_account|private.*key|.*key.*\.json$|playwright/\.auth|storageState|test-results|playwright-report)'
 ```
 
-Expected after cleanup:
+Expected current output:
 
-- `.env.example` may remain.
-- No debug logs.
-- No service-account JSON.
-- No Playwright auth state.
-- No test-results.
+```text
+.env.example
+```
 
-### 7. Decide Whether History Cleanup Is Needed
+That is expected. Anything else should be investigated before broad release.
+
+### 5. Confirm Firebase Hosting Ignores Internal Files
+
+Run:
+
+```bash
+rg -n '"plans/\*\*"|"docs/\*\*"|"\*\*/\*\.md"|"functions/\*\*"|"tests/\*\*"|"playwright/\*\*"|"test-results/\*\*"|"playwright-report/\*\*"|"firebase-debug\.log"|"firestore-debug\.log"|"\.env\*"' firebase.json
+```
+
+Expected: all patterns are present.
+
+### 6. Decide Whether History Cleanup Is Needed
 
 Do not rewrite history without explicit Carter approval.
 
-Current history contains:
+History contains:
 
 - `firebase-debug.log`
-- legal/IP diligence docs
+- internal legal/QC/payment/codebase docs
 - generated npm dependency JSON
 
 If the repo becomes private, history rewrite may be unnecessary.
 
-If the repo remains public, Carter should decide whether to:
+If the repo stays public, Carter should decide whether to:
 
-1. accept that history remains public,
-2. rotate any values conservatively,
-3. rewrite history with `git filter-repo`/BFG, then force-push and coordinate with any clones.
+1. accept that historical content remains public,
+2. rotate any sensitive values conservatively,
+3. rewrite history with `git filter-repo` or BFG,
+4. force-push and coordinate with any clones/forks.
 
 ## Before Paid Public Launch
 
-### 1. Create Public-Safe Repo Presentation
+### 1. Create Public-Safe Project Presentation
 
-Add or update:
+Add a clean public-facing set:
 
-- clean `README.md`
-- support/contact info
+- `README.md`
+- public support/contact path
 - privacy policy link
 - terms/refund/subscription language
 - attribution/credits page
-- deployment instructions without secrets
+- deployment notes without secrets
 
 ### 2. Make License / Notice Decision
 
-Do not invent a license casually.
-
-After lawyer review, decide:
+Do not invent a license casually. Decide after legal review:
 
 - private proprietary repo,
-- public source-available but not open-source,
+- public source-visible but not open-source,
 - open-source license,
 - third-party notices file.
 
-### 3. Keep Legal/Private Docs Out Of Public Source
+### 3. Keep Private Docs Out Of Public Source
 
 Private-only docs should include:
 
 - legal diligence
-- red flags
+- legal red flags
 - internal QC trackers
 - payment risk reports
-- cost projections
+- Firebase cost projections
 - private beta notes
 - lawyer questions
 - debug logs
 - generated full dependency JSON
 
-### 4. Sanitize Branches
+### 4. Verify GitHub Actions Artifacts
 
-If public:
+If the repo stays public, review and delete old downloadable artifacts if needed.
 
-```bash
-git push origin --delete codex/e2e-storage-states-qc
-git push origin --delete codex/fix-bug017-premium-gating-smoke
-git push origin --delete codex/payment-webhook-hardening-test-mode
-git push origin --delete codex/server-free-visit-limit-5
-git push origin --delete codex/server-route-geocode-rate-limits
-git push origin --delete codex/stage-0-hardening-kill-switches
-git push origin --delete phase-1-vaultrepo-refactor
-git push origin --delete zoom-fix-revisited
-```
-
-Only delete branches after confirming they are merged or no longer needed.
-
-### 5. Verify GitHub Actions Artifacts
-
-Check:
+Useful API check:
 
 ```bash
 curl -sS "https://api.github.com/repos/OutSwarming/bark-ranger-map/actions/artifacts?per_page=20"
 ```
 
-Then either:
+### 5. Rotate If Needed
 
-- confirm artifacts contain only public site output, or
-- reduce retention/delete artifacts through GitHub UI/API.
+This audit did not find tracked private key blocks or service-account JSON on current `main`.
 
-### 6. Rotate If Needed
-
-This audit did not find private key blocks in current tracked files. Still consider rotation if Carter wants a conservative response to historical debug logs:
-
-- Firebase web/API config: usually public, not secret.
-- Secret Manager secret names: not secret values.
-- Any upload URL signatures found in historical debug logs: likely expired, but verify.
-- Any email addresses in debug logs/docs: privacy/professionalism issue.
+Conservative rotation/history decisions may still be warranted because old debug logs contained deployment/debug metadata and public branches/history retain them.
 
 ## Public-Safe Release Branch Option
 
-If Carter wants public GitHub later:
+Best long-term public model:
 
-1. Keep development in a private repo.
-2. Create a sanitized public branch or separate repo.
-3. Include app source only if intentional.
-4. Include public README/license/notice/privacy links.
-5. Exclude `plans/**`, `docs/audits/**`, debug logs, generated JSON, private test fixtures, legal docs, and internal reports.
+1. Keep development and internal docs in a private repo.
+2. Create a sanitized public repo or public release branch.
+3. Include only intentionally public app source and public docs.
+4. Exclude `plans/**`, `docs/audits/**`, debug logs, generated JSON, private test fixtures, legal docs, and internal reports.
 
 ## Minimum Cleanup Gate
 
-Before broader beta, pass these checks:
+Before broader beta, pass:
 
 ```bash
 git status --short
-git ls-files | rg 'firebase-debug|firestore-debug|.*\.log$|playwright/\.auth|storageState|test-results|serviceAccount|service-account|private.*key|\.env$|\.env\.'
-git ls-files | rg 'plans/(LEGAL|FINAL_PRIVATE|root-npm-ls-all|functions-npm-ls-all)'
-rg -n '"plans/\\*\\*"|"docs/\\*\\*"|"\\*\\*/\\*\\.md"' firebase.json
+git diff --check
+git ls-files | rg '(^|/)(firebase-debug|firestore-debug|.*\.log$|\.env$|\.env\.|serviceAccount|service-account|service_account|private.*key|.*key.*\.json$|playwright/\.auth|storageState|test-results|playwright-report)'
+rg -n '"plans/\*\*"|"docs/\*\*"|"\*\*/\*\.md"|"functions/\*\*"|"tests/\*\*"|"playwright/\*\*"|"test-results/\*\*"|"playwright-report/\*\*"|"firebase-debug\.log"|"firestore-debug\.log"|"\.env\*"' firebase.json
 ```
 
 Expected:
 
-- No tracked debug logs/auth states/secrets.
-- No public legal/private QC docs if repo remains public.
-- Firebase Hosting ignores internal docs.
+- only `.env.example` from the tracked sensitive-file scan,
+- no diff whitespace errors,
+- Hosting ignore patterns present.
 
 ## Recommended Decision
 
-Best path: **make the repo private now, then clean `main` and branches without panic.**
+Best path: **make the repo private now, keep the deployed app public, and revisit a sanitized public repo later.**
 
-Second-best path: keep public only after removing internal docs/logs from `main`, deleting stale branches, verifying Actions artifacts, and accepting that public git history already exposed prior content unless rewritten.
+Second-best path: keep the repo public only after removing internal docs from public tracking, deleting stale branches, verifying Actions artifacts, and explicitly accepting that public git history already exposed prior content unless rewritten.
