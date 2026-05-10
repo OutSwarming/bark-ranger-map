@@ -14,7 +14,7 @@ This is not legal advice. Items marked HIGH, P0, or "needs lawyer review" are no
 
 Highest-priority review areas:
 
-1. `firebase-debug.log` is tracked in git. It may contain deployment/emulator environment details and API-key-like environment output. Do not publish broader diligence materials without reviewing whether this log should be removed from history and whether any exposed values should be rotated.
+1. `firebase-debug.log` was tracked in git at audit time and has now been removed from tracking in a cleanup commit. Current-pattern scanning did not find private key blocks, Google API-key-shaped values, or access-token-shaped values in the checked copy, but it did find deployment/emulator metadata, project IDs, private email addresses, Secret Manager secret names, and signed upload URL signatures. Do not publish broader diligence materials without deciding whether git history cleanup and any conservative rotation are needed.
 2. Public-facing `US BARK RANGERS`, `BARK Ranger`, `B.A.R.K.`, logos, watermarks, and payment/product names need trademark/brand ownership review.
 3. Park/pin datasets and CSV snapshots have unclear source/permission/attribution records.
 4. Several browser libraries and map/data services are loaded from CDNs or third-party APIs and need attribution/terms review.
@@ -234,7 +234,7 @@ Command result notes:
 - `license-checker` was not installed. No package was installed for this audit.
 - `plans/root-npm-ls-all.json` and `plans/functions-npm-ls-all.json` were generated successfully.
 - `find` did not locate a repo-level `LICENSE`, `NOTICE`, or `COPYING` file outside dependencies.
-- `firebase-debug.log` is tracked by git.
+- `firebase-debug.log` was tracked by git at audit time and was removed from tracking in a later cleanup commit. Git history still contains prior versions unless Carter approves a separate history rewrite.
 - No tracked Playwright auth storage states, private key files, service-account JSON files, or `.env` files were found by `git ls-files`; only `.env.example` is tracked from that pattern.
 - Root project package metadata does not define a clear project license field in `package.json`.
 

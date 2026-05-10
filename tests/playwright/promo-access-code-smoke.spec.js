@@ -72,6 +72,21 @@ async function installPaywallHarness(page, options = {}) {
 }
 
 test.describe('Promo / Access Code paywall UI', () => {
+    test('Premium modal exposes exactly one visible Promo / Access Code box before checkout', async ({ page }) => {
+        await openApp(page);
+        await installPaywallHarness(page, { user: null });
+
+        await page.evaluate(() => window.BARK.paywall.openPaywall({ source: 'manual-upgrade-check' }));
+
+        await expect(page.locator('#paywall-overlay')).toHaveClass(/active/);
+        await expect(page.getByLabel('Promo / Access Code')).toBeVisible();
+        await expect(page.locator('#paywall-promo-code-btn')).toBeVisible();
+        await expect(page.locator('#paywall-primary-btn')).toContainText('Sign in to upgrade');
+        await expect(page.locator('#paywall-promo-code-input')).toHaveCount(1);
+        await expect(page.getByText('Promo / Access Code')).toHaveCount(1);
+        await expect(page.locator('input[id*="coupon"], input[id*="promo"], input[id*="beta"], input[id*="access"]')).toHaveCount(1);
+    });
+
     test('signed-out code entry prompts sign-in and does not call the redeem callable', async ({ page }) => {
         await openApp(page);
         await installPaywallHarness(page, { user: null, redeemMode: 'valid-free' });

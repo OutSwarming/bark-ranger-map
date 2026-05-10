@@ -5,6 +5,10 @@ functions/node_modules/
 firebase-debug.log
 firestore-debug.log
 *.log
+test-results/
+.env
+.env.*
+!.env.example
 Bark Ranger Map Auth Service Account.json
 BarkRangerMap Auth.json
 *Service Account*.json
