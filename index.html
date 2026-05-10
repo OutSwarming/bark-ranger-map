@@ -17,7 +17,7 @@
 
     <!-- QRCode JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css?v=47">
+    <link rel="stylesheet" href="styles.css?v=48">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css">
 
@@ -673,45 +673,45 @@
                         <div id="performance-settings-registry" style="display: flex; flex-direction: column; gap: 15px;"></div>
 
                         <!-- 🔨 ULTRA-LOW SLEDGEHAMMER -->
-                        <div style="border-top: 1px solid #f1f5f9; margin-top: 18px; padding-top: 14px;">
-                            <div style="font-size: 11px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px;">Aggressive Recovery</div>
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; background: rgba(239, 68, 68, 0.04); padding: 12px; border-radius: 10px; border: 1px dashed rgba(239, 68, 68, 0.22);">
-                                <div style="flex: 1;">
-                                    <div style="font-size: 14px; font-weight: 800; color: #ef4444;">Ultra Low Mode</div>
-                                    <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 3px; line-height: 1.35;">
-                                        <strong>iPhone 3 and lower only.</strong> Disables visual effects for maximum memory recovery.
+                        <div class="settings-bottom-stack">
+                            <section class="settings-bottom-block">
+                                <div class="settings-section-kicker">Aggressive Recovery</div>
+                                <div class="settings-toggle-row">
+                                    <div class="settings-toggle-copy">
+                                        <div class="settings-toggle-title settings-toggle-title--warning">Ultra Low Mode</div>
+                                        <div class="settings-toggle-description">
+                                            <strong>iPhone 3 and lower only.</strong> Disables visual effects for maximum memory recovery.
+                                        </div>
                                     </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="ultra-low-toggle">
+                                        <span class="slider round"></span>
+                                    </label>
                                 </div>
-                                <label class="switch">
-                                    <input type="checkbox" id="ultra-low-toggle">
-                                    <span class="slider round sledgehammer-slider"></span>
-                                </label>
-                            </div>
-                        </div>
+                            </section>
 
-                        <!-- ☁️ Cloud sync + System reset paired footer -->
-                        <div style="border-top: 1px solid #f1f5f9; margin-top: 18px; padding-top: 14px; display: flex; flex-direction: column; gap: 12px;">
-                            <div>
-                                <button id="save-settings-cloud-btn" style="background: linear-gradient(135deg, #2196F3, #1976D2); color: white; border: none; padding: 11px 14px; border-radius: 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.4px; cursor: pointer; box-shadow: 0 3px 8px rgba(33, 150, 243, 0.22); width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            <!-- ☁️ Cloud sync -->
+                            <section class="settings-cloud-card">
+                                <button id="save-settings-cloud-btn" class="settings-cloud-sync-btn">
                                     ☁️ Premium Cloud Sync
                                 </button>
-                                <div id="save-settings-cloud-copy" style="font-size: 11px; color: #64748b; margin-top: 6px; line-height: 1.4; font-weight: 500; text-align: center;">
+                                <div id="save-settings-cloud-copy" class="settings-cloud-copy">
                                     Local settings save automatically. Cloud sync is a Premium feature.
                                 </div>
-                            </div>
+                            </section>
 
-                            <div style="background: rgba(239, 68, 68, 0.04); padding: 12px; border-radius: 10px; border: 1px dashed rgba(239, 68, 68, 0.25); text-align: center;">
-                                <div style="font-size: 11px; font-weight: 900; color: #ef4444; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px;">System Reset</div>
-                                <button id="terminate-reload-btn" style="background: white; color: #ef4444; border: 1.5px solid #ef4444; padding: 9px 18px; border-radius: 8px; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.6px; cursor: pointer;">
+                            <!-- ☢️ System reset -->
+                            <section class="settings-reset-block">
+                                <button id="terminate-reload-btn" class="settings-reset-btn">
                                     ☢️ Terminate & Reload App
                                 </button>
-                                <div style="font-size: 11px; color: #64748b; margin-top: 8px; line-height: 1.4; font-weight: 500;">
+                                <div class="settings-reset-copy">
                                     Wipes local settings, map cache, and signs you out. Cloud data stays safe.
                                 </div>
-                            </div>
+                            </section>
                         </div>
 
-                        <p style="font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border-top: 1px solid #f1f5f9; padding-top: 12px; margin: 16px 0 0 0; text-align: center;">
+                        <p class="settings-version-footer">
                             US BARK Ranger © v<span id="settings-app-version">12</span>
                         </p>
 
@@ -1161,8 +1161,8 @@
                     </dl>
                     <div id="account-billing-panel" class="account-billing-panel" hidden>
                         <div class="account-billing-copy-wrap">
-                            <div id="account-billing-eyebrow" class="account-billing-eyebrow">Premium billing</div>
-                            <div id="account-billing-title" class="account-billing-title">Paid Premium</div>
+                            <div id="account-billing-eyebrow" class="account-billing-eyebrow">SUBSCRIPTION</div>
+                            <div id="account-billing-title" class="account-billing-title">Active</div>
                             <p id="account-billing-copy" class="account-billing-copy">
                                 Auto-renews when active.
                             </p>
@@ -1434,7 +1434,7 @@
     <script src="services/checkinService.js?v=5" defer></script>
     <script src="services/authPremiumUi.js?v=3" defer></script>
     <script src="services/premiumService.js?v=2" defer></script>
-    <script src="services/authAccountUi.js?v=9" defer></script>
+    <script src="services/authAccountUi.js?v=10" defer></script>
     <script src="modules/paywallController.js?v=7" defer></script>
     <script src="services/authService.js?v=26" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>

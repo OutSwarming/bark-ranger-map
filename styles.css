@@ -518,21 +518,25 @@ textarea,
 }
 
 .account-billing-eyebrow {
-    display: none;
+    margin-bottom: 4px;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
 }
 
 .account-billing-title {
     color: #1e293b;
     font-size: 13px;
-    font-weight: 900;
-    line-height: 1.2;
+    font-weight: 800;
+    line-height: normal;
 }
 
 .account-billing-copy {
     margin: 2px 0 0;
     color: #64748b;
-    font-size: 11.5px;
-    font-weight: 700;
+    font-size: 10.5px;
+    font-weight: 400;
     line-height: 1.3;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2670,6 +2674,132 @@ input:checked+.slider:before {
     border-radius: 50%;
 }
 
+.settings-bottom-stack {
+    border-top: 1px solid #f1f5f9;
+    margin-top: 18px;
+    padding-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.settings-bottom-block {
+    margin: 0;
+}
+
+.settings-section-kicker {
+    margin-bottom: 10px;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+}
+
+.settings-toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 15px;
+}
+
+.settings-toggle-copy {
+    flex: 1;
+    min-width: 0;
+}
+
+.settings-toggle-title {
+    color: #1e293b;
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.settings-toggle-title--warning {
+    color: #ef4444;
+}
+
+.settings-toggle-description {
+    margin-top: 4px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.settings-cloud-card {
+    padding: 12px;
+    border: 1px solid rgba(59, 130, 246, 0.12);
+    border-radius: 10px;
+    background: rgba(239, 246, 255, 0.74);
+}
+
+.settings-cloud-sync-btn {
+    width: 100%;
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 14px;
+    border: 0;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #2196F3, #1976D2);
+    box-shadow: 0 3px 8px rgba(33, 150, 243, 0.22);
+    color: white;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+}
+
+.settings-cloud-copy,
+.settings-reset-copy {
+    color: #64748b;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1.4;
+    text-align: center;
+}
+
+.settings-cloud-copy {
+    margin-top: 7px;
+}
+
+.settings-reset-block {
+    text-align: center;
+}
+
+.settings-reset-btn {
+    width: 100%;
+    min-height: 40px;
+    padding: 10px 14px;
+    border: 1.5px solid #ef4444;
+    border-radius: 8px;
+    background: transparent;
+    color: #ef4444;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+}
+
+.settings-reset-copy {
+    margin-top: 8px;
+}
+
+.settings-version-footer {
+    margin: 18px 0 0 0;
+    padding-top: 16px;
+    border-top: 1px solid #f1f5f9;
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-align: center;
+    text-transform: uppercase;
+}
+
 /* Premium Modal Overlay System */
 .modal-overlay {
     position: fixed;
@@ -2851,12 +2981,6 @@ body.ultra-low .modal-overlay {
     backdrop-filter: none !important;
     /* Blur is too heavy for Ultra Low */
 }
-
-/* Red Ultra-Low Toggle Alert Styling */
-input#ultra-low-toggle:checked+.slider {
-    background-color: #ef4444 !important;
-}
-
 
 /* =========================================
    REDUCED PIN SCALING / MOTION TOGGLE

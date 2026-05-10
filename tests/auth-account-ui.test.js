@@ -352,8 +352,9 @@ test('lemon squeezy premium account shows billing portal management', async () =
     harness.window.BARK.authAccountUi.refreshAccountDisplay();
 
     assert.equal(harness.element('account-billing-panel').hidden, false);
-    assert.equal(harness.element('account-billing-title').textContent, 'Paid Premium');
-    assert.equal(harness.element('account-billing-copy').textContent, 'Auto-renews on May 2, 2027');
+    assert.equal(harness.element('account-billing-eyebrow').textContent, 'SUBSCRIPTION');
+    assert.equal(harness.element('account-billing-title').textContent, 'Active');
+    assert.equal(harness.element('account-billing-copy').textContent, 'Auto-renews May 2, 2027');
     assert.equal(harness.element('account-manage-subscription-btn').textContent, 'Manage');
     assert.equal(
         harness.element('account-manage-subscription-btn').dataset.billingUrl,

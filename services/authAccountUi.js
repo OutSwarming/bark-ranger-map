@@ -366,7 +366,7 @@
                 return {
                     visible: true,
                     mode: 'access-code',
-                    eyebrow: 'Free Premium Access',
+                    eyebrow: 'SUBSCRIPTION',
                     title: getAccessCodeAudienceLabel(entitlement.accessCodeAudience),
                     copy: `Access ends: ${formatEntitlementDate(entitlement.expiresAt)}. Auto-renew: No. Payment method: None.`,
                     hideButton: true
@@ -377,7 +377,7 @@
                 return {
                     visible: true,
                     mode: 'access-code-expired',
-                    eyebrow: 'Premium inactive',
+                    eyebrow: 'SUBSCRIPTION',
                     title: 'Free Premium access ended',
                     copy: 'Subscribe through Lemon Squeezy to continue Premium.',
                     hideButton: true
@@ -386,9 +386,9 @@
         }
 
         if (isLemonSqueezyEntitlement(entitlement)) {
-            let statusText = 'Paid Premium';
+            let statusText = 'Active';
             const renewalDate = formatEntitlementDate(entitlement.currentPeriodEnd);
-            let copy = renewalDate === 'not set' ? 'Auto-renew is active' : `Auto-renews on ${renewalDate}`;
+            let copy = renewalDate === 'not set' ? 'Auto-renew is active' : `Auto-renews ${renewalDate}`;
             let buttonText = 'Manage';
             if (entitlement.status === 'past_due') {
                 statusText = 'Payment retry in progress';
@@ -408,7 +408,7 @@
             return {
                 visible: true,
                 mode: 'portal',
-                eyebrow: 'Premium billing',
+                eyebrow: 'SUBSCRIPTION',
                 title: statusText,
                 copy,
                 buttonText,
@@ -420,7 +420,7 @@
         return {
             visible: true,
             mode: 'support',
-            eyebrow: 'Premium billing',
+            eyebrow: 'SUBSCRIPTION',
             title: 'Managed by support',
             copy: 'This account has a manual premium grant, so there is no Lemon Squeezy subscription to manage.',
             buttonText: 'Contact support',
