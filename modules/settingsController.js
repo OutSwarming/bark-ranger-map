@@ -540,9 +540,22 @@ window.BARK.initSettings = function initSettings() {
             });
         }
 
+        const reloadAfterUltraLowChange = () => {
+            sessionStorage.setItem('skipCloudHydration', 'true');
+            setTimeout(() => window.location.reload(true), 150);
+        };
+
+        const saveUltraLowBeforeReload = async () => {
+            const context = getCloudSettingsSaveContext();
+            if (!context || !context.isPremium) return;
+
+            window._pendingLocalSettingsChanges = true;
+            await saveSettingsToCloud();
+        };
+
         // Ultra Low Toggle
         if (ultraLowToggle) {
-            ultraLowToggle.addEventListener('change', (e) => {
+            ultraLowToggle.addEventListener('change', async (e) => {
                 const isEnabled = e.target.checked;
                 const msg = isEnabled ?
                     "⚠️ ENABLE ULTRA-LOW GRAPHICS?\n\nThis will disable all animations and effects.\nPage will reload." :
@@ -550,10 +563,15 @@ window.BARK.initSettings = function initSettings() {
                 if (!window.confirm(msg)) { e.target.checked = !isEnabled; return; }
 
                 setSettingValue('ultraLowEnabled', isEnabled);
-                scheduleCloudSettingsAutosave();
+                ultraLowToggle.disabled = true;
 
-                sessionStorage.setItem('skipCloudHydration', 'true');
-                setTimeout(() => window.location.reload(true), 150);
+                try {
+                    await saveUltraLowBeforeReload();
+                } catch (error) {
+                    console.warn('[settingsController] Ultra Low cloud save failed before reload; preserving local setting.', error);
+                } finally {
+                    reloadAfterUltraLowChange();
+                }
             });
         }
 
