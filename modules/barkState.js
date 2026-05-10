@@ -26,7 +26,7 @@ const DEFAULT_LAUNCH_FLAGS = Object.freeze({
     routeGenerationEnabled: true,
     premiumGeocodeEnabled: true,
     leaderboardDeepBrowsingEnabled: true,
-    feedbackEnabled: false,
+    feedbackEnabled: true,
     premiumRiskyToolsEnabled: true
 });
 

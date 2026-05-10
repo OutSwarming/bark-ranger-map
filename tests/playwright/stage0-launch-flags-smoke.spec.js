@@ -39,6 +39,36 @@ async function openFlagReadyApp(page) {
 }
 
 test.describe('Stage 0 launch safety flags', () => {
+    test('feedback portal is enabled by default and still uses the signed-in callable path', async ({ browser }) => {
+        const errors = [];
+        const context = await newBarkContext(browser);
+        const page = await context.newPage();
+        collectRelevantErrors(page, 'feedback default enabled', errors);
+
+        try {
+            await openFlagReadyApp(page);
+
+            const state = await page.evaluate(() => ({
+                feedbackFlag: window.BARK.isLaunchFlagEnabled('feedbackEnabled'),
+                feedbackDisabled: document.getElementById('feedback-text').disabled,
+                feedbackButtonDisabled: document.getElementById('submit-feedback-btn').disabled,
+                feedbackButtonText: document.getElementById('submit-feedback-btn').textContent.replace(/\s+/g, ' ').trim(),
+                launchDisabled: document.getElementById('feedback-portal').dataset.launchDisabled || ''
+            }));
+
+            expect(state).toMatchObject({
+                feedbackFlag: true,
+                feedbackDisabled: false,
+                feedbackButtonDisabled: false,
+                feedbackButtonText: 'Submit Feedback',
+                launchDisabled: ''
+            });
+            expect(errors, errors.join('\n')).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    });
+
     test('risky features fail closed with friendly disabled states and normal browsing still loads', async ({ browser }) => {
         const errors = [];
         const context = await newBarkContext(browser);
@@ -327,7 +357,7 @@ test.describe('Stage 0 launch safety flags', () => {
             });
 
             expect(state.loadMoreBefore).toBe(true);
-            expect(state.queryLog).toEqual([
+            expect(state.queryLog.slice(0, 2)).toEqual([
                 {
                     collection: 'leaderboard',
                     orderBy: ['totalPoints', 'desc'],

@@ -10,7 +10,7 @@ window.BARK_LAUNCH_FLAGS = {
     routeGenerationEnabled: true,
     premiumGeocodeEnabled: true,
     leaderboardDeepBrowsingEnabled: true,
-    feedbackEnabled: false,
+    feedbackEnabled: true,
     premiumRiskyToolsEnabled: true,
     ...(window.BARK_LAUNCH_FLAGS || {})
 };
