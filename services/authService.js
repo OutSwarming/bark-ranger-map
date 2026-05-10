@@ -399,6 +399,33 @@ function refreshAuthSnapshotUi() {
     refreshActivePinVisitedButton();
 }
 
+function hasAuthoritativeSnapshotMetadata(metadata) {
+    return Boolean(metadata && metadata.fromCache !== true && metadata.hasPendingWrites !== true);
+}
+
+function maybeSyncAuthoritativeProfileScore(reason) {
+    if (!window._firstServerPayloadReceived || !window._visitedPlacesServerSnapshotReceived) return;
+    if (window._authoritativeProfileScoreSyncQueued) return;
+
+    const queuedUser = typeof firebase !== 'undefined' && firebase.auth ? firebase.auth().currentUser : null;
+    if (!queuedUser) return;
+    const queuedUid = queuedUser.uid;
+
+    window._authoritativeProfileScoreSyncQueued = true;
+    setTimeout(() => {
+        window._authoritativeProfileScoreSyncQueued = false;
+
+        const currentUser = typeof firebase !== 'undefined' && firebase.auth ? firebase.auth().currentUser : null;
+        if (!currentUser || currentUser.uid !== queuedUid) return;
+        if (!window._firstServerPayloadReceived || !window._visitedPlacesServerSnapshotReceived) return;
+
+        if (typeof window.BARK.syncScoreToLeaderboard === 'function') {
+            Promise.resolve(window.BARK.syncScoreToLeaderboard())
+                .catch(error => console.error(`[authService] authoritative score sync failed (${reason || 'snapshot'}):`, error));
+        }
+    }, 0);
+}
+
 function getFirebaseService() {
     return window.BARK.services && window.BARK.services.firebase;
 }
@@ -425,8 +452,12 @@ function buildVaultRepoSubscriptionOptions() {
         normalizeLocalVisitedPlacesToCanonical: firebaseService && typeof firebaseService.normalizeLocalVisitedPlacesToCanonical === 'function'
             ? options => firebaseService.normalizeLocalVisitedPlacesToCanonical(options)
             : null,
-        onChange() {
+        onChange(change) {
+            if (hasAuthoritativeSnapshotMetadata(change && change.metadata)) {
+                window._visitedPlacesServerSnapshotReceived = true;
+            }
             refreshAuthSnapshotUi();
+            maybeSyncAuthoritativeProfileScore('visitedPlaces-snapshot');
         },
         onError(error) {
             console.error('[authService] visitedPlaces snapshot failed:', error);
@@ -715,6 +746,8 @@ function resetLoggedOutRuntimeState() {
     window._lastKnownLeaderboardRank = null;
     window._lastSyncedScore = -1;
     window._lastSyncedLeaderboardFingerprint = null;
+    window._visitedPlacesServerSnapshotReceived = false;
+    window._authoritativeProfileScoreSyncQueued = false;
     window.currentWalkPoints = 0;
     window.isAdmin = false;
     resetAdminUi();
@@ -745,6 +778,8 @@ function resetAccountScopedRuntimeState() {
     window._lastLeaderboardDoc = null;
     window._lastSyncedScore = -1;
     window._lastSyncedLeaderboardFingerprint = null;
+    window._visitedPlacesServerSnapshotReceived = false;
+    window._authoritativeProfileScoreSyncQueued = false;
     window.currentWalkPoints = 0;
     window.isAdmin = false;
     resetAdminUi();
@@ -872,6 +907,7 @@ function initFirebase() {
                                         handleExpeditionSync({});
                                     }
                                     refreshAuthSnapshotUi();
+                                    maybeSyncAuthoritativeProfileScore('user-snapshot');
 
                                     if (!window._leaderboardLoadedOnce) {
                                         window._leaderboardLoadedOnce = true;

@@ -218,6 +218,29 @@ async function expectManageCountMatchesRepo(page) {
     await expect(page.locator('#manage-portal-count')).toHaveText(String(repoCount));
 }
 
+async function waitForMirroredScore(page, expectedPoints, expectedVisited) {
+    await page.waitForFunction(
+        async ({ points, visited }) => {
+            const user = window.firebase && firebase.auth ? firebase.auth().currentUser : null;
+            if (!user) return false;
+
+            const firestore = firebase.firestore();
+            const userDoc = await firestore.collection('users').doc(user.uid).get();
+            const leaderboardDoc = await firestore.collection('leaderboard').doc(user.uid).get();
+            if (!userDoc.exists || !leaderboardDoc.exists) return false;
+
+            const userData = userDoc.data() || {};
+            const leaderboardData = leaderboardDoc.data() || {};
+            return Number(userData.totalPoints || 0) === points
+                && Number(userData.totalVisited || 0) === visited
+                && Number(leaderboardData.totalPoints || 0) === points
+                && Number(leaderboardData.totalVisited || 0) === visited;
+        },
+        { points: expectedPoints, visited: expectedVisited },
+        { timeout: 30000 }
+    );
+}
+
 async function updateVisitDateFromManagePortal(page, park) {
     const row = await waitForManageRow(page, park);
     const dateInput = row.locator('input[type="date"]').first();
@@ -329,6 +352,7 @@ test.describe('Phase 3A profile manage smoke', () => {
             await openProfileManagePortal(page);
             await waitForManageRowGone(page, park);
             await expectManageCountMatchesRepo(page);
+            await waitForMirroredScore(page, 0, 0);
 
             expect(relevantErrors, relevantErrors.join('\n')).toEqual([]);
         } finally {

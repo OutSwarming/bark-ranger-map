@@ -182,9 +182,11 @@ window.BARK.renderManagePortal = renderManagePortal;
 let cachedLeaderboardData = [];
 let _leaderboardSyncInProgress = false;
 let _leaderboardSyncQueued = false;
+let _leaderboardSyncRetryTimer = null;
 let _lastLeaderboardSyncAttemptTime = 0;
 let _lastLeaderboardSyncAttemptFingerprint = null;
 const LEADERBOARD_SYNC_RETRY_DELAY_MS = 10000;
+const LEADERBOARD_SYNC_WRITE_RETRY_MS = 250;
 
 function getCurrentFirebaseUser() {
     if (typeof firebase === 'undefined' || !firebase.auth) return null;
@@ -227,12 +229,16 @@ function getLeaderboardSyncFingerprint(totalScore, totalVisitedCount, hasVerifie
     });
 }
 
-function scheduleQueuedLeaderboardSync() {
+function scheduleQueuedLeaderboardSync(delayMs = 0) {
     if (!_leaderboardSyncQueued) return;
-    _leaderboardSyncQueued = false;
-    setTimeout(() => {
+    if (_leaderboardSyncRetryTimer !== null) return;
+
+    _leaderboardSyncRetryTimer = setTimeout(() => {
+        _leaderboardSyncRetryTimer = null;
+        if (!_leaderboardSyncQueued) return;
+        _leaderboardSyncQueued = false;
         syncScoreToLeaderboard();
-    }, 0);
+    }, delayMs);
 }
 
 async function syncScoreToLeaderboard() {
@@ -252,11 +258,13 @@ async function syncScoreToLeaderboard() {
 
     if (_leaderboardSyncInProgress) {
         _leaderboardSyncQueued = true;
+        scheduleQueuedLeaderboardSync(LEADERBOARD_SYNC_WRITE_RETRY_MS);
         return;
     }
 
     if (getFirebaseVisitedWriteState()) {
         _leaderboardSyncQueued = true;
+        scheduleQueuedLeaderboardSync(LEADERBOARD_SYNC_WRITE_RETRY_MS);
         return;
     }
 

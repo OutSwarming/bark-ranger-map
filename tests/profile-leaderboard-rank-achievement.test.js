@@ -222,7 +222,7 @@ test('profile leaderboard sync corrects zero scores instead of treating default 
     );
 });
 
-test('profile leaderboard sync waits for visitedPlaces writes before reading server score', async () => {
+test('profile leaderboard sync retries after visitedPlaces writes settle before reading server score', async () => {
     const harness = loadProfileEngineHarness();
     const callableCalls = [];
     let writeInFlight = true;
@@ -286,7 +286,7 @@ test('profile leaderboard sync waits for visitedPlaces writes before reading ser
     assert.deepEqual(callableCalls, []);
 
     writeInFlight = false;
-    await harness.sandbox.window.BARK.syncScoreToLeaderboard();
+    await new Promise(resolve => setTimeout(resolve, 300));
 
     assert.deepEqual(callableCalls, ['syncLeaderboardScore']);
     assert.equal(harness.sandbox.window._lastSyncedScore, 4);
