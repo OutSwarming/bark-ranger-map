@@ -337,7 +337,8 @@ test('lemon squeezy premium account shows billing portal management', async () =
             status: 'active',
             source: 'lemon_squeezy',
             providerCustomerId: 'cus_test',
-            providerSubscriptionId: 'sub_test'
+            providerSubscriptionId: 'sub_test',
+            currentPeriodEnd: '2027-05-02T12:00:00.000Z'
         }
     });
     harness.auth.currentUser = {
@@ -352,8 +353,8 @@ test('lemon squeezy premium account shows billing portal management', async () =
 
     assert.equal(harness.element('account-billing-panel').hidden, false);
     assert.equal(harness.element('account-billing-title').textContent, 'Paid Premium');
-    assert.match(harness.element('account-billing-copy').textContent, /Lemon Squeezy/);
-    assert.equal(harness.element('account-manage-subscription-btn').textContent, 'Manage subscription');
+    assert.equal(harness.element('account-billing-copy').textContent, 'Auto-renews on May 2, 2027');
+    assert.equal(harness.element('account-manage-subscription-btn').textContent, 'Manage');
     assert.equal(
         harness.element('account-manage-subscription-btn').dataset.billingUrl,
         'https://usbarkrangers.lemonsqueezy.com/billing'

@@ -323,7 +323,7 @@
             date = new Date((Number(value.seconds) * 1000) + Math.floor(Number(value.nanoseconds || 0) / 1000000));
         }
         if (!date || Number.isNaN(date.getTime())) return 'not set';
-        return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     }
 
     function getSafeHttpsUrl(value) {
@@ -387,21 +387,22 @@
 
         if (isLemonSqueezyEntitlement(entitlement)) {
             let statusText = 'Paid Premium';
-            let copy = `Renews ${formatEntitlementDate(entitlement.currentPeriodEnd)} · Auto-renew on`;
+            const renewalDate = formatEntitlementDate(entitlement.currentPeriodEnd);
+            let copy = renewalDate === 'not set' ? 'Auto-renew is active' : `Auto-renews on ${renewalDate}`;
             let buttonText = 'Manage';
             if (entitlement.status === 'past_due') {
                 statusText = 'Payment retry in progress';
                 copy = 'Premium stays active while Lemon Squeezy retries.';
             } else if (entitlement.status === 'cancelled_active') {
                 statusText = 'Premium cancelled';
-                copy = `Access ends ${formatEntitlementDate(entitlement.currentPeriodEnd || entitlement.endsAt)} · Auto-renew off`;
+                copy = `Access ends: ${formatEntitlementDate(entitlement.currentPeriodEnd || entitlement.endsAt)} · Auto-renew: No`;
             } else if (entitlement.status === 'refunded') {
                 statusText = 'Subscription refunded';
                 copy = 'Premium is inactive after a refund. Contact support if this looks wrong.';
                 buttonText = 'Manage subscription';
             } else if (entitlement.status === 'canceled' || entitlement.status === 'expired') {
                 statusText = 'Premium inactive';
-                copy = 'Subscribe again or contact support if this looks wrong.';
+                copy = 'Premium is inactive. Subscribe again or contact support if this looks wrong.';
                 buttonText = 'Manage subscription';
             }
             return {

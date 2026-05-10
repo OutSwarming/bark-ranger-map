@@ -475,12 +475,14 @@ textarea,
     margin: 0;
 }
 
-.account-details-list div {
+.account-details-list div,
+.account-billing-panel {
     min-width: 0;
     padding: 10px;
     border: 1px solid #f1f5f9;
     border-radius: 8px;
     background: #f8fafc;
+    box-shadow: none;
 }
 
 .account-details-list dt {
@@ -504,11 +506,7 @@ textarea,
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
-    margin-top: 12px;
-    padding: 10px 12px;
-    border: 1px solid rgba(15, 118, 110, 0.22);
-    border-radius: 10px;
-    background: linear-gradient(135deg, #f0fdfa, #f8fafc);
+    margin-top: 10px;
 }
 
 .account-billing-panel[hidden] {
@@ -524,9 +522,9 @@ textarea,
 }
 
 .account-billing-title {
-    color: #0f172a;
+    color: #1e293b;
     font-size: 13px;
-    font-weight: 800;
+    font-weight: 900;
     line-height: 1.2;
 }
 
@@ -534,22 +532,32 @@ textarea,
     margin: 2px 0 0;
     color: #64748b;
     font-size: 11.5px;
-    font-weight: 600;
+    font-weight: 700;
     line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .account-billing-btn {
     min-height: 34px;
-    border: 1px solid #0f766e;
+    border: 1px solid #bfdbfe;
     border-radius: 8px;
-    background: #0f766e;
-    color: white;
+    background: #ffffff;
+    color: #1d4ed8;
     cursor: pointer;
     font-size: 11.5px;
-    font-weight: 800;
+    font-weight: 900;
     padding: 7px 12px;
     white-space: nowrap;
     letter-spacing: 0.01em;
+}
+
+.account-billing-btn:hover,
+.account-billing-btn:focus-visible {
+    border-color: #93c5fd;
+    background: #eff6ff;
+    outline: none;
 }
 
 .account-billing-btn[data-mode="support"] {
@@ -628,7 +636,7 @@ textarea,
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
-    margin-top: 14px;
+    margin-top: 10px;
 }
 
 .account-secondary-btn,

@@ -17,7 +17,7 @@
 
     <!-- QRCode JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css?v=46">
+    <link rel="stylesheet" href="styles.css?v=47">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css">
 
@@ -1159,7 +1159,18 @@
                             <dd id="account-display-provider">Loading</dd>
                         </div>
                     </dl>
-                    <p class="account-security-copy">Premium is attached to the account you are signed into.</p>
+                    <div id="account-billing-panel" class="account-billing-panel" hidden>
+                        <div class="account-billing-copy-wrap">
+                            <div id="account-billing-eyebrow" class="account-billing-eyebrow">Premium billing</div>
+                            <div id="account-billing-title" class="account-billing-title">Paid Premium</div>
+                            <p id="account-billing-copy" class="account-billing-copy">
+                                Auto-renews when active.
+                            </p>
+                        </div>
+                        <button type="button" id="account-manage-subscription-btn" class="account-billing-btn">
+                            Manage
+                        </button>
+                    </div>
                     <div id="account-email-verification-panel" class="account-verification-panel" hidden>
                         <div class="account-verification-copy-wrap">
                             <div id="account-email-verification-eyebrow" class="account-verification-eyebrow">Please verify your email</div>
@@ -1176,18 +1187,6 @@
                                 I verified, refresh status
                             </button>
                         </div>
-                    </div>
-                    <div id="account-billing-panel" class="account-billing-panel" hidden>
-                        <div class="account-billing-copy-wrap">
-                            <div id="account-billing-eyebrow" class="account-billing-eyebrow">Premium billing</div>
-                            <div id="account-billing-title" class="account-billing-title">Manage subscription</div>
-                            <p id="account-billing-copy" class="account-billing-copy">
-                                Update payment methods, invoices, and subscription changes in Lemon Squeezy.
-                            </p>
-                        </div>
-                        <button type="button" id="account-manage-subscription-btn" class="account-billing-btn">
-                            Manage subscription
-                        </button>
                     </div>
                     <div class="account-actions">
                         <button type="button" id="account-switch-btn" class="account-secondary-btn">Switch account</button>
@@ -1435,7 +1434,7 @@
     <script src="services/checkinService.js?v=5" defer></script>
     <script src="services/authPremiumUi.js?v=3" defer></script>
     <script src="services/premiumService.js?v=2" defer></script>
-    <script src="services/authAccountUi.js?v=8" defer></script>
+    <script src="services/authAccountUi.js?v=9" defer></script>
     <script src="modules/paywallController.js?v=7" defer></script>
     <script src="services/authService.js?v=26" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>
