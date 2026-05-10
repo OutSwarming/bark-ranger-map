@@ -142,6 +142,7 @@ function loadAuthAccountUi(overrides = {}) {
     const verificationEmails = [];
     const reloadCalls = [];
     const tokenRefreshCalls = [];
+    const portalCalls = [];
     const user = {
         uid: 'uid-123',
         email: '',
@@ -241,7 +242,16 @@ function loadAuthAccountUi(overrides = {}) {
         firebase: {
             apps: [{}],
             auth: () => auth,
-            firestore
+            firestore,
+            functions: overrides.customerPortalUrl ? () => ({
+                httpsCallable(name) {
+                    return async (payload) => {
+                        portalCalls.push({ name, payload });
+                        if (name !== 'getCustomerPortalUrl') throw new Error(`Unexpected callable ${name}`);
+                        return { data: { customerPortalUrl: overrides.customerPortalUrl } };
+                    };
+                }
+            }) : undefined
         },
         console: {
             ...console,
@@ -268,6 +278,7 @@ function loadAuthAccountUi(overrides = {}) {
         verificationEmails,
         reloadCalls,
         tokenRefreshCalls,
+        portalCalls,
         locationAssignCalls,
         writes,
         element: id => document.element(id)
@@ -340,7 +351,7 @@ test('lemon squeezy premium account shows billing portal management', async () =
     harness.window.BARK.authAccountUi.refreshAccountDisplay();
 
     assert.equal(harness.element('account-billing-panel').hidden, false);
-    assert.equal(harness.element('account-billing-title').textContent, 'Manage subscription');
+    assert.equal(harness.element('account-billing-title').textContent, 'Paid Premium');
     assert.match(harness.element('account-billing-copy').textContent, /Lemon Squeezy/);
     assert.equal(harness.element('account-manage-subscription-btn').textContent, 'Manage subscription');
     assert.equal(
@@ -350,6 +361,82 @@ test('lemon squeezy premium account shows billing portal management', async () =
 
     await harness.element('account-manage-subscription-btn').dispatch('click');
     assert.deepEqual(harness.locationAssignCalls, ['https://usbarkrangers.lemonsqueezy.com/billing']);
+});
+
+test('cancelled Lemon subscription shows access end date and no auto-renew', async () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'cancelled_active',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_cancelled',
+            providerSubscriptionId: 'sub_cancelled',
+            currentPeriodEnd: '2027-05-09T12:00:00.000Z',
+            customerPortalUrl: 'https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=stored',
+            autoRenew: false
+        },
+        customerPortalUrl: 'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'cancelled-user',
+        email: 'cancelled@example.com',
+        displayName: 'Cancelled Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+    assert.equal(harness.element('account-billing-panel').hidden, false);
+    assert.equal(harness.element('account-billing-title').textContent, 'Premium cancelled');
+    assert.match(harness.element('account-billing-copy').textContent, /Access ends:/);
+    assert.match(harness.element('account-billing-copy').textContent, /2027/);
+    assert.match(harness.element('account-billing-copy').textContent, /Auto-renew: No/);
+    assert.equal(
+        harness.element('account-manage-subscription-btn').dataset.billingUrl,
+        'https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=stored'
+    );
+
+    await harness.element('account-manage-subscription-btn').dispatch('click');
+
+    assert.equal(harness.portalCalls.length, 1);
+    assert.equal(harness.portalCalls[0].name, 'getCustomerPortalUrl');
+    assert.deepEqual(harness.locationAssignCalls, [
+        'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
+    ]);
+});
+
+test('expired and refunded Lemon subscriptions show inactive billing states', () => {
+    for (const [status, expectedTitle, expectedCopy] of [
+        ['expired', 'Premium inactive', /Premium is inactive/],
+        ['refunded', 'Subscription refunded', /Premium is inactive after a refund/]
+    ]) {
+        const harness = loadAuthAccountUi({
+            premiumActive: false,
+            premiumEntitlement: {
+                premium: false,
+                status,
+                source: 'lemon_squeezy',
+                providerCustomerId: `cus_${status}`,
+                providerSubscriptionId: `sub_${status}`
+            }
+        });
+        harness.auth.currentUser = {
+            ...harness.user,
+            uid: `${status}-user`,
+            email: `${status}@example.com`,
+            displayName: `${status} Ranger`,
+            providerData: [{ providerId: 'google.com' }]
+        };
+
+        harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+        assert.equal(harness.element('account-display-premium').textContent, status === 'expired' ? 'Premium expired' : 'Premium refunded');
+        assert.equal(harness.element('account-billing-panel').hidden, false);
+        assert.equal(harness.element('account-billing-title').textContent, expectedTitle);
+        assert.match(harness.element('account-billing-copy').textContent, expectedCopy);
+    }
 });
 
 test('manual premium account shows support-managed billing instead of fake portal', () => {

@@ -270,6 +270,28 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
   - Note: firebase-tools emitted the existing Java 21 future-requirement warning; current run passed on Java 18.
 - `BARK_E2E_BASE_URL=http://localhost:4173/index.html npx playwright test tests/playwright/promo-access-code-smoke.spec.js tests/playwright/bark-app-identity-smoke.spec.js --reporter=list`
   - Result: PASS, 8/8.
+
+## Lemon Test-Mode Cancellation QA
+
+- Date: 2026-05-09.
+- Lemon Squeezy status: still locked in test mode; checkout payload still uses `attributes.test_mode: true`.
+- Added `plans/LEMONSQUEEZY_TEST_MODE_CANCELLATION_QA.md` with exact test-mode cancellation paths:
+  - dashboard cancellation,
+  - API `DELETE /v1/subscriptions/:id` using the test API key,
+  - test-mode webhook simulation for `subscription_expired`,
+  - refund simulation,
+  - signed customer portal verification.
+- Added `getCustomerPortalUrl` callable:
+  - reads the signed-in user's Lemon subscription entitlement,
+  - rejects access-code/free users because they have no Lemon billing subscription,
+  - retrieves `GET /v1/subscriptions/:id`,
+  - opens the returned signed `urls.customer_portal` URL when available.
+- Account UI now prefers signed customer portal URLs and shows explicit cancelled-active copy:
+  - `Premium cancelled`
+  - `Access ends: [date]`
+  - `Auto-renew: No`
+- Expired/refunded Lemon users show inactive/refunded billing states and lose Premium.
+- Active access-code/free Premium grants remain protected from Lemon cancellation/expiration/refund events.
   - `npm run test:functions:emulator`: first parallel attempt failed from Firestore emulator port collision; serial rerun PASS, 9/9.
   - focused Playwright sweep with free, premium/test, and second-account storage states: PASS, 54/54.
 - Post-merge check on `main`:

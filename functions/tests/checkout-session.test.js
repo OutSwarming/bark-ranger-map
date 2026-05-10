@@ -7,6 +7,7 @@ const {
     __test: {
         buildCheckoutReturnUrl,
         buildLemonSqueezyCheckoutPayload,
+        handleGetCustomerPortalUrl,
         handleCreateCheckoutSession,
         isFunctionFlagEnabled
     }
@@ -33,6 +34,34 @@ const config = {
     annualVariantId: "1604336",
     appBaseUrl: "https://outswarming.github.io/bark-ranger-map/"
 };
+
+function makeUserFirestore(userData = {}) {
+    const state = {
+        reads: 0,
+        requestedCollection: null,
+        requestedDoc: null
+    };
+    return {
+        state,
+        collection(collectionName) {
+            state.requestedCollection = collectionName;
+            return {
+                doc(docId) {
+                    state.requestedDoc = docId;
+                    return {
+                        async get() {
+                            state.reads += 1;
+                            return {
+                                exists: true,
+                                data: () => ({ ...userData })
+                            };
+                        }
+                    };
+                }
+            };
+        }
+    };
+}
 
 describe("Lemon Squeezy checkout session helpers", () => {
     it("builds checkout return URLs from the app base URL", () => {
@@ -366,5 +395,114 @@ describe("Lemon Squeezy checkout session callable", () => {
         );
 
         assert.equal(firestoreTouched, false);
+    });
+});
+
+describe("Lemon Squeezy customer portal callable", () => {
+    it("rejects unauthenticated customer portal requests", async () => {
+        await assertRejectsCode(
+            handleGetCustomerPortalUrl({}, {}, {
+                firestore: makeUserFirestore()
+            }),
+            "unauthenticated"
+        );
+    });
+
+    it("rejects access-code users because they have no Lemon billing subscription", async () => {
+        await assertRejectsCode(
+            handleGetCustomerPortalUrl(
+                {},
+                authedContext("access-code-user"),
+                {
+                    firestore: makeUserFirestore({
+                        entitlement: {
+                            premium: true,
+                            status: "access_code_active",
+                            source: "access_code",
+                            providerSubscriptionId: null
+                        }
+                    })
+                }
+            ),
+            "failed-precondition"
+        );
+    });
+
+    it("retrieves a signed customer_portal URL for Lemon subscription users", async () => {
+        let captured = null;
+        const firestore = makeUserFirestore({
+            entitlement: {
+                premium: true,
+                status: "cancelled_active",
+                source: "lemon_squeezy",
+                providerSubscriptionId: "sub_test_123"
+            }
+        });
+
+        const result = await handleGetCustomerPortalUrl(
+            {},
+            authedContext("paid-user"),
+            {
+                firestore,
+                apiKey: config.apiKey,
+                axiosGet: async (url, requestConfig) => {
+                    captured = { url, requestConfig };
+                    return {
+                        data: {
+                            data: {
+                                attributes: {
+                                    store_id: 363425,
+                                    urls: {
+                                        customer_portal: "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=test"
+                                    }
+                                }
+                            }
+                        }
+                    };
+                }
+            }
+        );
+
+        assert.equal(firestore.state.requestedCollection, "users");
+        assert.equal(firestore.state.requestedDoc, "paid-user");
+        assert.equal(captured.url, "https://api.lemonsqueezy.com/v1/subscriptions/sub_test_123");
+        assert.equal(captured.requestConfig.headers.Authorization, "Bearer test-api-key");
+        assert.equal(
+            result.customerPortalUrl,
+            "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=test"
+        );
+    });
+
+    it("rejects customer portal responses from a different store", async () => {
+        await assertRejectsCode(
+            handleGetCustomerPortalUrl(
+                {},
+                authedContext("wrong-store-user"),
+                {
+                    firestore: makeUserFirestore({
+                        entitlement: {
+                            premium: true,
+                            status: "active",
+                            source: "lemon_squeezy",
+                            providerSubscriptionId: "sub_wrong_store"
+                        }
+                    }),
+                    apiKey: config.apiKey,
+                    axiosGet: async () => ({
+                        data: {
+                            data: {
+                                attributes: {
+                                    store_id: 999,
+                                    urls: {
+                                        customer_portal: "https://example.lemonsqueezy.com/billing?signature=test"
+                                    }
+                                }
+                            }
+                        }
+                    })
+                }
+            ),
+            "permission-denied"
+        );
     });
 });

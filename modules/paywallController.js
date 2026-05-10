@@ -499,7 +499,7 @@
                 activeCopy = 'Premium remains active while Lemon Squeezy retries your payment. Manage billing to keep access uninterrupted.';
             } else if (entitlement.status === 'cancelled_active') {
                 eyebrow = 'Cancels later';
-                activeCopy = 'Premium remains active until the paid period ends.';
+                activeCopy = `Access ends: ${formatAccessDate(entitlement.currentPeriodEnd || entitlement.endsAt)}. Auto-renew: No.`;
             }
 
             return {

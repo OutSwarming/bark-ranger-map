@@ -326,6 +326,16 @@
         return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
     }
 
+    function getSafeHttpsUrl(value) {
+        if (typeof value !== 'string' || !value.trim()) return '';
+        try {
+            const url = new URL(value, window.location.href);
+            return url.protocol === 'https:' ? url.toString() : '';
+        } catch (error) {
+            return '';
+        }
+    }
+
     function getAccessCodeAudienceLabel(value) {
         switch (value) {
             case 'admin_mod': return 'Admin/mod complimentary access';
@@ -376,25 +386,30 @@
         }
 
         if (isLemonSqueezyEntitlement(entitlement)) {
-            let statusText = 'Manage subscription';
+            let statusText = 'Paid Premium';
+            let copy = `Renews: ${formatEntitlementDate(entitlement.currentPeriodEnd)}. Auto-renew: Yes. Manage billing in Lemon Squeezy.`;
             if (entitlement.status === 'past_due') {
                 statusText = 'Payment attention needed';
+                copy = 'Premium remains active while Lemon Squeezy retries payment. Manage billing to keep access uninterrupted.';
             } else if (entitlement.status === 'cancelled_active') {
-                statusText = 'Premium active until period end';
+                statusText = 'Premium cancelled';
+                copy = `Access ends: ${formatEntitlementDate(entitlement.currentPeriodEnd || entitlement.endsAt)}. Auto-renew: No. Manage billing in Lemon Squeezy.`;
             } else if (entitlement.status === 'refunded') {
                 statusText = 'Subscription refunded';
+                copy = 'Premium is inactive after a refund. Contact support if this looks wrong.';
             } else if (entitlement.status === 'canceled' || entitlement.status === 'expired') {
-                statusText = 'Subscription history';
+                statusText = 'Premium inactive';
+                copy = 'Premium is inactive. You can subscribe again or contact support if this looks wrong.';
             }
             return {
                 visible: true,
                 mode: 'portal',
                 eyebrow: 'Premium billing',
                 title: statusText,
-                copy: 'Update payment methods, invoices, and subscription changes in Lemon Squeezy.',
+                copy,
                 buttonText: 'Manage subscription',
                 buttonMode: 'portal',
-                url: LEMON_SQUEEZY_BILLING_PORTAL_URL
+                url: getSafeHttpsUrl(entitlement.customerPortalUrl) || LEMON_SQUEEZY_BILLING_PORTAL_URL
             };
         }
 
@@ -439,19 +454,52 @@
         button.dataset.billingUrl = state.url;
     }
 
-    function openSubscriptionManagement() {
+    function getCustomerPortalCallable() {
+        if (typeof firebase === 'undefined' || typeof firebase.functions !== 'function') return null;
+        return firebase.functions().httpsCallable('getCustomerPortalUrl');
+    }
+
+    function validateSubscriptionDestination(value) {
+        if (typeof value !== 'string' || !value.trim()) return '';
+        try {
+            const url = new URL(value, window.location.href);
+            return (url.protocol === 'https:' || url.protocol === 'mailto:') ? url.toString() : '';
+        } catch (error) {
+            return '';
+        }
+    }
+
+    async function openSubscriptionManagement() {
         const button = getElement('account-manage-subscription-btn');
-        const destination = button && typeof button.dataset.billingUrl === 'string'
+        let destination = button && typeof button.dataset.billingUrl === 'string'
             ? button.dataset.billingUrl
             : '';
         if (!destination) return;
 
+        if (button.dataset.mode === 'portal') {
+            try {
+                const getCustomerPortalUrl = getCustomerPortalCallable();
+                if (getCustomerPortalUrl) {
+                    button.disabled = true;
+                    setStatus('Opening secure billing portal...', 'neutral');
+                    if (typeof window.BARK.incrementRequestCount === 'function') window.BARK.incrementRequestCount();
+                    const result = await getCustomerPortalUrl({});
+                    const signedUrl = result && result.data && result.data.customerPortalUrl;
+                    destination = validateSubscriptionDestination(signedUrl) || destination;
+                }
+            } catch (error) {
+                console.warn('[authAccountUi] signed customer portal lookup failed; falling back to configured billing URL:', error);
+            } finally {
+                button.disabled = false;
+            }
+        }
+
         try {
-            const url = new URL(destination, window.location.href);
-            if (url.protocol !== 'https:' && url.protocol !== 'mailto:') {
+            const safeDestination = validateSubscriptionDestination(destination);
+            if (!safeDestination) {
                 throw new Error('Unsupported billing URL protocol.');
             }
-            window.location.assign(url.toString());
+            window.location.assign(safeDestination);
         } catch (error) {
             console.error('[authAccountUi] manage subscription URL failed:', error);
             setStatus('Subscription management could not open. Please contact support.', 'error');
