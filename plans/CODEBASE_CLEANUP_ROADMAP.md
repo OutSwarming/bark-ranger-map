@@ -1,7 +1,7 @@
 # BARK Ranger Map Codebase Cleanup Roadmap
 
-Date: 2026-05-09  
-Branch audited: `codex/promo-access-code-premium`  
+Date: 2026-05-09
+Branch audited: `codex/promo-access-code-premium`
 Commit audited: `1c6587a41371fb1b95c48392970189d1ac0782cf`
 
 ## Guiding Principle
