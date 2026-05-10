@@ -266,7 +266,7 @@
         const cooldownSeconds = Math.ceil(cooldownRemainingMs / 1000);
         setText('account-email-verification-eyebrow', 'Please verify your email');
         setText('account-email-verification-title', lastVerificationEmailSentAt ? 'Email verification sent' : 'Please verify your email');
-        setText('account-email-verification-copy', 'Please verify your email before using Premium checkout, access codes, or premium routing.');
+        setText('account-email-verification-copy', 'Please verify your email before using Premium checkout, coupons, or premium routing.');
         setButtonTextAndDisabled(
             'account-resend-verification-btn',
             cooldownRemainingMs > 0 ? `Resend in ${cooldownSeconds}s` : 'Resend verification email',
@@ -379,7 +379,7 @@
                     mode: 'access-code-expired',
                     eyebrow: 'Premium inactive',
                     title: 'Free Premium access ended',
-                    copy: 'Enter a new access code or subscribe to continue Premium.',
+                    copy: 'Subscribe through Lemon Squeezy to continue Premium.',
                     hideButton: true
                 };
             }
@@ -736,7 +736,7 @@
             clearPasswordFields();
             clearCreateUsernameField();
             if (!verificationSent) {
-                setStatus('Account created. Please verify your email before using Premium checkout or access codes.', 'success');
+                setStatus('Account created. Please verify your email before using Premium checkout or coupons.', 'success');
             }
             refreshAccountDisplay();
         } catch (error) {
@@ -763,7 +763,7 @@
             const user = await refreshEmailVerificationStatus({ reload: true, silent: true });
             clearPasswordFields();
             if (needsEmailVerification(user)) {
-                setStatus('Please verify your email before using Premium checkout, access codes, or premium routing.', 'neutral');
+                setStatus('Please verify your email before using Premium checkout, coupons, or premium routing.', 'neutral');
             } else {
                 setStatus('Signed in.', 'success');
             }
