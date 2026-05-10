@@ -99,6 +99,12 @@ function loadAuthAccountUi(overrides = {}) {
         'account-display-uid',
         'account-display-provider',
         'account-display-premium',
+        'account-email-verification-panel',
+        'account-email-verification-eyebrow',
+        'account-email-verification-title',
+        'account-email-verification-copy',
+        'account-resend-verification-btn',
+        'account-refresh-verification-btn',
         'account-billing-panel',
         'account-billing-eyebrow',
         'account-billing-title',
@@ -131,15 +137,35 @@ function loadAuthAccountUi(overrides = {}) {
     const document = createDocument(ids);
     const writes = [];
     const createCalls = [];
+    const signInCalls = [];
     const updateProfileCalls = [];
+    const verificationEmails = [];
+    const reloadCalls = [];
+    const tokenRefreshCalls = [];
+    const portalCalls = [];
     const user = {
         uid: 'uid-123',
         email: '',
         displayName: '',
-        providerData: [{ providerId: 'password' }],
+        emailVerified: overrides.emailVerified === true,
+        providerData: overrides.providerData || [{ providerId: 'password' }],
         async updateProfile(profile) {
             updateProfileCalls.push({ ...profile });
             Object.assign(user, profile);
+        },
+        async sendEmailVerification() {
+            verificationEmails.push({ uid: user.uid, email: user.email });
+            if (overrides.sendVerificationError) throw overrides.sendVerificationError;
+        },
+        async reload() {
+            reloadCalls.push({ uid: user.uid });
+            if (Object.prototype.hasOwnProperty.call(overrides, 'reloadEmailVerified')) {
+                user.emailVerified = overrides.reloadEmailVerified === true;
+            }
+        },
+        async getIdToken(forceRefresh) {
+            tokenRefreshCalls.push({ uid: user.uid, forceRefresh });
+            return 'test-id-token';
         }
     };
     const auth = {
@@ -151,7 +177,12 @@ function loadAuthAccountUi(overrides = {}) {
             auth.currentUser = user;
             return { user };
         },
-        async signInWithEmailAndPassword() {},
+        async signInWithEmailAndPassword(email, password) {
+            signInCalls.push({ email, password });
+            user.email = email;
+            auth.currentUser = user;
+            return { user };
+        },
         async sendPasswordResetEmail() {},
         async signOut() {
             auth.currentUser = null;
@@ -211,7 +242,16 @@ function loadAuthAccountUi(overrides = {}) {
         firebase: {
             apps: [{}],
             auth: () => auth,
-            firestore
+            firestore,
+            functions: overrides.customerPortalUrl ? () => ({
+                httpsCallable(name) {
+                    return async (payload) => {
+                        portalCalls.push({ name, payload });
+                        if (name !== 'getCustomerPortalUrl') throw new Error(`Unexpected callable ${name}`);
+                        return { data: { customerPortalUrl: overrides.customerPortalUrl } };
+                    };
+                }
+            }) : undefined
         },
         console: {
             ...console,
@@ -233,7 +273,12 @@ function loadAuthAccountUi(overrides = {}) {
         auth,
         user,
         createCalls,
+        signInCalls,
         updateProfileCalls,
+        verificationEmails,
+        reloadCalls,
+        tokenRefreshCalls,
+        portalCalls,
         locationAssignCalls,
         writes,
         element: id => document.element(id)
@@ -256,7 +301,7 @@ test('email account creation requires and saves a username', async () => {
     assert.equal(harness.element('user-profile-name').textContent, 'Trail Boss');
     assert.equal(harness.element('account-auth-message').dataset.tone, 'success');
 
-    assert.equal(harness.writes.length, 1);
+    assert.ok(harness.writes.length >= 1);
     assert.equal(harness.writes[0].collectionName, 'users');
     assert.equal(harness.writes[0].docId, 'uid-123');
     assert.equal(harness.writes[0].options.merge, true);
@@ -306,7 +351,7 @@ test('lemon squeezy premium account shows billing portal management', async () =
     harness.window.BARK.authAccountUi.refreshAccountDisplay();
 
     assert.equal(harness.element('account-billing-panel').hidden, false);
-    assert.equal(harness.element('account-billing-title').textContent, 'Manage subscription');
+    assert.equal(harness.element('account-billing-title').textContent, 'Paid Premium');
     assert.match(harness.element('account-billing-copy').textContent, /Lemon Squeezy/);
     assert.equal(harness.element('account-manage-subscription-btn').textContent, 'Manage subscription');
     assert.equal(
@@ -316,6 +361,82 @@ test('lemon squeezy premium account shows billing portal management', async () =
 
     await harness.element('account-manage-subscription-btn').dispatch('click');
     assert.deepEqual(harness.locationAssignCalls, ['https://usbarkrangers.lemonsqueezy.com/billing']);
+});
+
+test('cancelled Lemon subscription shows access end date and no auto-renew', async () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'cancelled_active',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_cancelled',
+            providerSubscriptionId: 'sub_cancelled',
+            currentPeriodEnd: '2027-05-09T12:00:00.000Z',
+            customerPortalUrl: 'https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=stored',
+            autoRenew: false
+        },
+        customerPortalUrl: 'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'cancelled-user',
+        email: 'cancelled@example.com',
+        displayName: 'Cancelled Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+    assert.equal(harness.element('account-billing-panel').hidden, false);
+    assert.equal(harness.element('account-billing-title').textContent, 'Premium cancelled');
+    assert.match(harness.element('account-billing-copy').textContent, /Access ends:/);
+    assert.match(harness.element('account-billing-copy').textContent, /2027/);
+    assert.match(harness.element('account-billing-copy').textContent, /Auto-renew: No/);
+    assert.equal(
+        harness.element('account-manage-subscription-btn').dataset.billingUrl,
+        'https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=stored'
+    );
+
+    await harness.element('account-manage-subscription-btn').dispatch('click');
+
+    assert.equal(harness.portalCalls.length, 1);
+    assert.equal(harness.portalCalls[0].name, 'getCustomerPortalUrl');
+    assert.deepEqual(harness.locationAssignCalls, [
+        'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
+    ]);
+});
+
+test('expired and refunded Lemon subscriptions show inactive billing states', () => {
+    for (const [status, expectedTitle, expectedCopy] of [
+        ['expired', 'Premium inactive', /Premium is inactive/],
+        ['refunded', 'Subscription refunded', /Premium is inactive after a refund/]
+    ]) {
+        const harness = loadAuthAccountUi({
+            premiumActive: false,
+            premiumEntitlement: {
+                premium: false,
+                status,
+                source: 'lemon_squeezy',
+                providerCustomerId: `cus_${status}`,
+                providerSubscriptionId: `sub_${status}`
+            }
+        });
+        harness.auth.currentUser = {
+            ...harness.user,
+            uid: `${status}-user`,
+            email: `${status}@example.com`,
+            displayName: `${status} Ranger`,
+            providerData: [{ providerId: 'google.com' }]
+        };
+
+        harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+        assert.equal(harness.element('account-display-premium').textContent, status === 'expired' ? 'Premium expired' : 'Premium refunded');
+        assert.equal(harness.element('account-billing-panel').hidden, false);
+        assert.equal(harness.element('account-billing-title').textContent, expectedTitle);
+        assert.match(harness.element('account-billing-copy').textContent, expectedCopy);
+    }
 });
 
 test('manual premium account shows support-managed billing instead of fake portal', () => {
@@ -343,4 +464,106 @@ test('manual premium account shows support-managed billing instead of fake porta
     assert.match(harness.element('account-billing-copy').textContent, /no Lemon Squeezy subscription/);
     assert.equal(harness.element('account-manage-subscription-btn').textContent, 'Contact support');
     assert.equal(harness.element('account-manage-subscription-btn').dataset.mode, 'support');
+});
+
+test('access-code premium account hides manage billing and shows no auto-renew/payment method', () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'access_code_active',
+            source: 'access_code',
+            accessCodeAudience: 'admin_mod',
+            expiresAt: '2027-05-09T12:00:00.000Z',
+            autoRenew: false,
+            paymentMethodAttached: false
+        }
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'access-code-user',
+        email: 'access@example.com',
+        displayName: 'Access Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+    assert.equal(harness.element('account-display-premium').textContent, 'Free Premium Access');
+    assert.equal(harness.element('account-billing-panel').hidden, false);
+    assert.equal(harness.element('account-billing-title').textContent, 'Admin/mod complimentary access');
+    assert.match(harness.element('account-billing-copy').textContent, /Auto-renew: No/);
+    assert.match(harness.element('account-billing-copy').textContent, /Payment method: None/);
+    assert.equal(harness.element('account-manage-subscription-btn').hidden, true);
+});
+
+test('new email/password account sends verification email and shows verification sent status', async () => {
+    const harness = loadAuthAccountUi();
+
+    harness.element('account-create-username').value = 'Trail Boss';
+    harness.element('account-create-email').value = 'verify@example.com';
+    harness.element('account-create-password').value = 'password123';
+
+    await harness.element('account-create-form').dispatch('submit');
+
+    assert.deepEqual(harness.verificationEmails, [{ uid: 'uid-123', email: 'verify@example.com' }]);
+    assert.equal(harness.element('account-email-verification-panel').hidden, false);
+    assert.equal(harness.element('account-email-verification-title').textContent, 'Email verification sent');
+    assert.match(harness.element('account-auth-message').textContent, /Email verification sent/);
+});
+
+test('unverified email/password user sees verification banner', () => {
+    const harness = loadAuthAccountUi();
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'unverified-user',
+        email: 'unverified@example.com',
+        emailVerified: false,
+        providerData: [{ providerId: 'password' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+    assert.equal(harness.element('account-email-verification-panel').hidden, false);
+    assert.equal(harness.element('account-email-verification-eyebrow').textContent, 'Please verify your email');
+    assert.match(harness.element('account-email-verification-copy').textContent, /Premium checkout/);
+});
+
+test('resend verification button sends once and respects cooldown', async () => {
+    const harness = loadAuthAccountUi();
+    Object.assign(harness.user, {
+        uid: 'cooldown-user',
+        email: 'cooldown@example.com',
+        emailVerified: false,
+        providerData: [{ providerId: 'password' }]
+    });
+    harness.auth.currentUser = harness.user;
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+    await harness.element('account-resend-verification-btn').dispatch('click');
+    await harness.element('account-resend-verification-btn').dispatch('click');
+
+    assert.deepEqual(harness.verificationEmails, [{ uid: 'cooldown-user', email: 'cooldown@example.com' }]);
+    assert.equal(harness.element('account-resend-verification-btn').disabled, true);
+    assert.match(harness.element('account-resend-verification-btn').textContent, /Resend in/);
+});
+
+test('verified user hides warning after refresh status reload', async () => {
+    const harness = loadAuthAccountUi({ reloadEmailVerified: true });
+    Object.assign(harness.user, {
+        uid: 'verified-refresh-user',
+        email: 'verified@example.com',
+        emailVerified: false,
+        providerData: [{ providerId: 'password' }]
+    });
+    harness.auth.currentUser = harness.user;
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    assert.equal(harness.element('account-email-verification-panel').hidden, false);
+
+    await harness.element('account-refresh-verification-btn').dispatch('click');
+
+    assert.equal(harness.element('account-email-verification-panel').hidden, true);
+    assert.equal(harness.reloadCalls.length, 1);
+    assert.deepEqual(harness.tokenRefreshCalls, [{ uid: 'verified-refresh-user', forceRefresh: true }]);
+    assert.match(harness.element('account-auth-message').textContent, /Email verified/);
 });

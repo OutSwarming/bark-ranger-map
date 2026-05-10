@@ -549,7 +549,10 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
             attributes: {
                 status: "cancelled",
                 ends_at: "2099-02-01T00:00:00.000Z",
-                renews_at: null
+                renews_at: null,
+                urls: {
+                    customer_portal: "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=test"
+                }
             }
         });
         const { res, firestore } = await invoke({ req: signedReq(payload) });
@@ -559,6 +562,10 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
         assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
         assert.equal(firestore.state.writes[0].data.entitlement.status, "cancelled_active");
         assert.equal(firestore.state.writes[0].data.entitlement.currentPeriodEnd, "2099-02-01T00:00:00.000Z");
+        assert.equal(
+            firestore.state.writes[0].data.entitlement.customerPortalUrl,
+            "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=test"
+        );
         assert.equal(firestore.state.writes[0].data.entitlement.lastProviderEventRank, 300);
     });
 
@@ -1167,5 +1174,139 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
         assert.equal(res.statusCode, 200);
         assert.equal(res.body.reason, "manual_override");
         assert.equal(firestore.state.writes.length, 0);
+    });
+
+    it("does not downgrade active access_code premium with Lemon expired events", async () => {
+        const payload = makePayload({
+            eventName: "subscription_expired",
+            uid: "access-code-expired-event-user",
+            eventId: "evt_access_code_expired_event",
+            attributes: { status: "expired" }
+        });
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: true,
+                    status: "access_code_active",
+                    source: "access_code",
+                    accessCodeType: "premium_free_year",
+                    accessCodeAudience: "support",
+                    expiresAt: "2099-01-01T00:00:00.000Z",
+                    autoRenew: false,
+                    paymentMethodAttached: false
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.reason, "active_access_code_preserved");
+        assert.equal(firestore.state.writes.length, 0);
+        assert.equal(firestore.state.eventWrites[0].data.reason, "active_access_code_preserved");
+    });
+
+    it("does not downgrade active access_code premium with Lemon cancellation events", async () => {
+        const payload = makePayload({
+            eventName: "subscription_cancelled",
+            uid: "access-code-cancel-event-user",
+            eventId: "evt_access_code_cancel_event",
+            attributes: {
+                status: "cancelled",
+                ends_at: "2025-01-01T00:00:00.000Z"
+            }
+        });
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: true,
+                    status: "access_code_active",
+                    source: "access_code",
+                    accessCodeType: "premium_free_year",
+                    accessCodeAudience: "support",
+                    expiresAt: "2099-01-01T00:00:00.000Z",
+                    autoRenew: false,
+                    paymentMethodAttached: false
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.reason, "active_access_code_preserved");
+        assert.equal(firestore.state.writes.length, 0);
+        assert.equal(firestore.state.eventWrites[0].data.reason, "active_access_code_preserved");
+    });
+
+    it("keeps access_code fallback when active Lemon subscription starts", async () => {
+        const payload = makePayload({
+            eventName: "subscription_created",
+            uid: "access-code-paid-user",
+            eventId: "evt_access_code_paid_active",
+            attributes: { status: "active", subscription_id: "sub_paid_access_code" }
+        });
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: true,
+                    status: "access_code_active",
+                    source: "access_code",
+                    accessCodeType: "premium_free_year",
+                    accessCodeAudience: "vip",
+                    reason: "VIP access",
+                    expiresAt: "2099-01-01T00:00:00.000Z",
+                    autoRenew: false,
+                    paymentMethodAttached: false
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        const entitlement = firestore.state.writes[0].data.entitlement;
+        assert.equal(entitlement.source, "lemon_squeezy");
+        assert.equal(entitlement.status, "active");
+        assert.equal(entitlement.accessCodeFallback.source, "access_code");
+        assert.equal(entitlement.accessCodeFallback.accessCodeAudience, "vip");
+    });
+
+    it("restores active access_code fallback when Lemon subscription later expires", async () => {
+        const payload = makePayload({
+            eventName: "subscription_expired",
+            uid: "access-code-fallback-user",
+            eventId: "evt_access_code_fallback_expired",
+            attributes: { status: "expired", subscription_id: "sub_access_code_fallback" }
+        });
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: true,
+                    status: "active",
+                    source: "lemon_squeezy",
+                    providerSubscriptionId: "sub_access_code_fallback",
+                    accessCodeFallback: {
+                        premium: true,
+                        status: "access_code_active",
+                        source: "access_code",
+                        accessCodeType: "premium_free_year",
+                        accessCodeAudience: "tester",
+                        reason: "Tester access",
+                        expiresAt: "2099-01-01T00:00:00.000Z",
+                        autoRenew: false,
+                        paymentMethodAttached: false,
+                        manualOverride: true
+                    }
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        const entitlement = firestore.state.writes[0].data.entitlement;
+        assert.equal(entitlement.source, "access_code");
+        assert.equal(entitlement.status, "access_code_active");
+        assert.equal(entitlement.premium, true);
+        assert.equal(entitlement.restoredFromAccessCodeFallback, true);
     });
 });

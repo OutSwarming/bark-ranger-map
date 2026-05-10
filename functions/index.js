@@ -150,6 +150,38 @@ function requireAuthCallable(context) {
     return uid;
 }
 
+function getCallableAuthToken(context) {
+    return context && context.auth && context.auth.token && typeof context.auth.token === "object"
+        ? context.auth.token
+        : {};
+}
+
+function getSignInProviderFromToken(token = {}) {
+    const firebaseClaims = token.firebase && typeof token.firebase === "object" ? token.firebase : {};
+    return typeof firebaseClaims.sign_in_provider === "string" ? firebaseClaims.sign_in_provider : "";
+}
+
+function isCallableEmailVerified(context) {
+    const token = getCallableAuthToken(context);
+    const provider = getSignInProviderFromToken(token);
+    if (token.email_verified === true || token.email_verified === "true") return true;
+    if (provider === "google.com") return true;
+    if (provider === "password") return false;
+    if (token.email && token.email_verified === false) return false;
+    return true;
+}
+
+function requireVerifiedEmailCallable(context) {
+    const uid = requireAuthCallable(context);
+    if (!isCallableEmailVerified(context)) {
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Please verify your email before continuing."
+        );
+    }
+    return uid;
+}
+
 function parsePositiveInteger(value, fallback) {
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -226,7 +258,47 @@ async function enforcePremiumCallableRateLimit(uid, action, options = {}) {
 
 const PREMIUM_ENTITLEMENT_STATUSES = new Set(["active", "manual_active", "past_due", "cancelled_active"]);
 
-function normalizeEntitlement(raw) {
+function coerceTimestampMillis(value) {
+    if (value === undefined || value === null || value === "") return null;
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+        const millis = Date.parse(value);
+        return Number.isFinite(millis) ? millis : null;
+    }
+    if (value instanceof Date) return value.getTime();
+    if (value && typeof value.toMillis === "function") {
+        const millis = Number(value.toMillis());
+        return Number.isFinite(millis) ? millis : null;
+    }
+    if (value && Number.isFinite(Number(value.seconds))) {
+        return (Number(value.seconds) * 1000) + Math.floor(Number(value.nanoseconds || 0) / 1000000);
+    }
+    return null;
+}
+
+function getNowMs(options = {}) {
+    return Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+}
+
+function timestampFromMillis(millis, options = {}) {
+    if (typeof options.timestampFromMillis === "function") return options.timestampFromMillis(millis);
+    return Timestamp.fromMillis(millis);
+}
+
+function normalizePromoCode(value) {
+    const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
+    return SAFE_PROMO_CODE_PATTERN.test(normalized) ? normalized : null;
+}
+
+function hashAccessCode(normalizedCode) {
+    return createHash("sha256").update(`${ACCESS_CODE_HASH_PREFIX}${normalizedCode}`).digest("hex");
+}
+
+function buildAccessCodeRedemptionId(uid, codeHash) {
+    return createHash("sha256").update(`${uid}:${codeHash}`).digest("hex");
+}
+
+function normalizeEntitlement(raw, options = {}) {
     const value = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
     const status = typeof value.status === "string" && value.status.trim()
         ? value.status.trim()
@@ -234,23 +306,33 @@ function normalizeEntitlement(raw) {
     const source = typeof value.source === "string" && value.source.trim()
         ? value.source.trim()
         : "none";
-    const premium = value.premium === true && PREMIUM_ENTITLEMENT_STATUSES.has(status);
+    const expiresAtMs = coerceTimestampMillis(value.expiresAt);
+    const accessCodeActive = source === "access_code" &&
+        status === "access_code_active" &&
+        expiresAtMs !== null &&
+        expiresAtMs > getNowMs(options);
+    const premium = value.premium === true && (
+        PREMIUM_ENTITLEMENT_STATUSES.has(status) ||
+        accessCodeActive
+    );
 
     return {
         premium,
         status,
         source,
         manualOverride: value.manualOverride === true,
-        currentPeriodEnd: value.currentPeriodEnd === undefined ? null : value.currentPeriodEnd
+        currentPeriodEnd: value.currentPeriodEnd === undefined ? null : value.currentPeriodEnd,
+        expiresAt: value.expiresAt === undefined ? null : value.expiresAt,
+        expiresAtMs
     };
 }
 
-function isEffectivePremium(raw) {
-    return normalizeEntitlement(raw).premium === true;
+function isEffectivePremium(raw, options = {}) {
+    return normalizeEntitlement(raw, options).premium === true;
 }
 
 async function requirePremiumCallable(context, action, options = {}) {
-    const uid = requireAuthCallable(context);
+    const uid = requireVerifiedEmailCallable(context);
     const db = options.firestore || admin.firestore();
 
     let userDoc;
@@ -265,7 +347,7 @@ async function requirePremiumCallable(context, action, options = {}) {
     }
 
     const userData = userDoc && userDoc.exists && typeof userDoc.data === "function" ? userDoc.data() : {};
-    const entitlement = normalizeEntitlement(userData && userData.entitlement);
+    const entitlement = normalizeEntitlement(userData && userData.entitlement, options);
     if (!entitlement.premium) {
         console.warn(`[premium] Premium callable denied for ${action || "premium callable"}.`, {
             uid,
@@ -730,6 +812,7 @@ async function snapRouteCoordinates(coordinates, apiKey, options = {}) {
 
 const LEMONSQUEEZY_API_ORIGIN = "https://api.lemonsqueezy.com";
 const LEMONSQUEEZY_CHECKOUTS_URL = `${LEMONSQUEEZY_API_ORIGIN}/v1/checkouts`;
+const LEMONSQUEEZY_SUBSCRIPTIONS_URL = `${LEMONSQUEEZY_API_ORIGIN}/v1/subscriptions`;
 const DEFAULT_LEMONSQUEEZY_STORE_ID = "363425";
 const DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID = "1604336";
 const DEFAULT_APP_BASE_URL = "https://outswarming.github.io/bark-ranger-map/";
@@ -754,6 +837,14 @@ const LEMONSQUEEZY_EVENT_STATUS_RANK = Object.freeze({
     expired: 500,
     refunded: 600
 });
+const ACCESS_CODES_COLLECTION = "accessCodes";
+const ACCESS_CODE_REDEMPTIONS_COLLECTION = "accessCodeRedemptions";
+const SAFE_PROMO_CODE_PATTERN = /^[A-Z0-9][A-Z0-9_-]{1,63}$/;
+const ACCESS_CODE_TYPES = new Set(["premium_free_year", "premium_free_days", "lemon_coupon_passthrough"]);
+const ACCESS_CODE_AUDIENCES = new Set(["admin_mod", "vip", "support", "tester", "general"]);
+const ACCESS_CODE_HASH_PREFIX = "bark-ranger-access-code-v1:";
+const ACCESS_CODE_DEFAULT_DURATION_DAYS = 365;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function cleanOptionalString(value) {
     return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -763,6 +854,21 @@ function cleanOptionalId(value) {
     if (value === undefined || value === null) return null;
     const text = String(value).trim();
     return text || null;
+}
+
+function isSafeProviderId(value) {
+    return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
+function normalizeHttpsUrl(value) {
+    const text = cleanOptionalString(value);
+    if (!text) return null;
+    try {
+        const url = new URL(text);
+        return url.protocol === "https:" ? url.toString() : null;
+    } catch (error) {
+        return null;
+    }
 }
 
 function getLemonSqueezyConfig(options = {}) {
@@ -788,11 +894,12 @@ function buildCheckoutReturnUrl(appBaseUrl, state) {
     return url.toString();
 }
 
-function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config }) {
+function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config, discountCode = null }) {
     const successUrl = buildCheckoutReturnUrl(config.appBaseUrl, "success");
     const cancelUrl = buildCheckoutReturnUrl(config.appBaseUrl, "canceled");
     const email = cleanOptionalString(token.email);
     const name = cleanOptionalString(token.name) || cleanOptionalString(token.displayName);
+    const safeDiscountCode = discountCode ? normalizePromoCode(discountCode) : null;
     const checkoutData = {
         custom: {
             firebase_uid: uid,
@@ -804,6 +911,7 @@ function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config }) {
 
     if (email) checkoutData.email = email;
     if (name) checkoutData.name = name;
+    if (safeDiscountCode) checkoutData.discount_code = safeDiscountCode;
 
     return {
         data: {
@@ -850,12 +958,37 @@ function extractLemonSqueezyCheckoutUrl(response) {
     return checkoutUrl;
 }
 
+function getLemonSqueezyCustomerPortalUrlFromAttributes(attributes = {}) {
+    const urls = attributes && attributes.urls && typeof attributes.urls === "object" && !Array.isArray(attributes.urls)
+        ? attributes.urls
+        : {};
+    return normalizeHttpsUrl(urls.customer_portal);
+}
+
+function extractLemonSqueezyCustomerPortalUrl(response) {
+    const attributes = response &&
+        response.data &&
+        response.data.data &&
+        response.data.data.attributes;
+    const customerPortalUrl = getLemonSqueezyCustomerPortalUrlFromAttributes(attributes || {});
+    if (!customerPortalUrl) {
+        throw new functions.https.HttpsError("internal", "Customer portal URL was missing from the subscription response.");
+    }
+    return customerPortalUrl;
+}
+
 async function handleCreateCheckoutSession(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("createCheckoutSession", options);
-    const uid = requireAuthCallable(context);
+    const uid = requireVerifiedEmailCallable(context);
+    const data = getCallablePayload(requestOrData);
+    const rawDiscountCode = data && data.discountCode;
+    const discountCode = rawDiscountCode ? normalizePromoCode(rawDiscountCode) : null;
+    if (rawDiscountCode && !discountCode) {
+        throw new functions.https.HttpsError("invalid-argument", "Promo code format is not supported.");
+    }
     const config = getLemonSqueezyConfig(options);
     const token = context && context.auth && context.auth.token ? context.auth.token : {};
-    const payload = buildLemonSqueezyCheckoutPayload({ uid, token, config });
+    const payload = buildLemonSqueezyCheckoutPayload({ uid, token, config, discountCode });
     const post = options.axiosPost || axios.post;
 
     try {
@@ -879,6 +1012,238 @@ async function handleCreateCheckoutSession(requestOrData, context, options = {})
         });
         throw new functions.https.HttpsError("internal", "Unable to create checkout session.");
     }
+}
+
+async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) {
+    const uid = requireAuthCallable(context);
+    const db = options.firestore || admin.firestore();
+
+    let userDoc;
+    try {
+        userDoc = await db.collection("users").doc(uid).get();
+    } catch (error) {
+        console.error("[payments] Customer portal entitlement lookup failed.", {
+            uid,
+            message: error && error.message ? error.message : String(error)
+        });
+        throw new functions.https.HttpsError("internal", "Subscription management could not open.");
+    }
+
+    const userData = userDoc && userDoc.exists && typeof userDoc.data === "function" ? userDoc.data() : {};
+    const entitlement = userData && userData.entitlement && typeof userData.entitlement === "object"
+        ? userData.entitlement
+        : {};
+    const source = cleanOptionalString(entitlement.source);
+    const providerSubscriptionId = cleanOptionalId(entitlement.providerSubscriptionId) ||
+        cleanOptionalId(entitlement.lemonSqueezySubscriptionId);
+
+    if (source !== "lemon_squeezy" || !providerSubscriptionId) {
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            "No Lemon Squeezy subscription is available for this account."
+        );
+    }
+
+    if (!isSafeProviderId(providerSubscriptionId)) {
+        throw new functions.https.HttpsError("failed-precondition", "Subscription management is unavailable for this account.");
+    }
+
+    const config = getLemonSqueezyConfig(options);
+    const get = options.axiosGet || axios.get;
+    try {
+        const response = await get(`${LEMONSQUEEZY_SUBSCRIPTIONS_URL}/${encodeURIComponent(providerSubscriptionId)}`, {
+            headers: {
+                "Accept": "application/vnd.api+json",
+                "Content-Type": "application/vnd.api+json",
+                "Authorization": `Bearer ${config.apiKey}`
+            }
+        });
+
+        const attributes = response &&
+            response.data &&
+            response.data.data &&
+            response.data.data.attributes;
+        if (attributes && attributes.store_id !== undefined && String(attributes.store_id) !== DEFAULT_LEMONSQUEEZY_STORE_ID) {
+            throw new functions.https.HttpsError("permission-denied", "Subscription store mismatch.");
+        }
+
+        return {
+            customerPortalUrl: extractLemonSqueezyCustomerPortalUrl(response)
+        };
+    } catch (error) {
+        if (error instanceof functions.https.HttpsError) throw error;
+        console.error("[payments] Customer portal URL lookup failed.", {
+            uid,
+            providerSubscriptionId,
+            status: error && error.response ? error.response.status : null,
+            message: error && error.message ? error.message : String(error)
+        });
+        throw new functions.https.HttpsError("internal", "Subscription management could not open.");
+    }
+}
+
+function accessCodeError(message = "That code was not recognized or has expired.") {
+    return new functions.https.HttpsError("failed-precondition", message);
+}
+
+function normalizeAccessCodeType(value) {
+    const type = cleanOptionalString(value);
+    return ACCESS_CODE_TYPES.has(type) ? type : null;
+}
+
+function normalizeAccessCodeAudience(value) {
+    const audience = cleanOptionalString(value);
+    return ACCESS_CODE_AUDIENCES.has(audience) ? audience : "general";
+}
+
+function normalizeAccessCodeReason(value) {
+    const reason = cleanOptionalString(value);
+    return reason ? reason.slice(0, 160) : "Premium access code";
+}
+
+function normalizeDurationDays(type, value) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0 && parsed <= 3660) {
+        return Math.floor(parsed);
+    }
+    return ACCESS_CODE_DEFAULT_DURATION_DAYS;
+}
+
+function isAccessCodeDocumentUsable(codeData, nowMs) {
+    if (!codeData || typeof codeData !== "object") return false;
+    if (codeData.active !== true) return false;
+    if (!normalizeAccessCodeType(codeData.type)) return false;
+    const expiresAtMs = coerceTimestampMillis(codeData.expiresAt);
+    return expiresAtMs === null || expiresAtMs > nowMs;
+}
+
+function assertAccessCodeCanRedeem(codeData, nowMs) {
+    if (!isAccessCodeDocumentUsable(codeData, nowMs)) throw accessCodeError();
+    return normalizeAccessCodeType(codeData.type);
+}
+
+function getAccessCodeMaxRedemptions(codeData) {
+    if (codeData.maxRedemptions === null || codeData.maxRedemptions === undefined) return null;
+    const parsed = Number(codeData.maxRedemptions);
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
+}
+
+function buildAccessCodeEntitlement({ codeData, grantExpiresAt, nowMs, options = {} }) {
+    const type = normalizeAccessCodeType(codeData.type);
+    const audience = normalizeAccessCodeAudience(codeData.audience);
+    return {
+        premium: true,
+        status: "access_code_active",
+        source: "access_code",
+        accessCodeType: type,
+        accessCodeAudience: audience,
+        reason: normalizeAccessCodeReason(codeData.reason),
+        grantedAt: timestampFromMillis(nowMs, options),
+        expiresAt: grantExpiresAt,
+        autoRenew: false,
+        paymentMethodAttached: false,
+        providerCustomerId: null,
+        providerSubscriptionId: null,
+        lemonSqueezySubscriptionId: null,
+        manualOverride: true,
+        updatedAt: getServerTimestamp(options)
+    };
+}
+
+async function handleRedeemAccessOrPromoCode(requestOrData, context, options = {}) {
+    const uid = requireVerifiedEmailCallable(context);
+    const payload = getCallablePayload(requestOrData);
+    const code = normalizePromoCode(payload && payload.code);
+    if (!code) throw accessCodeError();
+
+    const codeHash = hashAccessCode(code);
+    const db = options.firestore || admin.firestore();
+    const nowMs = getNowMs(options);
+    const codeRef = db.collection(ACCESS_CODES_COLLECTION).doc(codeHash);
+    const codeSnapshot = await codeRef.get();
+
+    if (!codeSnapshot || !codeSnapshot.exists) {
+        throw accessCodeError();
+    }
+
+    const initialCodeData = codeSnapshot.data() || {};
+    const initialType = assertAccessCodeCanRedeem(initialCodeData, nowMs);
+
+    if (initialType === "lemon_coupon_passthrough") {
+        const checkout = await handleCreateCheckoutSession({ discountCode: code }, context, options);
+        return {
+            status: "lemon_coupon_checkout",
+            checkoutUrl: checkout.checkoutUrl,
+            discountCodeApplied: code
+        };
+    }
+
+    let response = null;
+    await db.runTransaction(async (transaction) => {
+        const freshCodeSnapshot = await transaction.get(codeRef);
+        if (!freshCodeSnapshot || !freshCodeSnapshot.exists) throw accessCodeError();
+        const codeData = freshCodeSnapshot.data() || {};
+        const type = assertAccessCodeCanRedeem(codeData, nowMs);
+        if (type !== "premium_free_year" && type !== "premium_free_days") throw accessCodeError();
+
+        const maxRedemptions = getAccessCodeMaxRedemptions(codeData);
+        const redemptionCount = Math.max(0, Number(codeData.redemptionCount || 0));
+        if (maxRedemptions !== null && redemptionCount >= maxRedemptions) {
+            throw accessCodeError("That code has already reached its redemption limit.");
+        }
+
+        const redemptionRef = db.collection(ACCESS_CODE_REDEMPTIONS_COLLECTION)
+            .doc(buildAccessCodeRedemptionId(uid, codeHash));
+        if (codeData.oneUsePerUser !== false) {
+            const redemptionSnapshot = await transaction.get(redemptionRef);
+            if (redemptionSnapshot && redemptionSnapshot.exists) {
+                throw accessCodeError("That code has already been used for this account.");
+            }
+        }
+
+        const durationDays = normalizeDurationDays(type, codeData.durationDays);
+        const grantExpiresAtMs = nowMs + (durationDays * DAY_MS);
+        const grantExpiresAt = timestampFromMillis(grantExpiresAtMs, options);
+        const audience = normalizeAccessCodeAudience(codeData.audience);
+        const reason = normalizeAccessCodeReason(codeData.reason);
+        const redeemedAt = getServerTimestamp(options);
+        const entitlement = buildAccessCodeEntitlement({
+            codeData: { ...codeData, type, audience, reason },
+            grantExpiresAt,
+            nowMs,
+            options
+        });
+
+        transaction.set(codeRef, {
+            redemptionCount: redemptionCount + 1,
+            lastRedeemedAt: redeemedAt,
+            updatedAt: redeemedAt
+        }, { merge: true });
+        transaction.set(redemptionRef, {
+            codeHash,
+            uid,
+            redeemedAt,
+            grantExpiresAt,
+            type,
+            audience,
+            reason
+        }, { merge: false });
+        transaction.set(db.collection("users").doc(uid), { entitlement }, { merge: true });
+
+        response = {
+            status: "access_code_granted",
+            premium: true,
+            source: "access_code",
+            accessCodeType: type,
+            accessCodeAudience: audience,
+            reason,
+            grantExpiresAt: new Date(grantExpiresAtMs).toISOString(),
+            autoRenew: false,
+            paymentMethodAttached: false
+        };
+    });
+
+    return response;
 }
 
 function getRequestHeaderValue(req, name) {
@@ -1035,6 +1400,45 @@ function isStaleLemonSqueezyEvent(existingEntitlement, mapping) {
     return incomingRank < existingRank;
 }
 
+function isActiveAccessCodeEntitlement(entitlement, options = {}) {
+    const normalized = normalizeEntitlement(entitlement, options);
+    return normalized.premium === true &&
+        normalized.source === "access_code" &&
+        normalized.status === "access_code_active";
+}
+
+function buildAccessCodeFallback(entitlement) {
+    if (!entitlement || typeof entitlement !== "object") return null;
+    if (entitlement.source !== "access_code" || entitlement.status !== "access_code_active") return null;
+    return {
+        premium: true,
+        status: "access_code_active",
+        source: "access_code",
+        accessCodeType: cleanOptionalString(entitlement.accessCodeType) || "premium_free_year",
+        accessCodeAudience: normalizeAccessCodeAudience(entitlement.accessCodeAudience),
+        reason: normalizeAccessCodeReason(entitlement.reason),
+        grantedAt: entitlement.grantedAt || null,
+        expiresAt: entitlement.expiresAt || null,
+        autoRenew: false,
+        paymentMethodAttached: false,
+        providerCustomerId: null,
+        providerSubscriptionId: null,
+        lemonSqueezySubscriptionId: null,
+        manualOverride: true
+    };
+}
+
+function getActiveAccessCodeFallback(existingEntitlement, options = {}) {
+    if (existingEntitlement && existingEntitlement.accessCodeFallback &&
+        isActiveAccessCodeEntitlement(existingEntitlement.accessCodeFallback, options)) {
+        return buildAccessCodeFallback(existingEntitlement.accessCodeFallback);
+    }
+    if (isActiveAccessCodeEntitlement(existingEntitlement, options)) {
+        return buildAccessCodeFallback(existingEntitlement);
+    }
+    return null;
+}
+
 function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
     if (!LEMONSQUEEZY_SUPPORTED_EVENTS.has(eventName)) {
         return { action: "ignore", reason: "unsupported_event" };
@@ -1059,6 +1463,7 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
     const currentPeriodEnd = getCurrentPeriodEnd(attributes);
     const providerEventAtMs = getLemonSqueezyProviderEventMillis(payload, options);
     const providerEventAt = new Date(providerEventAtMs).toISOString();
+    const customerPortalUrl = getLemonSqueezyCustomerPortalUrlFromAttributes(attributes);
     let entitlement = null;
 
     if (eventName === "subscription_payment_success" || eventName === "subscription_payment_recovered") {
@@ -1089,24 +1494,27 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
         return { action: "ignore", reason: "unsupported_status" };
     }
 
+    const mappedEntitlement = {
+        ...entitlement,
+        source: "lemon_squeezy",
+        providerStatus,
+        providerCustomerId: attributes.customer_id === undefined ? null : String(attributes.customer_id),
+        providerSubscriptionId: payload && payload.data && payload.data.type === "subscriptions"
+            ? String(payload.data.id)
+            : attributes.subscription_id === undefined ? null : String(attributes.subscription_id),
+        providerOrderId: payload && payload.data && payload.data.type === "orders"
+            ? String(payload.data.id)
+            : attributes.order_id === undefined ? null : String(attributes.order_id),
+        currentPeriodEnd
+    };
+    if (customerPortalUrl) mappedEntitlement.customerPortalUrl = customerPortalUrl;
+
     return {
         action: "write",
         providerEventAt,
         providerEventAtMs,
         providerEventRank: getLemonSqueezyEventRank(entitlement.status),
-        entitlement: {
-            ...entitlement,
-            source: "lemon_squeezy",
-            providerStatus,
-            providerCustomerId: attributes.customer_id === undefined ? null : String(attributes.customer_id),
-            providerSubscriptionId: payload && payload.data && payload.data.type === "subscriptions"
-                ? String(payload.data.id)
-                : attributes.subscription_id === undefined ? null : String(attributes.subscription_id),
-            providerOrderId: payload && payload.data && payload.data.type === "orders"
-                ? String(payload.data.id)
-                : attributes.order_id === undefined ? null : String(attributes.order_id),
-            currentPeriodEnd
-        }
+        entitlement: mappedEntitlement
     };
 }
 
@@ -1163,6 +1571,19 @@ async function processLemonSqueezyWebhookEntitlement({ uid, eventName, eventId, 
             return { ignored: true, reason: "manual_override" };
         }
 
+        const activeAccessCodeFallback = getActiveAccessCodeFallback(existingEntitlement, options);
+        if (activeAccessCodeFallback &&
+            existingEntitlement.source === "access_code" &&
+            mapping.entitlement.premium !== true) {
+            transaction.set(eventRef, {
+                ...eventBase,
+                processingStatus: "ignored",
+                reason: "active_access_code_preserved",
+                entitlementStatusBefore: existingEntitlement.status || null
+            }, { merge: false });
+            return { ignored: true, reason: "active_access_code_preserved" };
+        }
+
         if (isStaleLemonSqueezyEvent(existingEntitlement, mapping)) {
             transaction.set(eventRef, {
                 ...eventBase,
@@ -1175,7 +1596,7 @@ async function processLemonSqueezyWebhookEntitlement({ uid, eventName, eventId, 
             return { ignored: true, reason: "stale_event" };
         }
 
-        const entitlement = {
+        let entitlement = {
             ...mapping.entitlement,
             updatedAt: getServerTimestamp(options),
             lastProviderEventId: eventId,
@@ -1184,6 +1605,21 @@ async function processLemonSqueezyWebhookEntitlement({ uid, eventName, eventId, 
             lastProviderEventAtMs: mapping.providerEventAtMs,
             lastProviderEventRank: mapping.providerEventRank
         };
+
+        if (activeAccessCodeFallback && mapping.entitlement.premium === true) {
+            entitlement.accessCodeFallback = activeAccessCodeFallback;
+        } else if (activeAccessCodeFallback && mapping.entitlement.premium !== true) {
+            entitlement = {
+                ...activeAccessCodeFallback,
+                updatedAt: getServerTimestamp(options),
+                restoredFromAccessCodeFallback: true,
+                lastProviderEventId: eventId,
+                lastProviderEventName: eventName,
+                lastProviderEventAt: mapping.providerEventAt,
+                lastProviderEventAtMs: mapping.providerEventAtMs,
+                lastProviderEventRank: mapping.providerEventRank
+            };
+        }
 
         transaction.set(userRef, { entitlement }, { merge: true });
         transaction.set(eventRef, {
@@ -1288,7 +1724,7 @@ async function handleLemonSqueezyWebhook(req, res, options = {}) {
 
 async function handlePremiumRoute(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("getPremiumRoute", options);
-    const uid = requireAuthCallable(context);
+    const uid = requireVerifiedEmailCallable(context);
     await enforcePremiumCallableRateLimit(uid, "getPremiumRoute", options);
     await requirePremiumCallable(context, "getPremiumRoute", options);
 
@@ -1339,7 +1775,7 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
 
 async function handlePremiumGeocode(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("getPremiumGeocode", options);
-    const uid = requireAuthCallable(context);
+    const uid = requireVerifiedEmailCallable(context);
     await enforcePremiumCallableRateLimit(uid, "getPremiumGeocode", options);
     await requirePremiumCallable(context, "getPremiumGeocode", options);
 
@@ -1395,6 +1831,18 @@ exports.createCheckoutSession = functions
         return handleCreateCheckoutSession(requestOrData, context);
     });
 
+exports.redeemAccessOrPromoCode = functions
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY"] })
+    .https.onCall(async (requestOrData, context) => {
+        return handleRedeemAccessOrPromoCode(requestOrData, context);
+    });
+
+exports.getCustomerPortalUrl = functions
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY"] })
+    .https.onCall(async (requestOrData, context) => {
+        return handleGetCustomerPortalUrl(requestOrData, context);
+    });
+
 exports.lemonSqueezyWebhook = functions
     .runWith({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET"] })
     .https.onRequest(async (req, res) => {
@@ -1411,6 +1859,8 @@ if (process.env.NODE_ENV === "test") {
         isEffectivePremium,
         isFunctionFlagEnabled,
         requireFunctionFlagEnabled,
+        isCallableEmailVerified,
+        requireVerifiedEmailCallable,
         getPremiumCallableRateLimit,
         enforcePremiumCallableRateLimit,
         requirePremiumCallable,
@@ -1421,9 +1871,17 @@ if (process.env.NODE_ENV === "test") {
         extractSnappedRouteCoordinates,
         getLemonSqueezyConfig,
         buildCheckoutReturnUrl,
+        normalizePromoCode,
+        hashAccessCode,
+        buildAccessCodeRedemptionId,
         buildLemonSqueezyCheckoutPayload,
         extractLemonSqueezyCheckoutUrl,
+        extractLemonSqueezyCustomerPortalUrl,
         handleCreateCheckoutSession,
+        handleGetCustomerPortalUrl,
+        handleRedeemAccessOrPromoCode,
+        isActiveAccessCodeEntitlement,
+        getActiveAccessCodeFallback,
         verifyLemonSqueezyWebhookSignature,
         deriveLemonSqueezyEventId,
         buildLemonSqueezyEventDocId,

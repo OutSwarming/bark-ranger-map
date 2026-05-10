@@ -556,6 +556,72 @@ textarea,
     color: #334155;
 }
 
+.account-verification-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    margin-top: 14px;
+    padding: 14px;
+    border: 1px solid rgba(217, 119, 6, 0.24);
+    border-radius: 10px;
+    background: linear-gradient(135deg, #fffbeb, #f8fafc);
+}
+
+.account-verification-panel[hidden] {
+    display: none;
+}
+
+.account-verification-eyebrow {
+    color: #b45309;
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.account-verification-title {
+    margin-top: 2px;
+    color: #1e293b;
+    font-size: 15px;
+    font-weight: 900;
+}
+
+.account-verification-copy {
+    margin: 4px 0 0;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.account-verification-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.account-verification-btn {
+    min-height: 42px;
+    border: 1px solid #fbbf24;
+    border-radius: 8px;
+    background: #b45309;
+    color: white;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+    padding: 10px 12px;
+}
+
+.account-verification-btn.secondary {
+    border-color: #cbd5e1;
+    background: #ffffff;
+    color: #334155;
+}
+
+.account-verification-btn:disabled {
+    opacity: 0.68;
+    cursor: default;
+}
+
 .account-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -2181,6 +2247,75 @@ body.app-tab-active #slide-panel {
     color: #475569;
     font-size: 14px;
     line-height: 1.5;
+}
+
+.paywall-code-box {
+    margin: 0 0 16px;
+    padding: 12px;
+    border: 1px solid #dbeafe;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.paywall-code-box label {
+    display: block;
+    margin-bottom: 8px;
+    color: #1e293b;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.paywall-code-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+}
+
+.paywall-code-row input {
+    min-width: 0;
+    min-height: 42px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 0 11px;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.paywall-code-row button {
+    min-height: 42px;
+    border: 0;
+    border-radius: 8px;
+    background: #1d4ed8;
+    color: white;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+    padding: 0 12px;
+    white-space: nowrap;
+}
+
+.paywall-code-row button:disabled {
+    opacity: 0.68;
+    cursor: default;
+}
+
+.paywall-code-message {
+    min-height: 18px;
+    margin: 8px 0 0;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.paywall-code-message[data-tone="success"] {
+    color: #047857;
+}
+
+.paywall-code-message[data-tone="error"] {
+    color: #b91c1c;
 }
 
 .paywall-feature-list {

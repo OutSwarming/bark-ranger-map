@@ -10,6 +10,7 @@ const {
     connectAuthEmulator,
     createUserWithEmailAndPassword,
     getAuth,
+    signInWithEmailAndPassword,
     signOut
 } = require("firebase/auth");
 const {
@@ -96,12 +97,19 @@ async function callRoute(data) {
     return callable("getPremiumRoute")(data);
 }
 
-async function createSignedInUser(label) {
+async function createSignedInUser(label, options = {}) {
+    const emailVerified = options.emailVerified !== false;
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const email = `${label}-${suffix}@example.test`;
     const credential = await createUserWithEmailAndPassword(auth, email, PASSWORD);
     createdUids.push(credential.user.uid);
-    return credential.user;
+    if (!emailVerified) return credential.user;
+
+    await admin.auth(adminApp).updateUser(credential.user.uid, { emailVerified: true });
+    await signOut(auth);
+    const verifiedCredential = await signInWithEmailAndPassword(auth, email, PASSWORD);
+    await verifiedCredential.user.getIdToken(true);
+    return verifiedCredential.user;
 }
 
 async function seedEntitlement(uid, entitlement) {
@@ -216,6 +224,18 @@ describe("ORS callable emulator entitlement enforcement", { concurrency: false }
         await assertRejectsCode(
             callGeocode({ text: "Seattle" }),
             "unauthenticated"
+        );
+
+        assert.deepEqual(readOrsCalls(), []);
+    });
+
+    it("rejects unverified email/password users before entitlement or ORS work", async () => {
+        const user = await createSignedInUser("unverified-geocode", { emailVerified: false });
+        await seedEntitlement(user.uid, premiumEntitlement);
+
+        await assertRejectsCode(
+            callGeocode({ text: "Seattle" }),
+            "failed-precondition"
         );
 
         assert.deepEqual(readOrsCalls(), []);

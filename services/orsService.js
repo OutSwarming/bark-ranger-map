@@ -18,6 +18,31 @@
         return firebase.functions().httpsCallable(name);
     }
 
+    function getCurrentUser() {
+        try {
+            return typeof firebase !== 'undefined' && firebase.auth
+                ? firebase.auth().currentUser
+                : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function isPasswordAuthUser(user) {
+        const providerIds = (user && Array.isArray(user.providerData) ? user.providerData : [])
+            .map(provider => provider && provider.providerId)
+            .filter(Boolean);
+        return providerIds.includes('password');
+    }
+
+    function assertVerifiedEmailForPremiumCallable() {
+        const user = getCurrentUser();
+        if (!user || !user.email || !isPasswordAuthUser(user) || user.emailVerified === true) return;
+        const error = new Error('Please verify your email before using Premium routing or global town search.');
+        error.code = 'email-unverified';
+        throw error;
+    }
+
     function isFlagEnabled(flagName) {
         return !window.BARK ||
             typeof window.BARK.isLaunchFlagEnabled !== 'function' ||
@@ -40,6 +65,7 @@
         if (!isFlagEnabled('premiumGeocodeEnabled')) {
             throw makeDisabledError('premiumGeocodeEnabled', 'Global town search is paused for beta safety.');
         }
+        assertVerifiedEmailForPremiumCallable();
 
         try {
             const callable = getCallable('getPremiumGeocode');
@@ -68,6 +94,7 @@
         if (!isFlagEnabled('premiumRiskyToolsEnabled')) {
             throw makeDisabledError('premiumRiskyToolsEnabled', 'Premium tools are paused for beta safety.');
         }
+        assertVerifiedEmailForPremiumCallable();
 
         try {
             const callable = getCallable('getPremiumRoute');

@@ -125,6 +125,11 @@ describe('Firestore entitlement and admin field rules', () => {
                 { id: 'yosemite', name: 'Yosemite', ts: 1710000000000 }
             ]
         }));
+
+        await assertSucceeds(updateDoc(aliceRef, {
+            emailVerified: false,
+            emailVerificationUpdatedAt: 1710000000002
+        }));
     });
 
     it('allows allowed user writes while preserving server-written entitlement', async () => {
@@ -225,6 +230,42 @@ describe('Firestore entitlement and admin field rules', () => {
                 visitedPlaces: makeVisitedPlaces(6)
             }));
         }
+
+        await seedDoc(['users', 'premium-access-code'], {
+            entitlement: {
+                premium: true,
+                status: 'access_code_active',
+                source: 'access_code',
+                manualOverride: true,
+                expiresAt: new Date('2099-01-01T00:00:00.000Z')
+            },
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(5)
+        });
+
+        const accessCodeDb = authedDb('premium-access-code');
+        await assertSucceeds(updateDoc(doc(accessCodeDb, 'users', 'premium-access-code'), {
+            visitedPlaces: makeVisitedPlaces(6)
+        }));
+    });
+
+    it('denies expired access_code users from writing above the free visit limit', async () => {
+        await seedDoc(['users', 'expired-access-code'], {
+            entitlement: {
+                premium: true,
+                status: 'access_code_active',
+                source: 'access_code',
+                manualOverride: true,
+                expiresAt: new Date('2020-01-01T00:00:00.000Z')
+            },
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(5)
+        });
+
+        const expiredDb = authedDb('expired-access-code');
+        await assertFails(updateDoc(doc(expiredDb, 'users', 'expired-access-code'), {
+            visitedPlaces: makeVisitedPlaces(6)
+        }));
     });
 
     it('locks expired over-limit users from adding visits while allowing removals', async () => {
@@ -602,6 +643,43 @@ describe('Firestore entitlement and admin field rules', () => {
         await assertFails(setDoc(doc(aliceDb, '_lemonSqueezyWebhookEvents', 'receipt-2'), {
             provider: 'lemon_squeezy',
             processingStatus: 'processed'
+        }));
+    });
+
+    it('denies client access to access code and redemption collections', async () => {
+        await seedDoc(['accessCodes', 'hash-1'], {
+            codeHash: 'hash-1',
+            active: true,
+            type: 'premium_free_year',
+            redemptionCount: 0
+        });
+        await seedDoc(['accessCodeRedemptions', 'redemption-1'], {
+            codeHash: 'hash-1',
+            uid: 'alice'
+        });
+
+        const aliceDb = authedDb('alice');
+        const publicDb = unauthDb();
+
+        await assertFails(getDoc(doc(aliceDb, 'accessCodes', 'hash-1')));
+        await assertFails(setDoc(doc(aliceDb, 'accessCodes', 'hash-2'), {
+            codeHash: 'hash-2',
+            active: true,
+            type: 'premium_free_year'
+        }));
+        await assertFails(updateDoc(doc(aliceDb, 'accessCodes', 'hash-1'), {
+            redemptionCount: 0
+        }));
+        await assertFails(deleteDoc(doc(aliceDb, 'accessCodes', 'hash-1')));
+
+        await assertFails(getDoc(doc(aliceDb, 'accessCodeRedemptions', 'redemption-1')));
+        await assertFails(setDoc(doc(aliceDb, 'accessCodeRedemptions', 'redemption-2'), {
+            codeHash: 'hash-1',
+            uid: 'alice'
+        }));
+        await assertFails(setDoc(doc(publicDb, 'accessCodeRedemptions', 'redemption-3'), {
+            codeHash: 'hash-1',
+            uid: 'public'
         }));
     });
 
