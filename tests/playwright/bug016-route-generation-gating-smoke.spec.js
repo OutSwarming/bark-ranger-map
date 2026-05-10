@@ -276,6 +276,8 @@ test.describe('BUG-016 route generation premium product rule', () => {
                 if (!button) throw new Error('Missing #start-route-btn');
                 button.click();
             });
+            await expect(page.locator('#route-generation-choice-modal')).toBeVisible({ timeout: 5000 });
+            await page.locator('#route-skip-generate-btn').click();
             await page.waitForFunction(() => (
                 Array.isArray(window.__barkBug016DirectionsCalls) &&
                 window.__barkBug016DirectionsCalls.length === 1

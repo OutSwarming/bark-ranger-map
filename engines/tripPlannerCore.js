@@ -712,7 +712,7 @@ window.executeSmartOptimization = function () {
     const userMaxStops = parseInt(window.BARK.DOM.optMaxStops().value) || 5;
     const userMaxHours = parseFloat(window.BARK.DOM.optMaxHours().value) || 4;
     const totalStops = tripDays.reduce((sum, d) => sum + d.stops.length, 0);
-    if (totalStops < 2) { alert('Add at least two stops before optimizing!'); return; }
+    if (totalStops < 2) { alert('Add at least two stops before optimizing!'); return false; }
 
     let allUniqueStops = [];
     tripDays.forEach(day => {
@@ -764,9 +764,11 @@ window.executeSmartOptimization = function () {
 
     window.BARK.tripDays = newTripDays;
     window.BARK.activeDayIdx = 0;
-    window.BARK.DOM.optimizerModal().style.display = 'none';
+    const optimizerModal = window.BARK.DOM.optimizerModal();
+    if (optimizerModal) optimizerModal.style.display = 'none';
     updateTripUI();
     showTripToast(hitTripDayLimit ? 'Smart Optimization Complete. Trip capped at 50 days.' : '✨ Smart Optimization Complete!');
+    return true;
 };
 
 window.exportDayToMaps = function (dayIdx) {
@@ -1162,10 +1164,31 @@ function updateTripUI() {
     // Notes
     const notesContainer = window.BARK.DOM.dayNotesContainer();
     if (notesContainer) {
-        notesContainer.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;"><label style="font-size:11px; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; margin:0;">📋 Day ${activeDayIdx + 1} Notes</label><button onclick="exportDayToMaps(${activeDayIdx})" style="background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; font-size:10px; font-weight:800; padding:4px 8px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:4px; transition:all 0.2s;" onmouseover="this.style.background='#dbeafe'" onmouseout="this.style.background='#eff6ff'">🗺️ Drive Day ${activeDayIdx + 1}</button></div><textarea id="day-notes-textarea" placeholder="Hiking trails, confirmation #s, lunch spots..." style="width:100%; height:60px; padding:10px; border-radius:8px; border:none; background:#f8fafc; font-size:13px; outline:none; resize:none; font-family:inherit; color:#334155; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);" onfocus="this.style.boxShadow='inset 0 0 0 2px ${activeDay.color}'" onblur="this.style.boxShadow='inset 0 2px 4px rgba(0,0,0,0.02)'">${activeDay.notes || ""}</textarea><div style="text-align:right; font-size:10px; color:#cbd5e1; margin-top:4px;"><span id="char-count">${(activeDay.notes || "").length}</span> / 1000</div>`;
+        notesContainer.innerHTML = `
+            <div class="planner-day-notes-header">
+                <label class="planner-day-notes-label">📋 Day ${activeDayIdx + 1} Notes</label>
+            </div>
+            <textarea id="day-notes-textarea" class="planner-day-notes-textarea" placeholder="Hiking trails, confirmation #s, lunch spots...">${activeDay.notes || ""}</textarea>
+            <div class="planner-day-notes-count"><span id="char-count">${(activeDay.notes || "").length}</span> / 1000</div>
+            <div class="planner-day-action-row" style="--active-day-color: ${activeDay.color};">
+                <button id="drive-day-btn" type="button" class="planner-action-btn planner-action-day-primary">
+                    <span class="planner-action-icon">🗺️</span>
+                    <span>Drive Day ${activeDayIdx + 1}</span>
+                </button>
+                <button id="auto-sort-day-btn" type="button" class="planner-action-btn planner-action-day-secondary">
+                    <span class="planner-action-icon">🪄</span>
+                    <span>Sort Day</span>
+                </button>
+            </div>`;
         const textarea = window.BARK.DOM.dayNotesTextarea();
         const charCount = window.BARK.DOM.charCount();
+        const driveDayBtn = document.getElementById('drive-day-btn');
+        const sortDayBtn = document.getElementById('auto-sort-day-btn');
+        textarea.onfocus = () => { textarea.style.boxShadow = `inset 0 0 0 2px ${activeDay.color}`; };
+        textarea.onblur = () => { textarea.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.02)'; };
         textarea.oninput = (e) => { let val = e.target.value; if (val.length > 1000) { val = val.substring(0, 1000); e.target.value = val; } activeDay.notes = val; charCount.textContent = val.length; };
+        if (driveDayBtn) driveDayBtn.onclick = () => window.exportDayToMaps(activeDayIdx);
+        if (sortDayBtn) sortDayBtn.onclick = () => window.autoSortDay();
     }
 
     // Wire up buttons
@@ -1197,6 +1220,56 @@ function initTripPlanner() {
     const optimizeTripBtn = window.BARK.DOM.optimizeTripBtn();
     let currentRouteLayers = [];
     let routeRenderGeneration = 0;
+    let routeChoiceBusy = false;
+
+    const routeChoiceModal = document.getElementById('route-generation-choice-modal');
+    const routeChoiceOptimizeBtn = document.getElementById('route-optimize-generate-btn');
+    const routeChoiceSkipBtn = document.getElementById('route-skip-generate-btn');
+    const routeChoiceCancelBtn = document.getElementById('route-generation-choice-cancel-btn');
+    const routeChoiceCloseBtn = document.getElementById('route-generation-choice-close-btn');
+
+    function closeRouteGenerationChoiceModal() {
+        if (!routeChoiceModal) return;
+        routeChoiceModal.style.display = 'none';
+    }
+
+    function preflightRouteGenerationChoice() {
+        if (!isRouteGenerationEnabled()) {
+            alert(getRouteDisabledMessage());
+            updateRouteGenerationButtonState();
+            return false;
+        }
+        if (!isPremiumRoutingUnlocked()) {
+            openRoutePremiumPaywall();
+            updateRouteGenerationButtonState();
+            return false;
+        }
+        return getTotalStops() > 0;
+    }
+
+    function openRouteGenerationChoiceModal() {
+        if (!routeChoiceModal || !routeChoiceOptimizeBtn || !routeChoiceSkipBtn) {
+            generateAndRenderTripRoute();
+            return;
+        }
+        routeChoiceModal.style.display = 'flex';
+        if (typeof routeChoiceOptimizeBtn.focus === 'function') routeChoiceOptimizeBtn.focus();
+    }
+
+    async function handleRouteGenerationChoice(shouldOptimize) {
+        if (routeChoiceBusy) return;
+        routeChoiceBusy = true;
+        closeRouteGenerationChoiceModal();
+        try {
+            if (shouldOptimize && typeof window.executeSmartOptimization === 'function') {
+                const optimized = window.executeSmartOptimization();
+                if (optimized === false) return;
+            }
+            await generateAndRenderTripRoute();
+        } finally {
+            routeChoiceBusy = false;
+        }
+    }
 
     function resetTripPlannerRuntime(options = {}) {
         const resetName = options.resetName !== false;
@@ -1259,20 +1332,24 @@ function initTripPlanner() {
         };
     }
 
+    if (routeChoiceOptimizeBtn) {
+        routeChoiceOptimizeBtn.onclick = () => { handleRouteGenerationChoice(true); };
+    }
+    if (routeChoiceSkipBtn) {
+        routeChoiceSkipBtn.onclick = () => { handleRouteGenerationChoice(false); };
+    }
+    if (routeChoiceCancelBtn) routeChoiceCancelBtn.onclick = closeRouteGenerationChoiceModal;
+    if (routeChoiceCloseBtn) routeChoiceCloseBtn.onclick = closeRouteGenerationChoiceModal;
+    if (routeChoiceModal) {
+        routeChoiceModal.onclick = (event) => {
+            if (event && event.target === routeChoiceModal) closeRouteGenerationChoiceModal();
+        };
+    }
+
     if (startRouteBtn) {
         startRouteBtn.onclick = () => {
-            if (!isRouteGenerationEnabled()) {
-                alert(getRouteDisabledMessage());
-                updateRouteGenerationButtonState();
-                return;
-            }
-            if (!isPremiumRoutingUnlocked()) {
-                openRoutePremiumPaywall();
-                updateRouteGenerationButtonState();
-                return;
-            }
-            if (getTotalStops() === 0) return;
-            generateAndRenderTripRoute();
+            if (!preflightRouteGenerationChoice()) return;
+            openRouteGenerationChoiceModal();
         };
     }
 

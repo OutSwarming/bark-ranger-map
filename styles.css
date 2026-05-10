@@ -1222,24 +1222,105 @@ body.app-tab-active #slide-panel {
     color: white;
 }
 
-.planner-actions {
+.planner-day-card,
+.planner-global-section {
+    padding: 20px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    border-radius: 16px;
+    background: white;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+}
+
+.planner-day-card {
+    margin-bottom: 16px;
+}
+
+.planner-global-section {
+    margin-bottom: 80px;
+}
+
+.planner-day-notes-details {
+    margin: 0;
+}
+
+.planner-day-notes-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #64748b;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0;
+    list-style: none;
+    outline: none;
+    text-transform: uppercase;
+}
+
+.planner-day-notes-summary::-webkit-details-marker {
+    display: none;
+}
+
+.planner-day-notes-chevron {
+    color: #94a3b8;
+    font-size: 14px;
+}
+
+.planner-day-notes-container {
+    margin-top: 12px;
+}
+
+.planner-day-notes-header {
+    margin-bottom: 6px;
+}
+
+.planner-day-notes-label {
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0;
+    margin: 0;
+    text-transform: uppercase;
+}
+
+.planner-day-notes-textarea {
+    width: 100%;
+    height: 68px;
+    box-sizing: border-box;
+    padding: 10px;
+    border: 0;
+    border-radius: 8px;
+    background: #f8fafc;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
+    color: #334155;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    resize: none;
+}
+
+.planner-day-notes-count {
+    margin-top: 4px;
+    color: #cbd5e1;
+    font-size: 10px;
+    text-align: right;
+}
+
+.planner-day-action-row,
+.planner-global-file-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.planner-day-action-row {
+    margin-top: 12px;
+}
+
+.planner-global-actions {
     display: flex;
     flex-direction: column;
     gap: 10px;
-}
-
-.planner-actions-grid {
-    display: grid;
-    gap: 10px;
-}
-
-.planner-actions-grid-secondary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.planner-actions-grid-main {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    align-items: stretch;
 }
 
 .planner-action-btn {
@@ -1309,13 +1390,21 @@ body.app-tab-active #slide-panel {
     padding-bottom: 9px;
 }
 
-.planner-action-purple {
-    background: #fdf4ff;
-    border-color: #f0abfc;
-    color: #a21caf;
+.planner-action-day-primary {
+    background: var(--active-day-color, #2563eb);
+    border-color: var(--active-day-color, #2563eb);
+    color: white;
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.18);
 }
 
-.planner-action-violet {
+.planner-action-day-secondary {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    color: #475569;
+}
+
+.planner-action-global-optimize {
+    width: 100%;
     background: #faf5ff;
     border-color: #ddd6fe;
     color: #7e22ce;
@@ -1327,17 +1416,19 @@ body.app-tab-active #slide-panel {
     color: #475569;
 }
 
-.planner-action-save {
-    background: #ecfdf5;
-    border-color: #a7f3d0;
-    color: #047857;
-}
-
 .planner-action-primary {
     background: #43a947;
     border-color: #43a947;
     color: white;
     box-shadow: 0 6px 16px rgba(67, 169, 71, 0.22);
+}
+
+.planner-action-route-cta {
+    width: 100%;
+    min-height: 58px;
+    margin-top: 4px;
+    border-radius: 10px;
+    font-size: 15px;
 }
 
 .planner-action-primary.planner-action-route-generating {
@@ -1385,9 +1476,144 @@ body.app-tab-active #slide-panel {
 }
 
 .planner-action-clear {
-    background: #fff7f7;
-    border-color: #fecaca;
-    color: #dc2626;
+    align-self: center;
+    min-height: 30px;
+    padding: 4px 12px;
+    border: 0;
+    background: transparent;
+    color: #b91c1c;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.2;
+    text-align: center;
+}
+
+.planner-action-clear:hover,
+.planner-action-clear:active {
+    color: #991b1b;
+    text-decoration: underline;
+}
+
+.planner-saved-routes-container {
+    display: none;
+    margin-top: 8px;
+    padding-top: 15px;
+    border-top: 1px solid #f1f5f9;
+}
+
+.planner-saved-routes-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.planner-saved-routes-title {
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.route-generation-choice-modal {
+    padding: 18px;
+}
+
+.route-generation-choice-card {
+    position: relative;
+    width: 100%;
+    max-width: 420px;
+    padding: 24px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 18px;
+    background: #ffffff;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+    color: #0f172a;
+}
+
+.route-generation-choice-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #64748b;
+    cursor: pointer;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.route-generation-choice-eyebrow {
+    margin-bottom: 8px;
+    color: #7e22ce;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.route-generation-choice-card h3 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 0;
+    line-height: 1.15;
+}
+
+.route-generation-choice-card p {
+    margin: 10px 0 18px;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.5;
+}
+
+.route-generation-choice-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.route-generation-choice-primary,
+.route-generation-choice-secondary {
+    width: 100%;
+    min-height: 48px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.route-generation-choice-primary {
+    border: 1px solid #111827;
+    background: linear-gradient(135deg, #111827, #312e81);
+    color: #ffffff;
+    box-shadow: 0 10px 22px rgba(49, 46, 129, 0.25);
+}
+
+.route-generation-choice-secondary {
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #334155;
+}
+
+.route-generation-choice-cancel {
+    align-self: center;
+    min-height: 30px;
+    padding: 3px 12px;
+    border: 0;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 800;
 }
 
 .trip-day-tabs {
@@ -1664,14 +1890,6 @@ body.app-tab-active #slide-panel {
 }
 
 @media (max-width: 430px) {
-    .planner-actions-grid-main {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .planner-action-primary {
-        grid-column: span 2;
-    }
-
     .trip-day-page {
         gap: 7px;
     }

@@ -152,6 +152,11 @@ function loadTripPlanner(options = {}) {
     wrapper.appendChild(byId('day-management-bar'));
     wrapper.appendChild(byId('trip-queue-list'));
     wrapper.appendChild(byId('ui-end-node'));
+    byId('route-generation-choice-modal').style.display = 'none';
+    byId('route-optimize-generate-btn');
+    byId('route-skip-generate-btn');
+    byId('route-generation-choice-cancel-btn');
+    byId('route-generation-choice-close-btn');
     const mapNav = createElement('button');
     const timers = [];
     const timerMode = options.timerMode || 'immediate';
@@ -299,6 +304,13 @@ function makeDays(count) {
     }));
 }
 
+async function openRouteChoiceAndSkip(harness) {
+    harness.element('start-route-btn').onclick();
+    assert.equal(harness.element('route-generation-choice-modal').style.display, 'flex');
+    harness.element('route-skip-generate-btn').onclick();
+    await Promise.resolve();
+}
+
 test('trip day selector pages days after the first nine', () => {
     const harness = loadTripPlanner();
     harness.window.BARK.tripDays = makeDays(15);
@@ -379,8 +391,7 @@ test('route generation shows progress on the route button before completion', as
     harness.window.BARK.initTripPlanner();
     harness.window.BARK.updateTripUI();
 
-    harness.element('start-route-btn').onclick();
-    await Promise.resolve();
+    await openRouteChoiceAndSkip(harness);
 
     assert.equal(harness.element('route-telemetry').style.display, 'none');
     assert.equal(harness.element('start-route-btn').dataset.routeStatus, 'working');
@@ -399,6 +410,37 @@ test('route generation shows progress on the route button before completion', as
     assert.equal(harness.element('start-route-btn').dataset.routeStatus, 'complete');
     assert.match(harness.getTextContent(harness.element('start-route-btn')), /Route Ready/);
     assert.match(harness.getTextContent(harness.element('start-route-btn')), /1.0 mi/);
+});
+
+test('route generation choice can optimize before generating', async () => {
+    const harness = loadTripPlanner();
+    harness.window.BARK.tripDays = [{
+        color: '#1976D2',
+        stops: [
+            { name: 'Stop A', lat: 1, lng: 1 },
+            { name: 'Stop B', lat: 2, lng: 2 }
+        ],
+        notes: ''
+    }];
+    harness.window.BARK.activeDayIdx = 0;
+    harness.window.BARK.initTripPlanner();
+    harness.window.BARK.updateTripUI();
+
+    let optimizeCalls = 0;
+    const originalOptimize = harness.window.executeSmartOptimization;
+    harness.window.executeSmartOptimization = function wrappedSmartOptimization() {
+        optimizeCalls += 1;
+        return originalOptimize();
+    };
+
+    harness.element('start-route-btn').onclick();
+    assert.equal(harness.element('route-generation-choice-modal').style.display, 'flex');
+    harness.element('route-optimize-generate-btn').onclick();
+    await flushPromises();
+
+    assert.equal(optimizeCalls, 1);
+    assert.equal(harness.element('route-generation-choice-modal').style.display, 'none');
+    assert.equal(harness.directionsCalls.length, 1);
 });
 
 test('trip planner estimates long route days before calling directions', () => {
@@ -435,7 +477,7 @@ test('route generation opens optimizer and skips ORS when a day is too long', as
 
     harness.window.BARK.initTripPlanner();
     harness.window.BARK.updateTripUI();
-    harness.element('start-route-btn').onclick();
+    await openRouteChoiceAndSkip(harness);
     await flushPromises();
 
     assert.equal(warningsSeen.length, 1);
@@ -461,7 +503,7 @@ test('route generation can continue after long day warning', async () => {
 
     harness.window.BARK.initTripPlanner();
     harness.window.BARK.updateTripUI();
-    harness.element('start-route-btn').onclick();
+    await openRouteChoiceAndSkip(harness);
     await flushPromises();
 
     assert.equal(harness.directionsCalls.length, 1);

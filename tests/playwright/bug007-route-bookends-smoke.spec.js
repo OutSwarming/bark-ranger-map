@@ -175,6 +175,8 @@ test.describe('BUG-007 sparse trip bookend routing', () => {
                 if (!button) throw new Error('Missing #start-route-btn');
                 button.click();
             });
+            await expect(page.locator('#route-generation-choice-modal')).toBeVisible({ timeout: 5000 });
+            await page.locator('#route-skip-generate-btn').click();
 
             await page.waitForFunction(() => (
                 Array.isArray(window.__barkBug007DirectionsCalls) &&
