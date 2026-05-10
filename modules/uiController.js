@@ -421,7 +421,7 @@ if (submitFeedbackBtn && !isFeedbackEnabled()) {
         : 'In-app feedback is paused for beta safety. Use the email suggestion option above for now.';
     disableFeedbackPortal(message);
 } else if (submitFeedbackBtn && typeof firebase !== 'undefined') {
-    submitFeedbackBtn.addEventListener('click', () => {
+    submitFeedbackBtn.addEventListener('click', async () => {
         const textArea = document.getElementById('feedback-text');
         const text = textArea ? textArea.value : '';
         if (!text || text.trim() === '') return;
@@ -429,25 +429,43 @@ if (submitFeedbackBtn && !isFeedbackEnabled()) {
         dismissKeyboardTransientUi();
 
         const user = firebase.auth().currentUser;
-        const sender = user ? (user.displayName || user.uid) : 'Anonymous Guest';
+        if (!user) {
+            submitFeedbackBtn.textContent = 'Sign in to send';
+            setTimeout(() => { submitFeedbackBtn.textContent = 'Submit Feedback'; }, 3000);
+            return;
+        }
 
         submitFeedbackBtn.textContent = 'Submitting...';
         submitFeedbackBtn.disabled = true;
 
-        window.BARK.incrementRequestCount();
-        firebase.firestore().collection('feedback').add({
-            text: text,
-            sender: sender,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
-        }).then(() => {
+        try {
+            window.BARK.incrementRequestCount();
+            const submitFeedback = firebase.functions().httpsCallable('submitFeedback');
+            await submitFeedback({
+                message: text,
+                type: 'general',
+                browser: {
+                    userAgent: navigator.userAgent,
+                    platform: navigator.platform,
+                    language: navigator.language,
+                    path: window.location ? window.location.pathname : '',
+                    viewportWidth: window.innerWidth,
+                    viewportHeight: window.innerHeight
+                }
+            });
             submitFeedbackBtn.textContent = 'Feedback Sent!';
             if (textArea) textArea.value = '';
             setTimeout(() => { submitFeedbackBtn.textContent = 'Submit Feedback'; submitFeedbackBtn.disabled = false; }, 3000);
-        }).catch(err => {
+        } catch (err) {
             console.error('Feedback error:', err);
-            submitFeedbackBtn.textContent = 'Error. Try again';
+            const code = String(err && err.code ? err.code : '').replace(/^functions\//, '');
+            submitFeedbackBtn.textContent = code === 'resource-exhausted'
+                ? 'Try again later'
+                : code === 'unauthenticated'
+                    ? 'Sign in to send'
+                    : 'Error. Try again';
             submitFeedbackBtn.disabled = false;
-        });
+        }
     });
 }
 

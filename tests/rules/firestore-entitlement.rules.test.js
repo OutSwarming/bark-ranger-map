@@ -683,7 +683,7 @@ describe('Firestore entitlement and admin field rules', () => {
         }));
     });
 
-    it('denies direct feedback writes while the app-side feedback flag is disabled', async () => {
+    it('denies direct feedback writes because feedback is server-callable only', async () => {
         const aliceDb = authedDb('alice');
         const publicDb = unauthDb();
 
@@ -692,10 +692,49 @@ describe('Firestore entitlement and admin field rules', () => {
             sender: 'Alice',
             timestamp: serverTimestamp()
         }));
+        await assertFails(setDoc(doc(aliceDb, 'feedback', 'alice-extra-feedback'), {
+            text: 'Please add this park.',
+            sender: 'Alice',
+            timestamp: serverTimestamp(),
+            entitlement: { premium: true },
+            adminNotes: 'client forged'
+        }));
         await assertFails(setDoc(doc(publicDb, 'feedback', 'public-feedback'), {
             text: 'Anonymous feedback.',
             sender: 'Anonymous Guest',
             timestamp: serverTimestamp()
+        }));
+
+        await seedDoc(['feedback', 'seeded-feedback'], {
+            uid: 'alice',
+            message: 'Seeded server feedback.',
+            status: 'new',
+            createdAt: serverTimestamp()
+        });
+        await assertFails(updateDoc(doc(aliceDb, 'feedback', 'seeded-feedback'), {
+            status: 'closed'
+        }));
+        await assertFails(deleteDoc(doc(aliceDb, 'feedback', 'seeded-feedback')));
+        await assertFails(getDoc(doc(aliceDb, 'feedback', 'seeded-feedback')));
+    });
+
+    it('denies direct feedback rate-limit document access', async () => {
+        await seedDoc(['_feedbackRateLimits', 'alice_1700000000000'], {
+            uid: 'alice',
+            count: 1
+        });
+
+        const aliceDb = authedDb('alice');
+        const publicDb = unauthDb();
+
+        await assertFails(getDoc(doc(aliceDb, '_feedbackRateLimits', 'alice_1700000000000')));
+        await assertFails(setDoc(doc(aliceDb, '_feedbackRateLimits', 'alice_1700000000000'), {
+            uid: 'alice',
+            count: 0
+        }));
+        await assertFails(setDoc(doc(publicDb, '_feedbackRateLimits', 'public_1700000000000'), {
+            uid: 'public',
+            count: 0
         }));
     });
 

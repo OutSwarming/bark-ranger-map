@@ -7,6 +7,8 @@ const {
     __test: {
         buildCheckoutReturnUrl,
         buildLemonSqueezyCheckoutPayload,
+        getLemonSqueezyModeConfig,
+        shouldAcceptLemonSqueezyWebhookMode,
         handleGetCustomerPortalUrl,
         handleCreateCheckoutSession,
         isFunctionFlagEnabled
@@ -64,6 +66,26 @@ function makeUserFirestore(userData = {}) {
 }
 
 describe("Lemon Squeezy checkout session helpers", () => {
+    it("keeps Lemon live mode locked even if live approval env is absent or present", () => {
+        const defaultMode = getLemonSqueezyModeConfig({ env: {} });
+        assert.equal(defaultMode.checkoutTestMode, true);
+        assert.equal(defaultMode.acceptLiveWebhooks, false);
+        assert.equal(defaultMode.liveModeApproved, false);
+        assert.match(defaultMode.lockReason, /Carter/i);
+
+        const approvedButStillCodeLocked = getLemonSqueezyModeConfig({
+            env: { BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC" }
+        });
+        assert.equal(approvedButStillCodeLocked.liveModeApproved, true);
+        assert.equal(approvedButStillCodeLocked.checkoutTestMode, true);
+        assert.equal(approvedButStillCodeLocked.acceptLiveWebhooks, false);
+
+        assert.equal(shouldAcceptLemonSqueezyWebhookMode({ test_mode: true }, { env: {} }), true);
+        assert.equal(shouldAcceptLemonSqueezyWebhookMode({ test_mode: false }, {
+            env: { BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC" }
+        }), false);
+    });
+
     it("builds checkout return URLs from the app base URL", () => {
         assert.equal(
             buildCheckoutReturnUrl(config.appBaseUrl, "success"),

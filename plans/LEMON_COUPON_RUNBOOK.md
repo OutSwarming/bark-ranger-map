@@ -14,7 +14,7 @@ All codes are Lemon Squeezy discount codes:
 4. Lemon applies the coupon according to the Lemon dashboard discount rules.
 5. BARK grants Premium only after the verified Lemon webhook confirms the subscription/order.
 
-No app-side code grants Premium directly. No internal BARK access-code admin flow is part of the private-beta user journey.
+No app-side code grants Premium directly. There is no BARK-managed coupon/admin code flow in the private-beta user journey.
 
 ## Current App Behavior
 

@@ -41,9 +41,9 @@ firestore.rules
 functions/index.js
 functions/package-lock.json
 functions/package.json
-functions/tests/access-code.test.js
 functions/tests/checkout-session.test.js
 functions/tests/leaderboard-sync.test.js
+functions/tests/lemon-coupon.test.js
 functions/tests/lemonsqueezy-webhook.test.js
 functions/tests/ors-callable-emulator.test.js
 functions/tests/ors-emulator-http-stub.js
@@ -98,6 +98,7 @@ plans/LAUNCH_READINESS_FIREBASE_COST_REPORT.md
 plans/LEGAL_LICENSE_DILIGENCE_PACKET.md
 plans/LEGAL_LICENSE_RED_FLAGS.md
 plans/LEMONSQUEEZY_TEST_MODE_CANCELLATION_QA.md
+plans/LEMON_COUPON_RUNBOOK.md
 plans/MASTER_PLAN_IMPLEMENTATION copy.md
 plans/PARTS_1_6_QC_AUDIT.md
 plans/PHASE_1C_DESIGN.md
@@ -128,7 +129,6 @@ plans/PREMIUM_APP_BUG_TRACKER.md
 plans/PREMIUM_BETA_GATE_REPORT.md
 plans/PREMIUM_PRODUCT_RULES_AUDIT.md
 plans/PRODUCTION_AUDIT_REPORT.md
-plans/PROMO_ACCESS_CODE_RUNBOOK.md
 plans/THIRD_PARTY_SERVICE_AUDIT.md
 plans/functions-npm-ls-all.json
 plans/github-all-history-filepaths.txt

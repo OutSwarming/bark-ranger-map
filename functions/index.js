@@ -35,6 +35,14 @@ const PREMIUM_CALLABLE_RATE_LIMITS = {
     }
 };
 
+const FEEDBACK_RATE_LIMIT = {
+    maxRequests: 5,
+    windowMs: 60 * 60 * 1000,
+    envMaxKey: "BARK_RATE_LIMIT_FEEDBACK_MAX",
+    envWindowKey: "BARK_RATE_LIMIT_FEEDBACK_WINDOW_MS",
+    message: "Feedback submission limit reached. Please try again shortly."
+};
+
 const FUNCTION_FLAG_CONFIG = Object.freeze({
     getPremiumRoute: {
         envKey: "BARK_ENABLE_PREMIUM_ROUTE",
@@ -256,6 +264,127 @@ async function enforcePremiumCallableRateLimit(uid, action, options = {}) {
     });
 }
 
+function getFeedbackRateLimit(options = {}) {
+    const env = options.env || process.env;
+    const override = options.feedbackRateLimit || {};
+    return {
+        maxRequests: parsePositiveInteger(
+            override.maxRequests === undefined ? env[FEEDBACK_RATE_LIMIT.envMaxKey] : override.maxRequests,
+            FEEDBACK_RATE_LIMIT.maxRequests
+        ),
+        windowMs: parsePositiveInteger(
+            override.windowMs === undefined ? env[FEEDBACK_RATE_LIMIT.envWindowKey] : override.windowMs,
+            FEEDBACK_RATE_LIMIT.windowMs
+        ),
+        message: typeof override.message === "string" && override.message.trim()
+            ? override.message.trim()
+            : FEEDBACK_RATE_LIMIT.message
+    };
+}
+
+async function enforceFeedbackRateLimit(uid, options = {}) {
+    const limit = getFeedbackRateLimit(options);
+    const db = options.firestore || admin.firestore();
+    if (!db || typeof db.runTransaction !== "function") {
+        console.error("[feedback] Firestore transaction support is unavailable.", { uid });
+        throw new functions.https.HttpsError("internal", "Feedback rate limit could not be verified.");
+    }
+
+    const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
+    const windowStart = Math.floor(now / limit.windowMs) * limit.windowMs;
+    const windowEndsAt = windowStart + limit.windowMs;
+    const safeUid = encodeURIComponent(uid);
+    const ref = db.collection("_feedbackRateLimits").doc(`${safeUid}_${windowStart}`);
+
+    await db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(ref);
+        const currentCount = snapshot.exists ? Number(snapshot.data().count || 0) : 0;
+
+        if (currentCount >= limit.maxRequests) {
+            const retrySeconds = getRateLimitRetrySeconds(windowEndsAt, now);
+            throw new functions.https.HttpsError(
+                "resource-exhausted",
+                `${limit.message} Try again in ${retrySeconds} seconds.`
+            );
+        }
+
+        transaction.set(ref, {
+            uid,
+            action: "submitFeedback",
+            count: currentCount + 1,
+            limit: limit.maxRequests,
+            windowStart: Timestamp.fromMillis(windowStart),
+            windowEndsAt: Timestamp.fromMillis(windowEndsAt),
+            expiresAt: Timestamp.fromMillis(windowEndsAt + 24 * 60 * 60 * 1000),
+            updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+    });
+}
+
+function cleanFeedbackText(value, maxLength = 2000) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text) {
+        throw new functions.https.HttpsError("invalid-argument", "Feedback message is required.");
+    }
+    if (text.length > maxLength) {
+        throw new functions.https.HttpsError("invalid-argument", `Feedback must be ${maxLength} characters or fewer.`);
+    }
+    return text;
+}
+
+function cleanFeedbackString(value, maxLength = 200) {
+    const text = typeof value === "string" ? value.trim() : "";
+    return text ? text.slice(0, maxLength) : null;
+}
+
+function cleanFeedbackType(value) {
+    const text = typeof value === "string" ? value.trim().toLowerCase() : "";
+    const allowed = new Set(["general", "bug", "idea", "support", "missing_location", "other"]);
+    return allowed.has(text) ? text : "general";
+}
+
+function cleanFeedbackBrowserMetadata(value) {
+    const metadata = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const viewportWidth = Number.parseInt(metadata.viewportWidth, 10);
+    const viewportHeight = Number.parseInt(metadata.viewportHeight, 10);
+
+    return {
+        userAgent: cleanFeedbackString(metadata.userAgent, 300),
+        platform: cleanFeedbackString(metadata.platform, 80),
+        language: cleanFeedbackString(metadata.language, 40),
+        path: cleanFeedbackString(metadata.path, 200),
+        viewportWidth: Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : null,
+        viewportHeight: Number.isFinite(viewportHeight) && viewportHeight > 0 ? viewportHeight : null
+    };
+}
+
+async function handleSubmitFeedback(requestOrData, context, options = {}) {
+    const uid = requireAuthCallable(context);
+    const payload = getCallablePayload(requestOrData);
+    const message = cleanFeedbackText(payload.message || payload.text);
+    const type = cleanFeedbackType(payload.type);
+    const browser = cleanFeedbackBrowserMetadata(payload.browser || payload.metadata);
+    const token = getCallableAuthToken(context);
+    const db = options.firestore || admin.firestore();
+
+    await enforceFeedbackRateLimit(uid, options);
+
+    const addPayload = {
+        uid,
+        type,
+        message,
+        browser,
+        email: cleanFeedbackString(token.email, 254),
+        displayName: cleanFeedbackString(token.name, 120),
+        source: "app_feedback",
+        status: "new",
+        createdAt: FieldValue.serverTimestamp()
+    };
+
+    await db.collection("feedback").add(addPayload);
+    return { ok: true };
+}
+
 const PREMIUM_ENTITLEMENT_STATUSES = new Set(["active", "manual_active", "past_due", "cancelled_active"]);
 
 function coerceTimestampMillis(value) {
@@ -280,22 +409,9 @@ function getNowMs(options = {}) {
     return Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
 }
 
-function timestampFromMillis(millis, options = {}) {
-    if (typeof options.timestampFromMillis === "function") return options.timestampFromMillis(millis);
-    return Timestamp.fromMillis(millis);
-}
-
 function normalizePromoCode(value) {
     const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
     return SAFE_PROMO_CODE_PATTERN.test(normalized) ? normalized : null;
-}
-
-function hashAccessCode(normalizedCode) {
-    return createHash("sha256").update(`${ACCESS_CODE_HASH_PREFIX}${normalizedCode}`).digest("hex");
-}
-
-function buildAccessCodeRedemptionId(uid, codeHash) {
-    return createHash("sha256").update(`${uid}:${codeHash}`).digest("hex");
 }
 
 function normalizeEntitlement(raw, options = {}) {
@@ -816,6 +932,9 @@ const LEMONSQUEEZY_SUBSCRIPTIONS_URL = `${LEMONSQUEEZY_API_ORIGIN}/v1/subscripti
 const DEFAULT_LEMONSQUEEZY_STORE_ID = "363425";
 const DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID = "1604336";
 const DEFAULT_APP_BASE_URL = "https://outswarming.github.io/bark-ranger-map/";
+const LEMONSQUEEZY_LIVE_APPROVAL_ENV = "BARK_LEMON_LIVE_MODE_APPROVAL";
+const LEMONSQUEEZY_LIVE_APPROVAL_VALUE = "CARTER_APPROVED_LIVE_RC";
+const LEMONSQUEEZY_MODE_LOCK_REASON = "Lemon Squeezy live mode remains locked until Carter explicitly approves the final RC switch.";
 const LEMONSQUEEZY_SUPPORTED_EVENTS = new Set([
     "subscription_created",
     "subscription_updated",
@@ -837,14 +956,8 @@ const LEMONSQUEEZY_EVENT_STATUS_RANK = Object.freeze({
     expired: 500,
     refunded: 600
 });
-const ACCESS_CODES_COLLECTION = "accessCodes";
-const ACCESS_CODE_REDEMPTIONS_COLLECTION = "accessCodeRedemptions";
 const SAFE_PROMO_CODE_PATTERN = /^[A-Z0-9]{3,64}$/;
-const ACCESS_CODE_TYPES = new Set(["premium_free_year", "premium_free_days", "lemon_coupon_passthrough"]);
 const ACCESS_CODE_AUDIENCES = new Set(["admin_mod", "vip", "support", "tester", "general"]);
-const ACCESS_CODE_HASH_PREFIX = "bark-ranger-access-code-v1:";
-const ACCESS_CODE_DEFAULT_DURATION_DAYS = 365;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 function cleanOptionalString(value) {
     return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -858,6 +971,27 @@ function cleanOptionalId(value) {
 
 function isSafeProviderId(value) {
     return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
+function getLemonSqueezyModeConfig(options = {}) {
+    const env = options.env || process.env;
+    const approvalValue = cleanOptionalString(options.liveModeApproval) ||
+        cleanOptionalString(env[LEMONSQUEEZY_LIVE_APPROVAL_ENV]);
+    return {
+        checkoutTestMode: true,
+        acceptLiveWebhooks: false,
+        liveModeApproved: approvalValue === LEMONSQUEEZY_LIVE_APPROVAL_VALUE,
+        approvalEnv: LEMONSQUEEZY_LIVE_APPROVAL_ENV,
+        approvalValue: LEMONSQUEEZY_LIVE_APPROVAL_VALUE,
+        lockReason: LEMONSQUEEZY_MODE_LOCK_REASON
+    };
+}
+
+function shouldAcceptLemonSqueezyWebhookMode(attributes, options = {}) {
+    const mode = getLemonSqueezyModeConfig(options);
+    if (!attributes) return false;
+    if (attributes.test_mode === true) return true;
+    return attributes.test_mode === false && mode.acceptLiveWebhooks === true;
 }
 
 function normalizeHttpsUrl(value) {
@@ -895,6 +1029,7 @@ function buildCheckoutReturnUrl(appBaseUrl, state) {
 }
 
 function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config, discountCode = null }) {
+    const mode = getLemonSqueezyModeConfig(config);
     const successUrl = buildCheckoutReturnUrl(config.appBaseUrl, "success");
     const cancelUrl = buildCheckoutReturnUrl(config.appBaseUrl, "canceled");
     const email = cleanOptionalString(token.email);
@@ -917,7 +1052,7 @@ function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config, discountCod
         data: {
             type: "checkouts",
             attributes: {
-                test_mode: true,
+                test_mode: mode.checkoutTestMode,
                 product_options: {
                     enabled_variants: [Number(config.annualVariantId)],
                     redirect_url: successUrl,
@@ -1086,11 +1221,6 @@ function accessCodeError(message = "That code was not recognized or has expired.
     return new functions.https.HttpsError("failed-precondition", message);
 }
 
-function normalizeAccessCodeType(value) {
-    const type = cleanOptionalString(value);
-    return ACCESS_CODE_TYPES.has(type) ? type : null;
-}
-
 function normalizeAccessCodeAudience(value) {
     const audience = cleanOptionalString(value);
     return ACCESS_CODE_AUDIENCES.has(audience) ? audience : "general";
@@ -1101,154 +1231,12 @@ function normalizeAccessCodeReason(value) {
     return reason ? reason.slice(0, 160) : "Premium access code";
 }
 
-function normalizeDurationDays(type, value) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed) && parsed > 0 && parsed <= 3660) {
-        return Math.floor(parsed);
-    }
-    return ACCESS_CODE_DEFAULT_DURATION_DAYS;
-}
-
-function isAccessCodeDocumentUsable(codeData, nowMs) {
-    if (!codeData || typeof codeData !== "object") return false;
-    if (codeData.active !== true) return false;
-    if (!normalizeAccessCodeType(codeData.type)) return false;
-    const expiresAtMs = coerceTimestampMillis(codeData.expiresAt);
-    return expiresAtMs === null || expiresAtMs > nowMs;
-}
-
-function assertAccessCodeCanRedeem(codeData, nowMs) {
-    if (!isAccessCodeDocumentUsable(codeData, nowMs)) throw accessCodeError();
-    return normalizeAccessCodeType(codeData.type);
-}
-
-function getAccessCodeMaxRedemptions(codeData) {
-    if (codeData.maxRedemptions === null || codeData.maxRedemptions === undefined) return null;
-    const parsed = Number(codeData.maxRedemptions);
-    return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
-}
-
-function buildAccessCodeEntitlement({ codeData, grantExpiresAt, nowMs, options = {} }) {
-    const type = normalizeAccessCodeType(codeData.type);
-    const audience = normalizeAccessCodeAudience(codeData.audience);
-    return {
-        premium: true,
-        status: "access_code_active",
-        source: "access_code",
-        accessCodeType: type,
-        accessCodeAudience: audience,
-        reason: normalizeAccessCodeReason(codeData.reason),
-        grantedAt: timestampFromMillis(nowMs, options),
-        expiresAt: grantExpiresAt,
-        autoRenew: false,
-        paymentMethodAttached: false,
-        providerCustomerId: null,
-        providerSubscriptionId: null,
-        lemonSqueezySubscriptionId: null,
-        manualOverride: true,
-        updatedAt: getServerTimestamp(options)
-    };
-}
-
 async function handleRedeemAccessOrPromoCode(requestOrData, context, options = {}) {
     void requestOrData;
     void options;
     const uid = requireVerifiedEmailCallable(context);
     void uid;
     throw accessCodeError("Coupon codes are entered on the Lemon Squeezy checkout page.");
-
-    const payload = getCallablePayload(requestOrData);
-    const code = normalizePromoCode(payload && payload.code);
-    if (!code) throw accessCodeError();
-
-    const codeHash = hashAccessCode(code);
-    const db = options.firestore || admin.firestore();
-    const nowMs = getNowMs(options);
-    const codeRef = db.collection(ACCESS_CODES_COLLECTION).doc(codeHash);
-    const codeSnapshot = await codeRef.get();
-
-    if (!codeSnapshot || !codeSnapshot.exists) {
-        throw accessCodeError();
-    }
-
-    const initialCodeData = codeSnapshot.data() || {};
-    const initialType = assertAccessCodeCanRedeem(initialCodeData, nowMs);
-
-    if (initialType === "lemon_coupon_passthrough") {
-        const checkout = await handleCreateCheckoutSession({ discountCode: code }, context, options);
-        return {
-            status: "lemon_coupon_checkout",
-            checkoutUrl: checkout.checkoutUrl,
-            discountCodeApplied: code
-        };
-    }
-
-    let response = null;
-    await db.runTransaction(async (transaction) => {
-        const freshCodeSnapshot = await transaction.get(codeRef);
-        if (!freshCodeSnapshot || !freshCodeSnapshot.exists) throw accessCodeError();
-        const codeData = freshCodeSnapshot.data() || {};
-        const type = assertAccessCodeCanRedeem(codeData, nowMs);
-        if (type !== "premium_free_year" && type !== "premium_free_days") throw accessCodeError();
-
-        const maxRedemptions = getAccessCodeMaxRedemptions(codeData);
-        const redemptionCount = Math.max(0, Number(codeData.redemptionCount || 0));
-        if (maxRedemptions !== null && redemptionCount >= maxRedemptions) {
-            throw accessCodeError("That code has already reached its redemption limit.");
-        }
-
-        const redemptionRef = db.collection(ACCESS_CODE_REDEMPTIONS_COLLECTION)
-            .doc(buildAccessCodeRedemptionId(uid, codeHash));
-        if (codeData.oneUsePerUser !== false) {
-            const redemptionSnapshot = await transaction.get(redemptionRef);
-            if (redemptionSnapshot && redemptionSnapshot.exists) {
-                throw accessCodeError("That code has already been used for this account.");
-            }
-        }
-
-        const durationDays = normalizeDurationDays(type, codeData.durationDays);
-        const grantExpiresAtMs = nowMs + (durationDays * DAY_MS);
-        const grantExpiresAt = timestampFromMillis(grantExpiresAtMs, options);
-        const audience = normalizeAccessCodeAudience(codeData.audience);
-        const reason = normalizeAccessCodeReason(codeData.reason);
-        const redeemedAt = getServerTimestamp(options);
-        const entitlement = buildAccessCodeEntitlement({
-            codeData: { ...codeData, type, audience, reason },
-            grantExpiresAt,
-            nowMs,
-            options
-        });
-
-        transaction.set(codeRef, {
-            redemptionCount: redemptionCount + 1,
-            lastRedeemedAt: redeemedAt,
-            updatedAt: redeemedAt
-        }, { merge: true });
-        transaction.set(redemptionRef, {
-            codeHash,
-            uid,
-            redeemedAt,
-            grantExpiresAt,
-            type,
-            audience,
-            reason
-        }, { merge: false });
-        transaction.set(db.collection("users").doc(uid), { entitlement }, { merge: true });
-
-        response = {
-            status: "access_code_granted",
-            premium: true,
-            source: "access_code",
-            accessCodeType: type,
-            accessCodeAudience: audience,
-            reason,
-            grantExpiresAt: new Date(grantExpiresAtMs).toISOString(),
-            autoRenew: false,
-            paymentMethodAttached: false
-        };
-    });
-
-    return response;
 }
 
 function getRequestHeaderValue(req, name) {
@@ -1450,7 +1438,7 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
     }
 
     const attributes = getLemonSqueezyAttributes(payload);
-    if (attributes.test_mode !== true) {
+    if (!shouldAcceptLemonSqueezyWebhookMode(attributes, options)) {
         return { action: "ignore", reason: "non_test_mode" };
     }
 
@@ -1858,6 +1846,10 @@ exports.syncLeaderboardScore = functions.https.onCall(async (requestOrData, cont
     return handleSyncLeaderboardScore(requestOrData, context);
 });
 
+exports.submitFeedback = functions.https.onCall(async (requestOrData, context) => {
+    return handleSubmitFeedback(requestOrData, context);
+});
+
 if (process.env.NODE_ENV === "test") {
     exports.__test = {
         normalizeEntitlement,
@@ -1868,6 +1860,9 @@ if (process.env.NODE_ENV === "test") {
         requireVerifiedEmailCallable,
         getPremiumCallableRateLimit,
         enforcePremiumCallableRateLimit,
+        getFeedbackRateLimit,
+        enforceFeedbackRateLimit,
+        handleSubmitFeedback,
         requirePremiumCallable,
         handlePremiumRoute,
         handlePremiumGeocode,
@@ -1875,10 +1870,10 @@ if (process.env.NODE_ENV === "test") {
         normalizeRouteWaypoints,
         extractSnappedRouteCoordinates,
         getLemonSqueezyConfig,
+        getLemonSqueezyModeConfig,
+        shouldAcceptLemonSqueezyWebhookMode,
         buildCheckoutReturnUrl,
         normalizePromoCode,
-        hashAccessCode,
-        buildAccessCodeRedemptionId,
         buildLemonSqueezyCheckoutPayload,
         extractLemonSqueezyCheckoutUrl,
         extractLemonSqueezyCustomerPortalUrl,

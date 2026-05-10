@@ -45,7 +45,7 @@ Do not rewrite everything before beta. The right move is to keep the hardened sa
 | Dimension | Score | Evidence |
 |---|---:|---|
 | Frontend modularity | 58 | Many modules exist, but `window.BARK`, raw `window.*`, and script order are the integration layer. `index.html:1430-1473` loads 30+ scripts directly. |
-| Backend/functions organization | 55 | `functions/index.js` is 2,223 lines and includes ORS, Lemon, legacy access-code compatibility, leaderboard, Gemini, and Sheets in one file. |
+| Backend/functions organization | 55 | `functions/index.js` is about 2,060 lines and includes ORS, Lemon, legacy access-code compatibility, leaderboard, Gemini, and Sheets in one file. |
 | Firebase/Auth/Firestore separation | 62 | Firestore CRUD is partly in `services/firebaseService.js`, but auth hydration and user-doc listener logic still live in `services/authService.js`. |
 | Entitlement/payment separation | 72 | `premiumService.js` is a clear read-side source; Functions write entitlement server-side; UI states are centralized in paywall/account code. |
 | Testability | 76 | Strong functions/rules/Playwright coverage exists, with explicit storage-state skips. Still tied to local server/auth state setup. |
@@ -66,7 +66,7 @@ Overall: **66 / 100**
 | Raw legacy globals remain | `window.currentWalkPoints`, `window.tripStartNode`, `window.tripEndNode`, `window.isAdmin`, `window._lastSyncedScore` in `modules/barkState.js`, `authService.js`, `profileEngine.js`, `tripPlannerCore.js` | Account switching and premium state can leak if reset paths miss one global | P1 | No, because tests cover current paths | Yes before major scale | Create an account-scoped runtime reset contract and add regression tests before migrating. |
 | Duplicate user document listeners | `services/authService.js:821-885` listens to `users/{uid}`; `repos/VaultRepo.js:631` also subscribes for `visitedPlaces` | Duplicates initial and update reads; same doc drives unrelated concerns | P2 | No | No, but cost/noise grows | Later split `visitedPlaces` into subcollection or make one listener fan out. |
 | Auth service does too many jobs | `services/authService.js` is 990 lines and handles Firebase init, auth UI visibility, cloud settings, premium entitlement, admin flag, walk points, route list loading, leaderboard boot | Hard to change account behavior safely | P1 | No | Yes for public launch polish | Extract user-doc hydration handlers after beta with tests. |
-| Backend index file is too large | `functions/index.js` is 2,223 lines; exports ORS, checkout, disabled legacy access-code callable, webhook, leaderboard, scheduled leaderboard, Gemini extraction, Sheets sync | New backend features will increase risk of accidental coupling | P1 | No | Yes before continued paid feature work | Split after private beta into `payments`, `legacyAccessCompat`, `ors`, `leaderboard`, `adminData`, `shared/entitlement`. |
+| Backend index file is too large | `functions/index.js` is about 2,060 lines; exports ORS, checkout, disabled legacy access-code callable, webhook, leaderboard, scheduled leaderboard, Gemini extraction, Sheets sync | New backend features will increase risk of accidental coupling | P1 | No | Yes before continued paid feature work | Split after private beta into `payments`, `legacyAccessCompat`, `ors`, `leaderboard`, `adminData`, `shared/entitlement`. |
 | Inline HTML generation is widespread | `profileEngine.js`, `tripPlannerCore.js`, `routeRenderer.js`, `shareEngine.js`, `authService.js` use `innerHTML` for UI | Harder to sanitize and test; user/data-origin strings can slip into templates | P1/P2 | No if no new input paths are added | Yes for trust/privacy polish | For user-generated strings, prefer DOM construction/textContent or small escape helpers. |
 | Feature flags exist in multiple layers | `modules/barkState.js`, `modules/launchFlags.js`, `services/orsService.js`, `modules/paywallController.js`, `functions/index.js` | Good defense-in-depth, but behavior must stay consistent | P2 | No | No | Keep; document flag names and add a one-page ops runbook. |
 | Achievement writes remain client-owned | `gamificationLogic.js:230-269`, rules allow owner achievement writes with shape validation | Cosmetic spoofing remains possible | P2 | No | No unless achievements become competitive/rewarded | Mark achievements cosmetic until server-derived. |
@@ -107,7 +107,7 @@ Public launch recommendation: split payment/legacy access-code compatibility log
 | `users/{uid}/savedRoutes/{routeId}` | Premium saved trips | Owner-scoped and premium-gated | Low/Medium |
 | `users/{uid}/achievements/{achievementId}` | Client-generated achievements | Cosmetic trust only | Low/Medium |
 | `leaderboard/{uid}` | Public leaderboard row | Now server-written only; reads unchanged | Low |
-| `accessCodes/{codeHash}` | Legacy server-only promo/access code definitions; new user-facing flow no longer uses them | Good; deny client read/write | Low |
+| `accessCodes/{codeHash}` | Deprecated legacy collection from the superseded internal-code experiment; new user-facing flow does not use it | Good; deny client read/write | Low |
 | `accessCodeRedemptions/{redemptionId}` | Redemption receipts | Good; deny client read/write | Low |
 | `_lemonSqueezyWebhookEvents/{id}` | Durable webhook idempotency | Good; default-denied by catch-all | Low |
 | `_premiumCallableRateLimits/{id}` | Route/geocode rate limits | Good; default-denied by catch-all | Low |
@@ -143,7 +143,7 @@ Exported backend functions found in `functions/index.js`:
 
 Assessment:
 
-- `functions/index.js` is too large at 2,223 lines.
+- `functions/index.js` is too large at about 2,060 lines.
 - It is safe enough for private beta because tests cover the high-risk areas.
 - It is risky to keep adding payment/admin/data features to this file.
 - Must split before paid public launch? **Not strictly before taking first payment, but strongly recommended before adding more paid features.**
@@ -153,7 +153,7 @@ Suggested later split:
 
 - `functions/payments/checkout.js`
 - `functions/payments/webhook.js`
-- `functions/accessCodes.js`
+- `functions/payments/legacyAccessCompat.js`
 - `functions/entitlement.js`
 - `functions/ors.js`
 - `functions/leaderboard.js`
@@ -200,7 +200,7 @@ Good news:
 
 Test inventory:
 
-- Functions unit tests: `functions/tests/ors-entitlement.test.js`, `checkout-session.test.js`, `lemonsqueezy-webhook.test.js`, `leaderboard-sync.test.js`, `access-code.test.js`.
+- Functions unit tests: `functions/tests/ors-entitlement.test.js`, `checkout-session.test.js`, `lemonsqueezy-webhook.test.js`, `leaderboard-sync.test.js`, `lemon-coupon.test.js`.
 - Functions emulator: `functions/tests/ors-callable-emulator.test.js`.
 - Firestore rules: `tests/rules/firestore-entitlement.rules.test.js`.
 - Node/browserless unit-ish tests: scoring, data integrity, auth account UI, route renderer, VaultRepo, trip planner, gamification.

@@ -119,29 +119,4 @@ test.describe('Lemon-only coupon checkout flow', () => {
         await expect.poll(() => page.evaluate(() => window.__unexpectedCallableNames.length)).toBe(0);
     });
 
-    test('legacy active access-code entitlement remains billing-free compatibility only', async ({ page }) => {
-        await openApp(page);
-        await installCheckoutHarness(page, {
-            user: { uid: 'legacy-access-user', email: 'legacy-access@example.test' }
-        });
-
-        await page.evaluate(() => {
-            window.BARK.services.premium.setEntitlement({
-                premium: true,
-                status: 'access_code_active',
-                source: 'access_code',
-                accessCodeAudience: 'admin_mod',
-                expiresAt: '2027-05-09T12:00:00.000Z',
-                autoRenew: false,
-                paymentMethodAttached: false
-            }, { uid: 'legacy-access-user', reason: 'playwright-legacy-access-code' });
-            window.BARK.paywall.renderCurrentState();
-        });
-
-        await expect(page.locator('#profile-premium-status')).toContainText('Free Premium Access');
-        await expect(page.locator('#profile-premium-price')).toContainText('No renewal');
-        await expect(page.locator('#profile-premium-copy')).toContainText('Auto-renew: No');
-        await expect(page.locator('#profile-premium-copy')).toContainText('Payment method: None');
-        await expect(page.locator('#profile-premium-copy')).not.toContainText('Manage billing');
-    });
 });

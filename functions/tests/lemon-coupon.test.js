@@ -39,7 +39,7 @@ async function assertRejectsCode(promise, code, messagePattern) {
     });
 }
 
-describe("legacy app access-code callable", () => {
+describe("disabled legacy app access-code callable", () => {
     it("still rejects unauthenticated callers before any coupon handling", async () => {
         await assertRejectsCode(
             handleRedeemAccessOrPromoCode({ code: "VIP-2026-ABC" }, {}, {}),

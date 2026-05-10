@@ -63,7 +63,7 @@ Hard locks:
 | `npm ls --depth=0` | Pass | Root dependencies installed. |
 | `npm --prefix functions ls --depth=0` | Pass | Functions dependencies installed. |
 | `node --check` on launch/auth/payment/visit/leaderboard JS files | Pass | Syntax OK for audited high-risk JS files. |
-| `npm --prefix functions test` | Pass | 111/111 passed. Covers checkout test mode, webhooks, access codes, leaderboard sync, route/geocode limits. |
+| `npm --prefix functions test` | Pass | 107/107 passed before this cleanup. Covers checkout test mode, webhooks, legacy access-code compatibility, leaderboard sync, route/geocode limits. |
 | `npm run test:rules` | Pass | 26/26 passed. Expected emulator permission-denied noise appears for denial assertions. Java 18 warning remains; Firebase Tools v15 will require Java 21. |
 | `npm run test:functions:emulator` | Fail | 1/9 passed, 8 failed. Cause: emulator fixtures created unverified password users after email verification enforcement; product correctly returned `failed-precondition` before entitlement assertions. |
 | `node --check functions/tests/ors-callable-emulator.test.js` | Pass | Syntax OK after emulator fixture update. |

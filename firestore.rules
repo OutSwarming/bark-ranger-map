@@ -166,6 +166,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /feedback/{feedbackId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /_feedbackRateLimits/{rateLimitId} {
+      allow read, write: if false;
+    }
+
     match /system/{docId} {
       allow read: if true;
       allow write: if false;

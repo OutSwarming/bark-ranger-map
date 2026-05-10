@@ -206,7 +206,7 @@ Bring these to counsel:
 3. Does public app branding match the legal merchant/customer receipt identity?
 4. Does the app need Terms of Service and refund/subscription disclosures before paid launch?
 5. Can admins/mods/VIPs receive free access without creating tax/accounting or disclosure problems?
-6. Are coupon and access-code policies documented clearly enough for users?
+6. Are Lemon coupon policies documented clearly enough for users?
 
 ## 12. Exact Commands Run
 
@@ -247,7 +247,7 @@ Command result notes:
 5. What privacy policy and terms are needed before collecting account emails, visited parks, route data, feedback, analytics, and payment metadata?
 6. Does `firebase-debug.log` or any tracked local/debug file expose sensitive data that requires removal from git history or key rotation?
 7. Do AI-assisted coding disclosures affect ownership, partner representations, or investor/customer diligence?
-8. Are free access codes for admins/mods/VIPs/support users okay from a business, tax, and consumer-disclosure standpoint?
+8. Are 100%-off Lemon discount codes for admins/mods/VIPs/support users okay from a business, tax, and consumer-disclosure standpoint?
 9. What refund/cancellation/subscription language is required for Lemon Squeezy checkout and account UI?
 10. What happens to app/customer/payment/data ownership if Carter's relationship with a partner, admin group, or brand owner ends?
 
