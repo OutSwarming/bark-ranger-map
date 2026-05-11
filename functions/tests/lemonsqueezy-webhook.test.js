@@ -562,10 +562,7 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
         assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
         assert.equal(firestore.state.writes[0].data.entitlement.status, "cancelled_active");
         assert.equal(firestore.state.writes[0].data.entitlement.currentPeriodEnd, "2099-02-01T00:00:00.000Z");
-        assert.equal(
-            firestore.state.writes[0].data.entitlement.customerPortalUrl,
-            "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=test"
-        );
+        assert.equal(firestore.state.writes[0].data.entitlement.customerPortalUrl, undefined);
         assert.equal(firestore.state.writes[0].data.entitlement.lastProviderEventRank, 300);
     });
 
@@ -1005,6 +1002,40 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
                     premium: false,
                     status: "refunded",
                     source: "lemon_squeezy",
+                    lastProviderEventId: "evt_refund_current",
+                    lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                    lastProviderEventRank: 600
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.reason, "stale_event");
+        assert.equal(firestore.state.writes.length, 0);
+        assert.equal(firestore.state.eventWrites[0].data.reason, "stale_event");
+    });
+
+    it("does not replace a refunded subscription with a later expired event for the same subscription", async () => {
+        const payload = makePayload({
+            eventName: "subscription_expired",
+            uid: "expired-after-refund-user",
+            eventId: "evt_expired_after_refund",
+            dataId: "sub_refund_terminal",
+            attributes: {
+                status: "expired",
+                ends_at: "2026-01-11T00:00:00.000Z"
+            }
+        });
+        payload.meta.event_created_at = "2026-01-11T00:00:00.000Z";
+
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: false,
+                    status: "refunded",
+                    source: "lemon_squeezy",
+                    providerSubscriptionId: "sub_refund_terminal",
                     lastProviderEventId: "evt_refund_current",
                     lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
                     lastProviderEventRank: 600

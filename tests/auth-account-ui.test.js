@@ -222,6 +222,9 @@ function loadAuthAccountUi(overrides = {}) {
         isPremium: () => Boolean(overrides.premiumActive),
         subscribe: () => {}
     };
+    const hasCustomerPortalMock = Object.prototype.hasOwnProperty.call(overrides, 'customerPortalUrl') ||
+        Object.prototype.hasOwnProperty.call(overrides, 'customerPortalData') ||
+        Boolean(overrides.customerPortalError);
 
     const context = {
         window: {
@@ -243,12 +246,22 @@ function loadAuthAccountUi(overrides = {}) {
             apps: [{}],
             auth: () => auth,
             firestore,
-            functions: overrides.customerPortalUrl ? () => ({
+            functions: hasCustomerPortalMock ? () => ({
                 httpsCallable(name) {
                     return async (payload) => {
                         portalCalls.push({ name, payload });
                         if (name !== 'getCustomerPortalUrl') throw new Error(`Unexpected callable ${name}`);
-                        return { data: { customerPortalUrl: overrides.customerPortalUrl } };
+                        if (overrides.customerPortalError) throw overrides.customerPortalError;
+                        const data = Object.prototype.hasOwnProperty.call(overrides, 'customerPortalData')
+                            ? overrides.customerPortalData
+                            : {
+                                url: overrides.customerPortalUrl,
+                                customerPortalUrl: overrides.customerPortalUrl,
+                                entitlement: overrides.customerPortalEntitlement || null
+                            };
+                        return {
+                            data
+                        };
                     };
                 }
             }) : undefined
@@ -329,9 +342,10 @@ test('duplicate signup email points users back to existing account paths', async
     assert.equal(harness.writes.length, 0);
 });
 
-test('lemon squeezy premium account shows billing portal management', async () => {
+test('lemon squeezy premium account opens a fresh customer portal URL', async () => {
     const harness = loadAuthAccountUi({
         premiumActive: true,
+        customerPortalUrl: 'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh',
         premiumEntitlement: {
             premium: true,
             status: 'active',
@@ -356,13 +370,64 @@ test('lemon squeezy premium account shows billing portal management', async () =
     assert.equal(harness.element('account-billing-title').textContent, 'Active');
     assert.equal(harness.element('account-billing-copy').textContent, 'Auto-renews May 2, 2027');
     assert.equal(harness.element('account-manage-subscription-btn').textContent, 'Manage');
-    assert.equal(
-        harness.element('account-manage-subscription-btn').dataset.billingUrl,
-        'https://usbarkrangers.lemonsqueezy.com/billing'
-    );
+    assert.equal(harness.element('account-manage-subscription-btn').dataset.billingUrl, undefined);
 
     await harness.element('account-manage-subscription-btn').dispatch('click');
-    assert.deepEqual(harness.locationAssignCalls, ['https://usbarkrangers.lemonsqueezy.com/billing']);
+    assert.equal(harness.portalCalls.at(-1).name, 'getCustomerPortalUrl');
+    assert.equal(Object.keys(harness.portalCalls.at(-1).payload).length, 0);
+    assert.deepEqual(harness.locationAssignCalls, [
+        'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
+    ]);
+});
+
+test('active lemon account refresh syncs cancelled billing status from callable', async () => {
+    let currentEntitlement = {
+        premium: true,
+        status: 'active',
+        source: 'lemon_squeezy',
+        providerCustomerId: 'cus_test',
+        providerSubscriptionId: 'sub_cancelled_sync',
+        currentPeriodEnd: '2027-05-02T12:00:00.000Z'
+    };
+    const setEntitlementCalls = [];
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        customerPortalUrl: 'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh',
+        customerPortalEntitlement: {
+            premium: true,
+            status: 'cancelled_active',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_test',
+            providerSubscriptionId: 'sub_cancelled_sync',
+            currentPeriodEnd: '2027-05-02T12:00:00.000Z'
+        },
+        premiumService: {
+            getEntitlement: () => ({ ...currentEntitlement }),
+            isPremium: () => currentEntitlement.premium === true,
+            subscribe: () => {},
+            setEntitlement(entitlement, options) {
+                currentEntitlement = { ...entitlement };
+                setEntitlementCalls.push({ entitlement, options });
+            }
+        }
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'paid-user',
+        email: 'paid@example.com',
+        displayName: 'Paid Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(harness.portalCalls.length, 1);
+    assert.equal(harness.portalCalls[0].payload.syncOnly, true);
+    assert.equal(setEntitlementCalls.length, 1);
+    assert.equal(setEntitlementCalls[0].entitlement.status, 'cancelled_active');
+    assert.equal(setEntitlementCalls[0].options.reason, 'billing-panel-sync');
 });
 
 test('cancelled Lemon subscription shows access end date and no auto-renew', async () => {
@@ -395,10 +460,7 @@ test('cancelled Lemon subscription shows access end date and no auto-renew', asy
     assert.match(harness.element('account-billing-copy').textContent, /Access ends:/);
     assert.match(harness.element('account-billing-copy').textContent, /2027/);
     assert.match(harness.element('account-billing-copy').textContent, /Auto-renew: No/);
-    assert.equal(
-        harness.element('account-manage-subscription-btn').dataset.billingUrl,
-        'https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=stored'
-    );
+    assert.equal(harness.element('account-manage-subscription-btn').dataset.billingUrl, undefined);
 
     await harness.element('account-manage-subscription-btn').dispatch('click');
 
@@ -407,6 +469,71 @@ test('cancelled Lemon subscription shows access end date and no auto-renew', asy
     assert.deepEqual(harness.locationAssignCalls, [
         'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
     ]);
+});
+
+test('manage subscription does not fall back to a stored portal URL when callable has no URL', async () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'cancelled_active',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_cancelled',
+            providerSubscriptionId: 'sub_cancelled',
+            currentPeriodEnd: '2027-05-09T12:00:00.000Z',
+            customerPortalUrl: 'https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=stored'
+        },
+        customerPortalData: { entitlement: null }
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'cancelled-user',
+        email: 'cancelled@example.com',
+        displayName: 'Cancelled Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await harness.element('account-manage-subscription-btn').dispatch('click');
+
+    assert.equal(harness.portalCalls.length, 1);
+    assert.deepEqual(harness.locationAssignCalls, []);
+    assert.equal(
+        harness.element('account-auth-message').textContent,
+        'No customer portal is available for this subscription.'
+    );
+});
+
+test('manage subscription shows friendly message when no active subscription exists', async () => {
+    const error = new Error('No active subscription was found for this account.');
+    error.code = 'functions/failed-precondition';
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'cancelled_active',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_missing',
+            providerSubscriptionId: 'sub_missing'
+        },
+        customerPortalError: error
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'missing-subscription-user',
+        email: 'missing@example.com',
+        displayName: 'Missing Subscription Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await harness.element('account-manage-subscription-btn').dispatch('click');
+
+    assert.deepEqual(harness.locationAssignCalls, []);
+    assert.equal(
+        harness.element('account-auth-message').textContent,
+        'No active subscription was found for this account.'
+    );
 });
 
 test('expired and refunded Lemon subscriptions show inactive billing states', () => {

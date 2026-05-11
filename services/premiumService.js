@@ -19,7 +19,8 @@ window.BARK.services = window.BARK.services || {};
         reason: null,
         providerCustomerId: null,
         providerSubscriptionId: null,
-        lemonSqueezySubscriptionId: null
+        lemonSqueezySubscriptionId: null,
+        endsAt: null
     });
 
     const PREMIUM_STATUSES = new Set(['active', 'manual_active', 'past_due', 'cancelled_active']);
@@ -110,7 +111,8 @@ window.BARK.services = window.BARK.services || {};
             reason: normalizeString(raw.reason, null),
             providerCustomerId: normalizeString(raw.providerCustomerId, null),
             providerSubscriptionId: normalizeString(raw.providerSubscriptionId, null),
-            lemonSqueezySubscriptionId: normalizeString(raw.lemonSqueezySubscriptionId, null)
+            lemonSqueezySubscriptionId: normalizeString(raw.lemonSqueezySubscriptionId, null),
+            endsAt: normalizePeriodEnd(raw.endsAt)
         };
     }
 

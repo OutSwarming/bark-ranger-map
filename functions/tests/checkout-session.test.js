@@ -38,11 +38,62 @@ const config = {
 };
 
 function makeUserFirestore(userData = {}) {
+    let storedUserData = { ...userData };
+    const eventDocs = new Map();
     const state = {
         reads: 0,
+        writes: [],
+        eventWrites: [],
+        transactions: 0,
         requestedCollection: null,
-        requestedDoc: null
+        requestedDoc: null,
+        lastEventDoc: null
     };
+    function makeDocRef(collectionName, docId) {
+        return {
+            collectionName,
+            docId,
+            async get() {
+                state.reads += 1;
+                if (collectionName === "users") {
+                    state.requestedCollection = collectionName;
+                    state.requestedDoc = docId;
+                    return {
+                        exists: true,
+                        data: () => ({ ...storedUserData })
+                    };
+                }
+                if (collectionName === "_lemonSqueezyWebhookEvents") {
+                    state.lastEventDoc = docId;
+                    const eventData = eventDocs.get(docId);
+                    return {
+                        exists: eventData !== undefined,
+                        data: () => eventData || {}
+                    };
+                }
+                return {
+                    exists: false,
+                    data: () => ({})
+                };
+            },
+            async set(value, options = {}) {
+                if (collectionName === "users") {
+                    storedUserData = options.merge ? { ...storedUserData, ...value } : { ...value };
+                    state.requestedCollection = collectionName;
+                    state.requestedDoc = docId;
+                    state.writes.push({ collectionName, docId, data: value, options });
+                    return;
+                }
+                if (collectionName === "_lemonSqueezyWebhookEvents") {
+                    const previous = eventDocs.get(docId) || {};
+                    const next = options.merge ? { ...previous, ...value } : { ...value };
+                    eventDocs.set(docId, next);
+                    state.lastEventDoc = docId;
+                    state.eventWrites.push({ collectionName, docId, data: value, options });
+                }
+            }
+        };
+    }
     return {
         state,
         collection(collectionName) {
@@ -50,17 +101,20 @@ function makeUserFirestore(userData = {}) {
             return {
                 doc(docId) {
                     state.requestedDoc = docId;
-                    return {
-                        async get() {
-                            state.reads += 1;
-                            return {
-                                exists: true,
-                                data: () => ({ ...userData })
-                            };
-                        }
-                    };
+                    return makeDocRef(collectionName, docId);
                 }
             };
+        },
+        async runTransaction(callback) {
+            state.transactions += 1;
+            return callback({
+                get(ref) {
+                    return ref.get();
+                },
+                set(ref, value, options) {
+                    return ref.set(value, options);
+                }
+            });
         }
     };
 }
@@ -490,9 +544,136 @@ describe("Lemon Squeezy customer portal callable", () => {
         assert.equal(captured.url, "https://api.lemonsqueezy.com/v1/subscriptions/sub_test_123");
         assert.equal(captured.requestConfig.headers.Authorization, "Bearer test-api-key");
         assert.equal(
+            result.url,
+            "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=test"
+        );
+        assert.equal(
             result.customerPortalUrl,
             "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=test"
         );
+    });
+
+    it("falls back to the Lemon customer record when no subscription id is stored", async () => {
+        let captured = null;
+        const firestore = makeUserFirestore({
+            lemonSqueezyCustomerId: "cus_test_123",
+            entitlement: {
+                premium: true,
+                status: "active",
+                source: "lemon_squeezy",
+                providerSubscriptionId: null
+            }
+        });
+
+        const result = await handleGetCustomerPortalUrl(
+            {},
+            authedContext("paid-user"),
+            {
+                firestore,
+                apiKey: config.apiKey,
+                axiosGet: async (url, requestConfig) => {
+                    captured = { url, requestConfig };
+                    return {
+                        data: {
+                            data: {
+                                attributes: {
+                                    store_id: 363425,
+                                    urls: {
+                                        customer_portal: "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=customer"
+                                    }
+                                }
+                            }
+                        }
+                    };
+                }
+            }
+        );
+
+        assert.equal(captured.url, "https://api.lemonsqueezy.com/v1/customers/cus_test_123");
+        assert.equal(captured.requestConfig.headers.Authorization, "Bearer test-api-key");
+        assert.equal(
+            result.url,
+            "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=customer"
+        );
+        assert.equal(firestore.state.writes.length, 0);
+    });
+
+    it("rejects customer portal responses without a customer_portal URL", async () => {
+        await assertRejectsCode(
+            handleGetCustomerPortalUrl(
+                {},
+                authedContext("paid-user"),
+                {
+                    firestore: makeUserFirestore({
+                        entitlement: {
+                            premium: true,
+                            status: "active",
+                            source: "lemon_squeezy",
+                            providerSubscriptionId: "sub_missing_portal"
+                        }
+                    }),
+                    apiKey: config.apiKey,
+                    axiosGet: async () => ({
+                        data: {
+                            data: {
+                                attributes: {
+                                    store_id: 363425,
+                                    urls: {}
+                                }
+                            }
+                        }
+                    })
+                }
+            ),
+            "failed-precondition"
+        );
+    });
+
+    it("syncs cancelled Lemon subscription state while retrieving a portal URL", async () => {
+        const firestore = makeUserFirestore({
+            entitlement: {
+                premium: true,
+                status: "active",
+                source: "lemon_squeezy",
+                providerSubscriptionId: "sub_cancelled_sync",
+                lastProviderEventAtMs: Date.parse("2026-01-01T00:00:00.000Z"),
+                lastProviderEventRank: 100
+            }
+        });
+
+        const result = await handleGetCustomerPortalUrl(
+            {},
+            authedContext("paid-user"),
+            {
+                firestore,
+                apiKey: config.apiKey,
+                axiosGet: async () => ({
+                    data: {
+                        data: {
+                            id: "sub_cancelled_sync",
+                            type: "subscriptions",
+                            attributes: {
+                                test_mode: true,
+                                store_id: 363425,
+                                status: "cancelled",
+                                ends_at: "2099-02-01T00:00:00.000Z",
+                                updated_at: "2026-01-10T00:00:00.000Z",
+                                urls: {
+                                    customer_portal: "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=cancelled"
+                                }
+                            }
+                        }
+                    }
+                })
+            }
+        );
+
+        assert.equal(result.entitlement.status, "cancelled_active");
+        assert.equal(result.entitlement.premium, true);
+        assert.equal(result.entitlement.currentPeriodEnd, "2099-02-01T00:00:00.000Z");
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "cancelled_active");
+        assert.equal(firestore.state.eventWrites.length, 1);
     });
 
     it("rejects customer portal responses from a different store", async () => {

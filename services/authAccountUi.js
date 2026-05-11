@@ -11,14 +11,16 @@
     const MIN_PASSWORD_LENGTH = 8;
     const MIN_USERNAME_LENGTH = 2;
     const MAX_USERNAME_LENGTH = 30;
-    const LEMON_SQUEEZY_BILLING_PORTAL_URL = 'https://usbarkrangers.lemonsqueezy.com/billing';
     const SUPPORT_EMAIL = 'usbarkrangers@gmail.com';
     const VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
+    const BILLING_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
 
     let initialized = false;
     let activeMode = 'signin';
     let unsubscribePremium = null;
     let lastVerificationEmailSentAt = 0;
+    let lastBillingSyncKey = '';
+    let lastBillingSyncAt = 0;
 
     const ACCOUNT_PROMPT_COPY = {
         'mark-visited': {
@@ -326,16 +328,6 @@
         return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     }
 
-    function getSafeHttpsUrl(value) {
-        if (typeof value !== 'string' || !value.trim()) return '';
-        try {
-            const url = new URL(value, window.location.href);
-            return url.protocol === 'https:' ? url.toString() : '';
-        } catch (error) {
-            return '';
-        }
-    }
-
     function getAccessCodeAudienceLabel(value) {
         switch (value) {
             case 'admin_mod': return 'Admin/mod complimentary access';
@@ -412,8 +404,7 @@
                 title: statusText,
                 copy,
                 buttonText,
-                buttonMode: 'portal',
-                url: getSafeHttpsUrl(entitlement.customerPortalUrl) || LEMON_SQUEEZY_BILLING_PORTAL_URL
+                buttonMode: 'portal'
             };
         }
 
@@ -455,12 +446,58 @@
         }
         button.textContent = state.buttonText;
         button.dataset.mode = state.buttonMode;
-        button.dataset.billingUrl = state.url;
+        if (state.url) {
+            button.dataset.billingUrl = state.url;
+        } else {
+            delete button.dataset.billingUrl;
+        }
+        maybeSyncBillingPanelFromProvider(user);
     }
 
     function getCustomerPortalCallable() {
         if (typeof firebase === 'undefined' || typeof firebase.functions !== 'function') return null;
         return firebase.functions().httpsCallable('getCustomerPortalUrl');
+    }
+
+    function applySyncedEntitlement(entitlement, user, reason) {
+        if (!entitlement || typeof entitlement !== 'object') return;
+        const premiumService = getPremiumService();
+        if (!premiumService || typeof premiumService.setEntitlement !== 'function') return;
+        try {
+            premiumService.setEntitlement(entitlement, {
+                uid: user && user.uid ? user.uid : null,
+                reason
+            });
+        } catch (error) {
+            console.warn('[authAccountUi] billing entitlement sync failed:', error);
+        }
+    }
+
+    function maybeSyncBillingPanelFromProvider(user) {
+        const premiumService = getPremiumService();
+        const entitlement = premiumService && typeof premiumService.getEntitlement === 'function'
+            ? premiumService.getEntitlement()
+            : null;
+        if (!user || !entitlement || entitlement.source !== 'lemon_squeezy') return;
+        if (entitlement.status !== 'active' && entitlement.status !== 'past_due') return;
+        if (!entitlement.providerSubscriptionId) return;
+
+        const now = Date.now();
+        const syncKey = `${user.uid}:${entitlement.providerSubscriptionId}:${entitlement.status}`;
+        if (syncKey === lastBillingSyncKey && now - lastBillingSyncAt < BILLING_SYNC_COOLDOWN_MS) return;
+        lastBillingSyncKey = syncKey;
+        lastBillingSyncAt = now;
+
+        const getCustomerPortalUrl = getCustomerPortalCallable();
+        if (!getCustomerPortalUrl) return;
+        getCustomerPortalUrl({ syncOnly: true })
+            .then((result) => {
+                const syncedEntitlement = result && result.data && result.data.entitlement;
+                applySyncedEntitlement(syncedEntitlement, user, 'billing-panel-sync');
+            })
+            .catch((error) => {
+                console.warn('[authAccountUi] background billing sync failed:', error);
+            });
     }
 
     function validateSubscriptionDestination(value) {
@@ -473,40 +510,71 @@
         }
     }
 
+    function getSubscriptionManagementErrorMessage(error) {
+        const message = error && typeof error.message === 'string' ? error.message : '';
+        if (/No active subscription was found for this account\./i.test(message)) {
+            return 'No active subscription was found for this account.';
+        }
+        if (/No customer portal is available for this subscription\./i.test(message)) {
+            return 'No customer portal is available for this subscription.';
+        }
+        if (/Please sign in first\./i.test(message)) {
+            return 'Please sign in first.';
+        }
+        return 'Subscription management could not open. Please contact support.';
+    }
+
     async function openSubscriptionManagement() {
         const button = getElement('account-manage-subscription-btn');
-        let destination = button && typeof button.dataset.billingUrl === 'string'
-            ? button.dataset.billingUrl
-            : '';
-        if (!destination) return;
+        if (!button || !button.dataset.mode) return;
 
-        if (button.dataset.mode === 'portal') {
+        if (button.dataset.mode !== 'portal') {
+            const destination = typeof button.dataset.billingUrl === 'string' ? button.dataset.billingUrl : '';
             try {
-                const getCustomerPortalUrl = getCustomerPortalCallable();
-                if (getCustomerPortalUrl) {
-                    button.disabled = true;
-                    setStatus('Opening secure billing portal...', 'neutral');
-                    if (typeof window.BARK.incrementRequestCount === 'function') window.BARK.incrementRequestCount();
-                    const result = await getCustomerPortalUrl({});
-                    const signedUrl = result && result.data && result.data.customerPortalUrl;
-                    destination = validateSubscriptionDestination(signedUrl) || destination;
+                const safeDestination = validateSubscriptionDestination(destination);
+                if (!safeDestination) {
+                    throw new Error('Unsupported billing URL protocol.');
                 }
+                window.location.assign(safeDestination);
             } catch (error) {
-                console.warn('[authAccountUi] signed customer portal lookup failed; falling back to configured billing URL:', error);
-            } finally {
-                button.disabled = false;
+                console.error('[authAccountUi] manage subscription URL failed:', error);
+                setStatus('Subscription management could not open. Please contact support.', 'error');
             }
+            return;
         }
 
         try {
-            const safeDestination = validateSubscriptionDestination(destination);
+            const currentUser = typeof firebase !== 'undefined' && typeof firebase.auth === 'function'
+                ? firebase.auth().currentUser
+                : null;
+            if (!currentUser) {
+                throw new Error('Please sign in first.');
+            }
+
+            const getCustomerPortalUrl = getCustomerPortalCallable();
+            if (!getCustomerPortalUrl) {
+                throw new Error('Subscription management could not open.');
+            }
+
+            button.disabled = true;
+            setStatus('Opening secure billing portal...', 'neutral');
+            if (typeof window.BARK.incrementRequestCount === 'function') window.BARK.incrementRequestCount();
+
+            const result = await getCustomerPortalUrl({});
+            const data = result && result.data ? result.data : {};
+            const signedUrl = data.url || data.customerPortalUrl;
+            applySyncedEntitlement(data.entitlement, currentUser, 'billing-portal-sync');
+
+            const safeDestination = validateSubscriptionDestination(signedUrl);
             if (!safeDestination) {
-                throw new Error('Unsupported billing URL protocol.');
+                throw new Error('No customer portal is available for this subscription.');
             }
             window.location.assign(safeDestination);
         } catch (error) {
             console.error('[authAccountUi] manage subscription URL failed:', error);
-            setStatus('Subscription management could not open. Please contact support.', 'error');
+            setStatus(getSubscriptionManagementErrorMessage(error), 'error');
+        } finally {
+            button.disabled = false;
         }
     }
 

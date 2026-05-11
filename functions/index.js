@@ -950,6 +950,7 @@ async function snapRouteCoordinates(coordinates, apiKey, options = {}) {
 const LEMONSQUEEZY_API_ORIGIN = "https://api.lemonsqueezy.com";
 const LEMONSQUEEZY_CHECKOUTS_URL = `${LEMONSQUEEZY_API_ORIGIN}/v1/checkouts`;
 const LEMONSQUEEZY_SUBSCRIPTIONS_URL = `${LEMONSQUEEZY_API_ORIGIN}/v1/subscriptions`;
+const LEMONSQUEEZY_CUSTOMERS_URL = `${LEMONSQUEEZY_API_ORIGIN}/v1/customers`;
 const DEFAULT_LEMONSQUEEZY_STORE_ID = "363425";
 const DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID = "1604336";
 const DEFAULT_APP_BASE_URL = "https://outswarming.github.io/bark-ranger-map/";
@@ -1128,9 +1129,130 @@ function extractLemonSqueezyCustomerPortalUrl(response) {
         response.data.data.attributes;
     const customerPortalUrl = getLemonSqueezyCustomerPortalUrlFromAttributes(attributes || {});
     if (!customerPortalUrl) {
-        throw new functions.https.HttpsError("internal", "Customer portal URL was missing from the subscription response.");
+        throw new functions.https.HttpsError("failed-precondition", "No customer portal is available for this subscription.");
     }
     return customerPortalUrl;
+}
+
+function getLemonSqueezyBillingReference(userData = {}) {
+    const entitlement = userData && userData.entitlement && typeof userData.entitlement === "object"
+        ? userData.entitlement
+        : {};
+
+    return {
+        entitlement,
+        providerSubscriptionId: cleanOptionalId(entitlement.providerSubscriptionId) ||
+            cleanOptionalId(entitlement.lemonSqueezySubscriptionId) ||
+            cleanOptionalId(userData.lemonSqueezySubscriptionId) ||
+            cleanOptionalId(userData.subscriptionId),
+        providerCustomerId: cleanOptionalId(entitlement.providerCustomerId) ||
+            cleanOptionalId(entitlement.lemonSqueezyCustomerId) ||
+            cleanOptionalId(userData.lemonSqueezyCustomerId) ||
+            cleanOptionalId(userData.lemonCustomerId)
+    };
+}
+
+function buildLemonSqueezyCustomerPortalApiTarget(billingReference) {
+    const providerSubscriptionId = cleanOptionalId(billingReference && billingReference.providerSubscriptionId);
+    const providerCustomerId = cleanOptionalId(billingReference && billingReference.providerCustomerId);
+
+    if (providerSubscriptionId) {
+        if (!isSafeProviderId(providerSubscriptionId)) {
+            throw new functions.https.HttpsError("failed-precondition", "Subscription management is unavailable for this account.");
+        }
+        return {
+            type: "subscription",
+            id: providerSubscriptionId,
+            url: `${LEMONSQUEEZY_SUBSCRIPTIONS_URL}/${encodeURIComponent(providerSubscriptionId)}`
+        };
+    }
+
+    if (providerCustomerId) {
+        if (!isSafeProviderId(providerCustomerId)) {
+            throw new functions.https.HttpsError("failed-precondition", "Subscription management is unavailable for this account.");
+        }
+        return {
+            type: "customer",
+            id: providerCustomerId,
+            url: `${LEMONSQUEEZY_CUSTOMERS_URL}/${encodeURIComponent(providerCustomerId)}`
+        };
+    }
+
+    throw new functions.https.HttpsError(
+        "failed-precondition",
+        "No active subscription was found for this account."
+    );
+}
+
+function getLemonSqueezySubscriptionAttributesFromResponse(response) {
+    return response &&
+        response.data &&
+        response.data.data &&
+        response.data.data.attributes &&
+        typeof response.data.data.attributes === "object" &&
+        !Array.isArray(response.data.data.attributes)
+        ? response.data.data.attributes
+        : {};
+}
+
+function getLemonSqueezySubscriptionSyncEventName(attributes = {}) {
+    const status = cleanOptionalString(attributes.status);
+    const normalizedStatus = status ? status.toLowerCase() : "";
+    return normalizedStatus === "cancelled" || normalizedStatus === "canceled"
+        ? "subscription_cancelled"
+        : "subscription_updated";
+}
+
+function buildLemonSqueezySubscriptionSyncPayload(providerSubscriptionId, response, eventName) {
+    const sourceData = response && response.data && response.data.data ? response.data.data : {};
+    const attributes = getLemonSqueezySubscriptionAttributesFromResponse(response);
+    return {
+        meta: {
+            event_name: eventName,
+            event_id: buildLemonSqueezySubscriptionSyncEventId(providerSubscriptionId, attributes, eventName),
+            custom_data: {}
+        },
+        data: {
+            type: "subscriptions",
+            id: cleanOptionalId(sourceData.id) || providerSubscriptionId,
+            attributes,
+            relationships: sourceData.relationships || {}
+        }
+    };
+}
+
+function buildLemonSqueezySubscriptionSyncEventId(providerSubscriptionId, attributes = {}, eventName = "subscription_updated") {
+    const parts = [
+        "subscription_api_sync",
+        providerSubscriptionId,
+        eventName,
+        cleanOptionalString(attributes.status) || "",
+        cleanOptionalString(attributes.updated_at) || "",
+        cleanOptionalString(attributes.ends_at) || "",
+        cleanOptionalString(attributes.renews_at) || "",
+        cleanOptionalString(attributes.trial_ends_at) || ""
+    ];
+    return `subscription_api_sync_${createHash("sha256").update(parts.join("|")).digest("hex")}`;
+}
+
+async function syncLemonSqueezySubscriptionEntitlementFromApi({ uid, providerSubscriptionId, response }, options = {}) {
+    const attributes = getLemonSqueezySubscriptionAttributesFromResponse(response);
+    const eventName = getLemonSqueezySubscriptionSyncEventName(attributes);
+    const payload = buildLemonSqueezySubscriptionSyncPayload(providerSubscriptionId, response, eventName);
+    const rawBody = Buffer.from(JSON.stringify(payload), "utf8");
+    const mapping = mapLemonSqueezyEntitlement(payload, eventName, options);
+    if (mapping.action !== "write") {
+        return { ignored: true, reason: mapping.reason || "ignored" };
+    }
+
+    return processLemonSqueezyWebhookEntitlement({
+        uid,
+        eventName,
+        eventId: payload.meta.event_id,
+        rawBody,
+        mapping,
+        payload
+    }, options);
 }
 
 async function handleCreateCheckoutSession(requestOrData, context, options = {}) {
@@ -1185,29 +1307,17 @@ async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) 
         throw new functions.https.HttpsError("internal", "Subscription management could not open.");
     }
 
-    const userData = userDoc && userDoc.exists && typeof userDoc.data === "function" ? userDoc.data() : {};
-    const entitlement = userData && userData.entitlement && typeof userData.entitlement === "object"
-        ? userData.entitlement
-        : {};
-    const source = cleanOptionalString(entitlement.source);
-    const providerSubscriptionId = cleanOptionalId(entitlement.providerSubscriptionId) ||
-        cleanOptionalId(entitlement.lemonSqueezySubscriptionId);
-
-    if (source !== "lemon_squeezy" || !providerSubscriptionId) {
-        throw new functions.https.HttpsError(
-            "failed-precondition",
-            "No Lemon Squeezy subscription is available for this account."
-        );
+    if (!userDoc || !userDoc.exists || typeof userDoc.data !== "function") {
+        throw new functions.https.HttpsError("not-found", "User account not found.");
     }
 
-    if (!isSafeProviderId(providerSubscriptionId)) {
-        throw new functions.https.HttpsError("failed-precondition", "Subscription management is unavailable for this account.");
-    }
-
+    const userData = userDoc.data() || {};
+    const billingReference = getLemonSqueezyBillingReference(userData);
+    const apiTarget = buildLemonSqueezyCustomerPortalApiTarget(billingReference);
     const config = getLemonSqueezyConfig(options);
     const get = options.axiosGet || axios.get;
     try {
-        const response = await get(`${LEMONSQUEEZY_SUBSCRIPTIONS_URL}/${encodeURIComponent(providerSubscriptionId)}`, {
+        const response = await get(apiTarget.url, {
             headers: {
                 "Accept": "application/vnd.api+json",
                 "Content-Type": "application/vnd.api+json",
@@ -1223,14 +1333,38 @@ async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) 
             throw new functions.https.HttpsError("permission-denied", "Subscription store mismatch.");
         }
 
+        let syncResult = null;
+        if (apiTarget.type === "subscription") {
+            try {
+                syncResult = await syncLemonSqueezySubscriptionEntitlementFromApi({
+                    uid,
+                    providerSubscriptionId: apiTarget.id,
+                    response
+                }, {
+                    ...options,
+                    firestore: db
+                });
+            } catch (syncError) {
+                console.error("[payments] Customer portal subscription sync failed.", {
+                    uid,
+                    providerSubscriptionId: apiTarget.id,
+                    message: syncError && syncError.message ? syncError.message : String(syncError)
+                });
+            }
+        }
+
+        const customerPortalUrl = extractLemonSqueezyCustomerPortalUrl(response);
         return {
-            customerPortalUrl: extractLemonSqueezyCustomerPortalUrl(response)
+            url: customerPortalUrl,
+            customerPortalUrl,
+            entitlement: syncResult && syncResult.entitlement ? syncResult.entitlement : null
         };
     } catch (error) {
         if (error instanceof functions.https.HttpsError) throw error;
         console.error("[payments] Customer portal URL lookup failed.", {
             uid,
-            providerSubscriptionId,
+            providerSubscriptionId: billingReference.providerSubscriptionId || null,
+            providerCustomerId: billingReference.providerCustomerId || null,
             status: error && error.response ? error.response.status : null,
             message: error && error.message ? error.message : String(error)
         });
@@ -1401,6 +1535,21 @@ function buildLemonSqueezyEventDocId(eventId) {
 }
 
 function isStaleLemonSqueezyEvent(existingEntitlement, mapping) {
+    const existingStatus = cleanOptionalString(existingEntitlement && existingEntitlement.status);
+    const incomingStatus = cleanOptionalString(mapping && mapping.entitlement && mapping.entitlement.status);
+    const existingSubscriptionId = cleanOptionalId(existingEntitlement && (
+        existingEntitlement.providerSubscriptionId ||
+        existingEntitlement.lemonSqueezySubscriptionId
+    ));
+    const incomingSubscriptionId = cleanOptionalId(mapping && mapping.entitlement && (
+        mapping.entitlement.providerSubscriptionId ||
+        mapping.entitlement.lemonSqueezySubscriptionId
+    ));
+    const sameSubscription = !existingSubscriptionId || !incomingSubscriptionId || existingSubscriptionId === incomingSubscriptionId;
+    if (sameSubscription && existingStatus === "refunded" && incomingStatus !== "refunded") {
+        return true;
+    }
+
     const existingMillis = Number(existingEntitlement && existingEntitlement.lastProviderEventAtMs);
     if (!Number.isFinite(existingMillis)) return false;
 
@@ -1477,7 +1626,6 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
     const currentPeriodEnd = getCurrentPeriodEnd(attributes);
     const providerEventAtMs = getLemonSqueezyProviderEventMillis(payload, options);
     const providerEventAt = new Date(providerEventAtMs).toISOString();
-    const customerPortalUrl = getLemonSqueezyCustomerPortalUrlFromAttributes(attributes);
     let entitlement = null;
 
     if (eventName === "subscription_payment_success" || eventName === "subscription_payment_recovered") {
@@ -1521,7 +1669,6 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
             : attributes.order_id === undefined ? null : String(attributes.order_id),
         currentPeriodEnd
     };
-    if (customerPortalUrl) mappedEntitlement.customerPortalUrl = customerPortalUrl;
 
     return {
         action: "write",
