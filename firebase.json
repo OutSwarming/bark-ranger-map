@@ -1,7 +1,7 @@
 {
   "functions": [
     {
-      "source": "functions",
+      "source": "01-code/functions",
       "codebase": "default",
       "ignore": [
         "node_modules",
@@ -19,7 +19,7 @@
     }
   ],
   "firestore": {
-    "rules": "firestore.rules"
+    "rules": "06-config/firestore.rules"
   },
   "emulators": {
     "auth": {
@@ -33,7 +33,7 @@
     }
   },
   "hosting": {
-    "public": ".",
+    "public": "01-code/app",
     "ignore": [
       "firebase.json",
       ".firebaserc",
@@ -48,21 +48,10 @@
       "**/.DS_Store",
       "**/node_modules/**",
       "node_modules/**",
-      "functions/**",
-      "raw_trails/**",
-      "data/**",
-      "scripts/**",
       "legacy/**",
-      "tests/**",
-      "playwright/**",
-      "test-results/**",
       "playwright-report/**",
       "coverage/**",
-      "plans/**",
-      "docs/**",
       "**/*.md",
-      "autopush.sh",
-      "firestore.rules",
       "playwright.config.js",
       "package.json",
       "package-lock.json",
