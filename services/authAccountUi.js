@@ -14,8 +14,9 @@
     const SUPPORT_EMAIL = 'usbarkrangers@gmail.com';
     const VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
     const BILLING_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
-    const BILLING_FIX_BUILD = 'billing-fix-build: 2026-05-10-2301';
+    const BILLING_FIX_BUILD = 'billing-fix-build: 2026-05-10-2338';
     const LEMON_SQUEEZY_STORE_HOST = 'usbarkrangers.lemonsqueezy.com';
+    const TEST_MODE_PORTAL_UNAVAILABLE_MESSAGE = 'Customer portal is unavailable while the Lemon Squeezy store is not activated. Manage this test subscription from the Lemon Squeezy dashboard.';
 
     console.log(BILLING_FIX_BUILD);
     window.BARK.billingFixBuild = BILLING_FIX_BUILD;
@@ -539,6 +540,19 @@
         return url.toString();
     }
 
+    function isUnavailableLemonTestPortal(value) {
+        if (typeof value !== 'string' || !value.trim()) return false;
+        try {
+            const url = new URL(value, window.location.href);
+            const normalizedPathname = (url.pathname || '/').replace(/\/+$/, '') || '/';
+            return url.hostname === LEMON_SQUEEZY_STORE_HOST &&
+                normalizedPathname === '/billing' &&
+                url.searchParams.has('test_mode');
+        } catch (error) {
+            return false;
+        }
+    }
+
     function getSubscriptionManagementErrorMessage(error) {
         const message = error && typeof error.message === 'string' ? error.message : '';
         if (/Billing portal returned an invalid store URL\. Please contact support\./i.test(message)) {
@@ -601,6 +615,11 @@
                 window.alert('Billing portal URL:\n' + signedUrl);
             }
             applySyncedEntitlement(data.entitlement, currentUser, 'billing-portal-sync');
+
+            if (isUnavailableLemonTestPortal(signedUrl)) {
+                setStatus(TEST_MODE_PORTAL_UNAVAILABLE_MESSAGE, 'error');
+                return;
+            }
 
             const safeDestination = validateBillingPortalDestination(signedUrl);
             window.location.assign(safeDestination);

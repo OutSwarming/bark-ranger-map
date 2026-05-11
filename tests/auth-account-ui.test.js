@@ -548,6 +548,38 @@ test('manage subscription rejects Lemon storefront root URL before redirect', as
     );
 });
 
+test('manage subscription shows dashboard message for blocked Lemon test portal', async () => {
+    const testPortalUrl = 'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh&store_domain=usbarkrangers.lemonsqueezy.com&test_mode=1&user=123';
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'active',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_test_mode',
+            providerSubscriptionId: 'sub_test_mode'
+        },
+        customerPortalUrl: testPortalUrl
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'test-mode-user',
+        email: 'test-mode@example.com',
+        displayName: 'Test Mode Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await harness.element('account-manage-subscription-btn').dispatch('click');
+
+    assert.deepEqual(harness.locationAssignCalls, []);
+    assert.deepEqual(harness.alertCalls, [`Billing portal URL:\n${testPortalUrl}`]);
+    assert.equal(
+        harness.element('account-auth-message').textContent,
+        'Customer portal is unavailable while the Lemon Squeezy store is not activated. Manage this test subscription from the Lemon Squeezy dashboard.'
+    );
+});
+
 test('manage subscription shows friendly message when no active subscription exists', async () => {
     const error = new Error('No active subscription was found for this account.');
     error.code = 'functions/failed-precondition';
