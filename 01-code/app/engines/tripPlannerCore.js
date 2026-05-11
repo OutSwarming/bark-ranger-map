@@ -27,7 +27,7 @@ function removeTripMapLayer(layer) {
 }
 
 function showTripToast(message) {
-    let toast = window.BARK.DOM.tripActionToast();
+    let toast = getDomRef('tripActionToast');
     if (!toast) {
         toast = document.createElement('div');
         toast.id = 'trip-action-toast';
@@ -40,6 +40,12 @@ function showTripToast(message) {
 }
 
 window.BARK.showTripToast = showTripToast;
+
+function getDomRef(name, ...args) {
+    const dom = window.BARK && window.BARK.DOM;
+    const getter = dom && dom[name];
+    return typeof getter === 'function' ? getter(...args) : null;
+}
 
 // Trip overlay (badges, dashed day lines, A/B/🔄 bookends) is owned by
 // modules/TripLayerManager.js. tripPlannerCore is the orchestrator: it mutates
@@ -186,7 +192,7 @@ function openSavedRoutePremiumPaywall(source = 'saved-route') {
 }
 
 function clearRouteTelemetryStatus() {
-    const telemetryEl = window.BARK.DOM.routeTelemetry();
+    const telemetryEl = getDomRef('routeTelemetry');
     if (!telemetryEl) return;
 
     telemetryEl.style.display = 'none';
@@ -195,7 +201,7 @@ function clearRouteTelemetryStatus() {
 }
 
 function setRouteTelemetryStatus(status, title, detail = '') {
-    const telemetryEl = window.BARK.DOM.routeTelemetry();
+    const telemetryEl = getDomRef('routeTelemetry');
     if (!telemetryEl) return;
 
     telemetryEl.style.display = 'block';
@@ -216,7 +222,7 @@ function setRouteTelemetryStatus(status, title, detail = '') {
 }
 
 function setRouteTelemetrySummary(miles, hrs, mins) {
-    const telemetryEl = window.BARK.DOM.routeTelemetry();
+    const telemetryEl = getDomRef('routeTelemetry');
     if (!telemetryEl) return;
 
     telemetryEl.style.display = 'block';
@@ -239,7 +245,7 @@ function waitForRouteDayThrottle(routeDayIndex, routableDayCount) {
 }
 
 function focusMapSearchForTripStop(dayNumber, dayColor) {
-    const searchInput = window.BARK.DOM.parkSearch();
+    const searchInput = getDomRef('parkSearch');
     const mapTab = document.querySelector('.nav-item[data-target="map-view"]');
     if (mapTab) mapTab.click();
     if (!searchInput) return;
@@ -270,7 +276,7 @@ function focusMapSearchForTripStop(dayNumber, dayColor) {
 }
 
 function updateRouteGenerationButtonState() {
-    const button = window.BARK.DOM.startRouteBtn();
+    const button = getDomRef('startRouteBtn');
     if (!button) return;
 
     button.classList.remove('planner-action-route-generating', 'planner-action-route-slow', 'planner-action-route-notice');
@@ -709,8 +715,10 @@ window.autoSortDay = function () {
 
 window.executeSmartOptimization = function () {
     const tripDays = window.BARK.tripDays;
-    const userMaxStops = parseInt(window.BARK.DOM.optMaxStops().value) || 5;
-    const userMaxHours = parseFloat(window.BARK.DOM.optMaxHours().value) || 4;
+    const maxStopsInput = getDomRef('optMaxStops');
+    const maxHoursInput = getDomRef('optMaxHours');
+    const userMaxStops = parseInt(maxStopsInput && maxStopsInput.value) || 5;
+    const userMaxHours = parseFloat(maxHoursInput && maxHoursInput.value) || 4;
     const totalStops = tripDays.reduce((sum, d) => sum + d.stops.length, 0);
     if (totalStops < 2) { alert('Add at least two stops before optimizing!'); return false; }
 
@@ -764,7 +772,7 @@ window.executeSmartOptimization = function () {
 
     window.BARK.tripDays = newTripDays;
     window.BARK.activeDayIdx = 0;
-    const optimizerModal = window.BARK.DOM.optimizerModal();
+    const optimizerModal = getDomRef('optimizerModal');
     if (optimizerModal) optimizerModal.style.display = 'none';
     updateTripUI();
     showTripToast(hitTripDayLimit ? 'Smart Optimization Complete. Trip capped at 50 days.' : '✨ Smart Optimization Complete!');
@@ -819,7 +827,8 @@ window.insertDayAfter = function () {
 };
 
 window.editBookend = function (type) {
-    const el = type === 'start' ? window.BARK.DOM.uiStartNode() : window.BARK.DOM.uiEndNode();
+    const el = type === 'start' ? getDomRef('uiStartNode') : getDomRef('uiEndNode');
+    if (!el) return;
     const currentName = type === 'start' ? (window.tripStartNode ? window.tripStartNode.name : '') : (window.tripEndNode ? window.tripEndNode.name : '');
     const color = type === 'start' ? '#22c55e' : '#ef4444';
     const bg = type === 'start' ? '#f0fdf4' : '#fef2f2';
@@ -836,7 +845,7 @@ window.editBookend = function (type) {
         ${currentName ? `<div style="text-align:right; margin-top: 8px;"><button onclick="window.trip${type === 'start' ? 'Start' : 'End'}Node=null; updateTripUI()" style="background: transparent; color: #dc2626; border: none; font-size: 11px; font-weight: 800; cursor: pointer; text-decoration: underline;">Remove ${type.toUpperCase()}</button></div>` : ''}
     </div>`;
 
-    const inlineInput = window.BARK.DOM.inlineInput(type);
+    const inlineInput = getDomRef('inlineInput', type);
     if (inlineInput) {
         let inlineSearchTimer = null;
 
@@ -868,7 +877,7 @@ window.editBookend = function (type) {
 
         inlineInput.addEventListener('blur', () => {
             clearTimeout(inlineSearchTimer);
-            const suggestBox = window.BARK.DOM.inlineSuggest(type);
+            const suggestBox = getDomRef('inlineSuggest', type);
             if (suggestBox && suggestBox.contains(document.activeElement)) return;
 
             if (window.BARK.hideInlinePlannerSuggestions) {
@@ -1076,8 +1085,8 @@ function updateTripUI() {
     enforceTripDayLimit({ notify: true });
     const tripDays = window.BARK.tripDays;
     let activeDayIdx = window.BARK.activeDayIdx;
-    const plannerBadge = window.BARK.DOM.plannerBadge();
-    const list = window.BARK.DOM.tripQueueList();
+    const plannerBadge = getDomRef('plannerBadge');
+    const list = getDomRef('tripQueueList');
     if (!list) return;
 
     const total = getTotalStops();
@@ -1086,7 +1095,7 @@ function updateTripUI() {
         else { plannerBadge.style.display = 'none'; }
     }
 
-    let tabContainer = window.BARK.DOM.tripDayTabs();
+    let tabContainer = getDomRef('tripDayTabs');
     if (!tabContainer && list.parentElement) {
         tabContainer = document.createElement('div');
         tabContainer.id = 'trip-day-tabs';
@@ -1094,7 +1103,7 @@ function updateTripUI() {
     }
 
     // START BOOKEND
-    let startEl = window.BARK.DOM.uiStartNode();
+    let startEl = getDomRef('uiStartNode');
     if (!startEl && tabContainer && tabContainer.parentElement) {
         startEl = document.createElement('div');
         startEl.id = 'ui-start-node';
@@ -1111,7 +1120,7 @@ function updateTripUI() {
     renderTripDayTabs(tabContainer, tripDays, activeDayIdx);
 
     // Day management bar
-    let dayManager = window.BARK.DOM.dayManagementBar();
+    let dayManager = getDomRef('dayManagementBar');
     if (!dayManager) { dayManager = document.createElement('div'); dayManager.id = 'day-management-bar'; list.parentElement.insertBefore(dayManager, list); }
     if (window.isTripEditMode) {
         dayManager.innerHTML = `<div class="trip-day-management-row"><button onclick="window.shiftDayLeft()" class="trip-day-management-btn" ${activeDayIdx === 0 ? 'disabled' : ''}>← Shift Day</button><button onclick="window.insertDayAfter()" class="trip-day-management-btn trip-day-management-insert" ${tripDays.length >= TRIP_DAY_LIMIT ? 'disabled title="Trips can include up to 50 days."' : ''}>+ Insert Day</button><button onclick="window.shiftDayRight()" class="trip-day-management-btn" ${activeDayIdx === tripDays.length - 1 ? 'disabled' : ''}>Shift Day →</button></div>`;
@@ -1162,7 +1171,7 @@ function updateTripUI() {
     list.appendChild(ghostBtn);
 
     // Notes
-    const notesContainer = window.BARK.DOM.dayNotesContainer();
+    const notesContainer = getDomRef('dayNotesContainer');
     if (notesContainer) {
         notesContainer.innerHTML = `
             <div class="planner-day-notes-header">
@@ -1180,13 +1189,20 @@ function updateTripUI() {
                     <span>Sort Day</span>
                 </button>
             </div>`;
-        const textarea = window.BARK.DOM.dayNotesTextarea();
-        const charCount = window.BARK.DOM.charCount();
+        const textarea = getDomRef('dayNotesTextarea');
+        const charCount = getDomRef('charCount');
         const driveDayBtn = document.getElementById('drive-day-btn');
         const sortDayBtn = document.getElementById('auto-sort-day-btn');
-        textarea.onfocus = () => { textarea.style.boxShadow = `inset 0 0 0 2px ${activeDay.color}`; };
-        textarea.onblur = () => { textarea.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.02)'; };
-        textarea.oninput = (e) => { let val = e.target.value; if (val.length > 1000) { val = val.substring(0, 1000); e.target.value = val; } activeDay.notes = val; charCount.textContent = val.length; };
+        if (textarea) {
+            textarea.onfocus = () => { textarea.style.boxShadow = `inset 0 0 0 2px ${activeDay.color}`; };
+            textarea.onblur = () => { textarea.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.02)'; };
+            textarea.oninput = (e) => {
+                let val = e.target.value;
+                if (val.length > 1000) { val = val.substring(0, 1000); e.target.value = val; }
+                activeDay.notes = val;
+                if (charCount) charCount.textContent = val.length;
+            };
+        }
         if (driveDayBtn) driveDayBtn.onclick = () => window.exportDayToMaps(activeDayIdx);
         if (sortDayBtn) sortDayBtn.onclick = () => window.autoSortDay();
     }
@@ -1198,8 +1214,8 @@ function updateTripUI() {
     document.querySelectorAll('.move-to-day-select').forEach(sel => { sel.onchange = (e) => { const fromIdx = parseInt(e.currentTarget.getAttribute('data-index')); const toDayIdx = parseInt(e.target.value); if (isNaN(toDayIdx)) return; const stop = tripDays[activeDayIdx].stops.splice(fromIdx, 1)[0]; tripDays[toDayIdx].stops.push(stop); updateTripUI(); }; });
 
     // END BOOKEND
-    let endEl = window.BARK.DOM.uiEndNode();
-    if (!endEl) { const wrapper = window.BARK.DOM.itineraryTimelineWrapper(); if (wrapper) { endEl = document.createElement('div'); endEl.id = 'ui-end-node'; wrapper.appendChild(endEl); } }
+    let endEl = getDomRef('uiEndNode');
+    if (!endEl) { const wrapper = getDomRef('itineraryTimelineWrapper'); if (wrapper) { endEl = document.createElement('div'); endEl.id = 'ui-end-node'; wrapper.appendChild(endEl); } }
     if (endEl && window.tripEndNode) {
         endEl.innerHTML = `<div onclick="editBookend('end')" style="cursor:pointer; background: #fef2f2; border: 2px solid #ef4444; border-radius: 8px; padding: 10px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(239,68,68,0.05);"><div style="font-size: 13px; font-weight: 900; color: #b91c1c; display: flex; align-items: center; gap: 8px;"><span style="background: #ef4444; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; justify-content: center; align-items: center; font-size: 11px;">B</span> TRIP END: <span style="font-weight:600; color:#333; margin-left: 4px;">${window.tripEndNode.name}</span></div><div style="font-size:10px; color:#ef4444; font-weight:800; text-transform:uppercase;">Edit</div></div>`;
     } else if (endEl) {
@@ -1214,10 +1230,10 @@ window.BARK.updateTripUI = updateTripUI;
 
 // ====== INIT TRIP PLANNER ======
 function initTripPlanner() {
-    const clearTripBtn = window.BARK.DOM.clearTripBtn();
-    const startRouteBtn = window.BARK.DOM.startRouteBtn();
-    const saveRouteBtn = window.BARK.DOM.saveRouteBtn();
-    const optimizeTripBtn = window.BARK.DOM.optimizeTripBtn();
+    const clearTripBtn = getDomRef('clearTripBtn');
+    const startRouteBtn = getDomRef('startRouteBtn');
+    const saveRouteBtn = getDomRef('saveRouteBtn');
+    const optimizeTripBtn = getDomRef('optimizeTripBtn');
     let currentRouteLayers = [];
     let routeRenderGeneration = 0;
     let routeChoiceBusy = false;
@@ -1292,7 +1308,7 @@ function initTripPlanner() {
         }
 
         if (resetName) {
-            const nameInput = window.BARK.DOM.tripNameInput();
+            const nameInput = getDomRef('tripNameInput');
             if (nameInput) nameInput.value = '';
         }
 
@@ -1309,7 +1325,10 @@ function initTripPlanner() {
     window.BARK.resetTripPlannerRuntime = resetTripPlannerRuntime;
 
     if (optimizeTripBtn) {
-        optimizeTripBtn.onclick = () => { window.BARK.DOM.optimizerModal().style.display = 'flex'; };
+        optimizeTripBtn.onclick = () => {
+            const optimizerModal = getDomRef('optimizerModal');
+            if (optimizerModal) optimizerModal.style.display = 'flex';
+        };
     }
 
     if (clearTripBtn) {
@@ -1369,7 +1388,7 @@ function initTripPlanner() {
             return false;
         }
         if (getTotalStops() === 0) { alert('Nothing to save — add some stops first!'); return false; }
-        const nameInput = window.BARK.DOM.tripNameInput();
+        const nameInput = getDomRef('tripNameInput');
         const tripName = nameInput ? nameInput.value.trim() : "";
         if (!tripName) { alert('Please enter a name for your trip.'); if (nameInput) nameInput.focus(); return false; }
         try {
@@ -1420,7 +1439,7 @@ function initTripPlanner() {
             const warningChoice = await warningPrompt(longRouteWarnings);
 
             if (warningChoice === 'optimize') {
-                const optimizerModal = window.BARK.DOM.optimizerModal();
+                const optimizerModal = getDomRef('optimizerModal');
                 if (optimizerModal) optimizerModal.style.display = 'flex';
                 showRouteButtonNotice(startRouteBtn, 'Day Too Long', 'Optimize first', 'warning');
                 return;
