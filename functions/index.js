@@ -1027,6 +1027,32 @@ function normalizeHttpsUrl(value) {
     }
 }
 
+function getUrlLogParts(value) {
+    const text = cleanOptionalString(value);
+    if (!text) return { hostname: null, pathname: null };
+    try {
+        const url = new URL(text);
+        return {
+            hostname: url.hostname || null,
+            pathname: url.pathname || "/"
+        };
+    } catch (error) {
+        return { hostname: null, pathname: null };
+    }
+}
+
+function isRootUrlPath(value) {
+    const text = cleanOptionalString(value);
+    if (!text) return false;
+    try {
+        const url = new URL(text);
+        const pathname = url.pathname || "/";
+        return pathname === "/" || pathname.trim() === "";
+    } catch (error) {
+        return false;
+    }
+}
+
 function getLemonSqueezyConfig(options = {}) {
     const env = options.env || process.env;
     const apiKey = cleanOptionalString(options.apiKey) || cleanOptionalString(env.LEMONSQUEEZY_API_KEY);
@@ -1119,7 +1145,9 @@ function getLemonSqueezyCustomerPortalUrlFromAttributes(attributes = {}) {
     const urls = attributes && attributes.urls && typeof attributes.urls === "object" && !Array.isArray(attributes.urls)
         ? attributes.urls
         : {};
-    return normalizeHttpsUrl(urls.customer_portal);
+    const customerPortalUrl = normalizeHttpsUrl(urls.customer_portal);
+    if (!customerPortalUrl) return null;
+    return customerPortalUrl;
 }
 
 function extractLemonSqueezyCustomerPortalUrl(response) {
@@ -1313,16 +1341,38 @@ async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) 
 
     const userData = userDoc.data() || {};
     const billingReference = getLemonSqueezyBillingReference(userData);
+    const hasSubscriptionId = Boolean(billingReference.providerSubscriptionId);
+    const hasCustomerId = Boolean(billingReference.providerCustomerId);
+    console.log("[payments] Customer portal billing reference.", {
+        uid,
+        hasSubscriptionId,
+        hasCustomerId
+    });
     const apiTarget = buildLemonSqueezyCustomerPortalApiTarget(billingReference);
     const config = getLemonSqueezyConfig(options);
     const get = options.axiosGet || axios.get;
     try {
+        console.log("[payments] Customer portal Lemon API lookup starting.", {
+            uid,
+            hasSubscriptionId,
+            hasCustomerId,
+            lookupType: apiTarget.type,
+            lemonApiEndpoint: apiTarget.url
+        });
         const response = await get(apiTarget.url, {
             headers: {
                 "Accept": "application/vnd.api+json",
                 "Content-Type": "application/vnd.api+json",
                 "Authorization": `Bearer ${config.apiKey}`
             }
+        });
+        console.log("[payments] Customer portal Lemon API response received.", {
+            uid,
+            hasSubscriptionId,
+            hasCustomerId,
+            lookupType: apiTarget.type,
+            lemonApiEndpoint: apiTarget.url,
+            lemonResponseStatus: response && response.status ? response.status : null
         });
 
         const attributes = response &&
@@ -1354,6 +1404,14 @@ async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) 
         }
 
         const customerPortalUrl = extractLemonSqueezyCustomerPortalUrl(response);
+        const portalLogParts = getUrlLogParts(customerPortalUrl);
+        console.log("[payments] Customer portal URL resolved.", {
+            uid,
+            lookupType: apiTarget.type,
+            portalHostname: portalLogParts.hostname,
+            portalPathname: portalLogParts.pathname,
+            portalIsRootPath: isRootUrlPath(customerPortalUrl)
+        });
         return {
             url: customerPortalUrl,
             customerPortalUrl,

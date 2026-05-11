@@ -143,6 +143,7 @@ function loadAuthAccountUi(overrides = {}) {
     const reloadCalls = [];
     const tokenRefreshCalls = [];
     const portalCalls = [];
+    const alertCalls = [];
     const user = {
         uid: 'uid-123',
         email: '',
@@ -239,6 +240,9 @@ function loadAuthAccountUi(overrides = {}) {
                 assign(url) {
                     locationAssignCalls.push(url);
                 }
+            },
+            alert(message) {
+                alertCalls.push(message);
             }
         },
         document,
@@ -269,6 +273,7 @@ function loadAuthAccountUi(overrides = {}) {
         console: {
             ...console,
             error() {},
+            log() {},
             warn() {}
         },
         URL,
@@ -292,6 +297,7 @@ function loadAuthAccountUi(overrides = {}) {
         reloadCalls,
         tokenRefreshCalls,
         portalCalls,
+        alertCalls,
         locationAssignCalls,
         writes,
         element: id => document.element(id)
@@ -377,6 +383,9 @@ test('lemon squeezy premium account opens a fresh customer portal URL', async ()
     assert.equal(Object.keys(harness.portalCalls.at(-1).payload).length, 0);
     assert.deepEqual(harness.locationAssignCalls, [
         'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
+    ]);
+    assert.deepEqual(harness.alertCalls, [
+        'Billing portal URL:\nhttps://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
     ]);
 });
 
@@ -469,6 +478,9 @@ test('cancelled Lemon subscription shows access end date and no auto-renew', asy
     assert.deepEqual(harness.locationAssignCalls, [
         'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
     ]);
+    assert.deepEqual(harness.alertCalls, [
+        'Billing portal URL:\nhttps://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
+    ]);
 });
 
 test('manage subscription does not fall back to a stored portal URL when callable has no URL', async () => {
@@ -498,9 +510,41 @@ test('manage subscription does not fall back to a stored portal URL when callabl
 
     assert.equal(harness.portalCalls.length, 1);
     assert.deepEqual(harness.locationAssignCalls, []);
+    assert.deepEqual(harness.alertCalls, ['Billing portal URL:\nundefined']);
     assert.equal(
         harness.element('account-auth-message').textContent,
         'No customer portal is available for this subscription.'
+    );
+});
+
+test('manage subscription rejects Lemon storefront root URL before redirect', async () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'active',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_root',
+            providerSubscriptionId: 'sub_root'
+        },
+        customerPortalUrl: 'https://usbarkrangers.lemonsqueezy.com/'
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'root-url-user',
+        email: 'root@example.com',
+        displayName: 'Root URL Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await harness.element('account-manage-subscription-btn').dispatch('click');
+
+    assert.deepEqual(harness.locationAssignCalls, []);
+    assert.deepEqual(harness.alertCalls, ['Billing portal URL:\nhttps://usbarkrangers.lemonsqueezy.com/']);
+    assert.equal(
+        harness.element('account-auth-message').textContent,
+        'Billing portal returned an invalid store URL. Please contact support.'
     );
 });
 

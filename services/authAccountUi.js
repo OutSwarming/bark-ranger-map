@@ -14,6 +14,11 @@
     const SUPPORT_EMAIL = 'usbarkrangers@gmail.com';
     const VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
     const BILLING_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
+    const BILLING_FIX_BUILD = 'billing-fix-build: 2026-05-10-2301';
+    const LEMON_SQUEEZY_STORE_HOST = 'usbarkrangers.lemonsqueezy.com';
+
+    console.log(BILLING_FIX_BUILD);
+    window.BARK.billingFixBuild = BILLING_FIX_BUILD;
 
     let initialized = false;
     let activeMode = 'signin';
@@ -510,8 +515,35 @@
         }
     }
 
+    function validateBillingPortalDestination(value) {
+        if (typeof value !== 'string' || !value.trim()) {
+            throw new Error('No customer portal is available for this subscription.');
+        }
+
+        let url;
+        try {
+            url = new URL(value, window.location.href);
+        } catch (error) {
+            throw new Error('No customer portal is available for this subscription.');
+        }
+
+        const pathname = url.pathname || '/';
+        const isRootPath = pathname === '/' || pathname.trim() === '';
+        if (url.protocol !== 'https:' || isRootPath) {
+            throw new Error('Billing portal returned an invalid store URL. Please contact support.');
+        }
+        if (url.hostname === LEMON_SQUEEZY_STORE_HOST && isRootPath) {
+            throw new Error('Billing portal returned an invalid store URL. Please contact support.');
+        }
+
+        return url.toString();
+    }
+
     function getSubscriptionManagementErrorMessage(error) {
         const message = error && typeof error.message === 'string' ? error.message : '';
+        if (/Billing portal returned an invalid store URL\. Please contact support\./i.test(message)) {
+            return 'Billing portal returned an invalid store URL. Please contact support.';
+        }
         if (/No active subscription was found for this account\./i.test(message)) {
             return 'No active subscription was found for this account.';
         }
@@ -561,14 +593,16 @@
             if (typeof window.BARK.incrementRequestCount === 'function') window.BARK.incrementRequestCount();
 
             const result = await getCustomerPortalUrl({});
+            console.log('[Billing] getCustomerPortalUrl response:', result);
             const data = result && result.data ? result.data : {};
             const signedUrl = data.url || data.customerPortalUrl;
+            console.log('[Billing] Customer portal URL returned:', signedUrl);
+            if (typeof window.alert === 'function') {
+                window.alert('Billing portal URL:\n' + signedUrl);
+            }
             applySyncedEntitlement(data.entitlement, currentUser, 'billing-portal-sync');
 
-            const safeDestination = validateSubscriptionDestination(signedUrl);
-            if (!safeDestination) {
-                throw new Error('No customer portal is available for this subscription.');
-            }
+            const safeDestination = validateBillingPortalDestination(signedUrl);
             window.location.assign(safeDestination);
         } catch (error) {
             console.error('[authAccountUi] manage subscription URL failed:', error);

@@ -629,6 +629,39 @@ describe("Lemon Squeezy customer portal callable", () => {
         );
     });
 
+    it("returns Lemon root portal responses so the frontend debug guard can show the exact URL", async () => {
+        const result = await handleGetCustomerPortalUrl(
+            {},
+            authedContext("paid-user"),
+            {
+                firestore: makeUserFirestore({
+                    entitlement: {
+                        premium: true,
+                        status: "active",
+                        source: "lemon_squeezy",
+                        providerSubscriptionId: "sub_root_portal"
+                    }
+                }),
+                apiKey: config.apiKey,
+                axiosGet: async () => ({
+                    status: 200,
+                    data: {
+                        data: {
+                            attributes: {
+                                store_id: 363425,
+                                urls: {
+                                    customer_portal: "https://usbarkrangers.lemonsqueezy.com/"
+                                }
+                            }
+                        }
+                    }
+                })
+            }
+        );
+
+        assert.equal(result.url, "https://usbarkrangers.lemonsqueezy.com/");
+    });
+
     it("syncs cancelled Lemon subscription state while retrieving a portal URL", async () => {
         const firestore = makeUserFirestore({
             entitlement: {
