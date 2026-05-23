@@ -379,6 +379,33 @@ function bindGoogleSignInButton() {
     googleBtn.dataset.barkGoogleSignInBound = 'true';
     googleBtn.addEventListener('click', handleGoogleSignInClick);
     googleBtn.addEventListener('touchend', handleGoogleSignInClick, { passive: false });
+    googleBtn.addEventListener('pointerup', handleGoogleSignInClick);
+
+    const authCard = document.getElementById('account-auth-card');
+    if (authCard && authCard.dataset.barkGoogleSignInDelegated !== 'true') {
+        authCard.dataset.barkGoogleSignInDelegated = 'true';
+        const delegatedGoogleSignIn = (event) => {
+            const activeGoogleBtn = document.getElementById('google-login-btn');
+            if (!activeGoogleBtn || activeGoogleBtn.hidden) return;
+            if (event.target && event.target.closest && event.target.closest('#google-login-btn')) {
+                handleGoogleSignInClick(event);
+                return;
+            }
+            const point = event.changedTouches && event.changedTouches.length
+                ? event.changedTouches[0]
+                : event;
+            if (!Number.isFinite(point.clientX) || !Number.isFinite(point.clientY)) return;
+            const rect = activeGoogleBtn.getBoundingClientRect();
+            const insideButton = point.clientX >= rect.left
+                && point.clientX <= rect.right
+                && point.clientY >= rect.top
+                && point.clientY <= rect.bottom;
+            if (insideButton) handleGoogleSignInClick(event);
+        };
+        authCard.addEventListener('click', delegatedGoogleSignIn);
+        authCard.addEventListener('touchend', delegatedGoogleSignIn, { passive: false });
+        authCard.addEventListener('pointerup', delegatedGoogleSignIn);
+    }
 }
 
 function getEffectiveFirebaseConfig() {
