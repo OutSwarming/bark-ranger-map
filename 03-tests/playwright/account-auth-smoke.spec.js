@@ -279,6 +279,44 @@ test.describe('account auth UI smoke', () => {
         }
     });
 
+    test('iOS GIS button replaces the custom Google button when rendered', async ({ browser }) => {
+        const context = await newBarkContext(browser, {
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+            viewport: { width: 390, height: 844 },
+            isMobile: true,
+            hasTouch: true
+        });
+        const page = await context.newPage();
+        try {
+            await openApp(page);
+            await page.evaluate(() => window.firebase.auth().signOut());
+            await page.waitForFunction(() => !window.firebase.auth().currentUser, { timeout: 30000 });
+            await openProfile(page);
+
+            await page.evaluate(() => {
+                window.google = {
+                    accounts: {
+                        id: {
+                            initialize() {},
+                            renderButton(parent) {
+                                const button = document.createElement('button');
+                                button.type = 'button';
+                                button.textContent = 'Continue with Google';
+                                parent.appendChild(button);
+                            }
+                        }
+                    }
+                };
+                window.BARK.services.auth.renderGoogleIdentityServicesButton();
+            });
+
+            await expect(page.locator('#google-login-btn')).toBeHidden();
+            await expect(page.locator('#google-login-gis-btn')).toBeVisible();
+        } finally {
+            await context.close();
+        }
+    });
+
     test('profile card DOM puts account controls below profile value cards', async ({ page }) => {
         const errors = [];
         page.on('console', message => {

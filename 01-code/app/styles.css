@@ -315,6 +315,11 @@ textarea,
     font-size: 15px;
 }
 
+.google-login-btn[hidden],
+.google-login-gis-btn[hidden] {
+    display: none !important;
+}
+
 .google-login-gis-btn {
     display: flex;
     width: 100%;
