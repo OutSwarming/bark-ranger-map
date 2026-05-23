@@ -130,6 +130,11 @@ const GOOGLE_IDENTITY_SERVICES_PROMPT_TIMEOUT_MS = 5000;
 const GOOGLE_IDENTITY_SERVICES_SCRIPT_TIMEOUT_MS = 8000;
 const GOOGLE_IDENTITY_SERVICES_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
+const FIREBASE_HOSTING_HOSTNAMES = new Set(['barkrangermap-auth.web.app', 'barkrangermap-auth.firebaseapp.com']);
+
+function isFirebaseHostedAppHost(hostname = window.location && window.location.hostname) {
+    return FIREBASE_HOSTING_HOSTNAMES.has(hostname);
+}
 
 function getGoogleOauthClientId() {
     return (window.BARK
@@ -380,10 +385,8 @@ function getEffectiveFirebaseConfig() {
     const config = { ...(window.BARK.firebaseConfig || {}) };
     const hostname = window.location && window.location.hostname;
     const isLocalHost = LOCAL_HOSTNAMES.has(hostname);
-    const isFirebaseHostedApp = hostname === 'barkrangermap-auth.web.app'
-        || hostname === 'barkrangermap-auth.firebaseapp.com';
 
-    if (window.location && window.location.protocol === 'https:' && hostname && !isLocalHost && isFirebaseHostedApp) {
+    if (window.location && window.location.protocol === 'https:' && hostname && !isLocalHost && isFirebaseHostedAppHost(hostname)) {
         config.authDomain = hostname;
     }
 
@@ -401,10 +404,11 @@ function isBenignGoogleSignInError(error) {
 async function signInWithGoogleProvider(provider) {
     const auth = firebase.auth();
 
-    // iPhone Safari: Firebase's popup handshake fails under ITP. Use Google
-    // Identity Services if configured. Do not fall through to Firebase popup on
-    // iOS: Safari reports that path as auth/network-request-failed.
-    if (isIosDevice()) {
+    // iPhone Safari fails Firebase's popup handshake when the app is served from
+    // a different origin than authDomain. The GitHub Pages app now redirects to
+    // Firebase Hosting, so that canonical host can use the normal popup path.
+    // Keep GIS as a fallback for local/off-domain iOS sessions.
+    if (isIosDevice() && !isFirebaseHostedAppHost()) {
         const gisReady = await prepareGoogleIdentityServicesForIos();
         if (!gisReady) {
             showAuthFailureNotice('Google sign-in could not load on this iPhone browser. Refresh once, or use email sign-in while Google is blocked.');
@@ -1496,6 +1500,7 @@ window.BARK.services.auth = {
     consumeGoogleRedirectResult,
     requestGoogleAccountChooser,
     getEffectiveFirebaseConfig,
+    isFirebaseHostedAppHost,
     loadGoogleIdentityServicesScript,
     isGoogleIdentityServicesReady,
     ensureGoogleIdentityServicesInitialized,
