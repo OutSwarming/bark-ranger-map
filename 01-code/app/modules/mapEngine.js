@@ -359,6 +359,9 @@ window.BARK.loadLayer = loadLayer;
 // ====== LOCATE CONTROL ======
 let userLocationMarker = null;
 let manualLocateRequestInFlight = false;
+let locateControlButton = null;
+let locateControlContainer = null;
+let locateRequestId = 0;
 
 function getLocationFailureMessage(error = {}) {
     const code = Number(error.code);
@@ -380,22 +383,79 @@ function getLocationFailureMessage(error = {}) {
     return 'Could not get your location. Check browser and device location permissions, then try again.';
 }
 
-function requestMapLocation(options = {}) {
+function setLocateControlBusy(isBusy) {
+    if (!locateControlButton) return;
+    locateControlButton.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+    locateControlButton.title = isBusy ? 'Finding your location...' : 'Find My Location';
+    if (locateControlContainer) {
+        locateControlContainer.classList.toggle('is-locating', isBusy);
+    }
+}
+
+function getCurrentMapPosition(options) {
+    return new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, options);
+    });
+}
+
+function renderUserLocation(latlng, options = {}) {
+    if (userLocationMarker) {
+        map.removeLayer(userLocationMarker);
+    }
+
+    const pulsingIcon = L.divIcon({
+        className: 'custom-location-pulse',
+        html: '<div class="pulse-location-dot" style="width: 16px; height: 16px;"></div>',
+        iconSize: [16, 16],
+        iconAnchor: [8, 8]
+    });
+
+    userLocationMarker = L.marker(latlng, { icon: pulsingIcon }).addTo(map);
+    if (options.openPopup !== false) {
+        userLocationMarker.bindPopup('You are here!', { autoPan: false }).openPopup();
+    }
+
+    // 🎯 RE-CALCULATE AND RE-SORT ACHIEVEMENTS NOW THAT WE HAVE ACTUAL LOCATION
+    window.syncState();
+}
+
+async function requestMapLocation(options = {}) {
     if (!navigator.geolocation) {
         if (options.manual) alert(getLocationFailureMessage());
         return false;
     }
 
-    manualLocateRequestInFlight = options.manual === true;
-    map.locate({
-        setView: options.setView === true,
-        maxZoom: options.maxZoom || 10,
-        watch: false,
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-    });
-    return true;
+    const requestId = ++locateRequestId;
+    const isManual = options.manual === true;
+    manualLocateRequestInFlight = isManual;
+    setLocateControlBusy(true);
+
+    try {
+        const position = await getCurrentMapPosition({
+            enableHighAccuracy: options.enableHighAccuracy === true,
+            timeout: options.timeout || 20000,
+            maximumAge: Number.isFinite(options.maximumAge) ? options.maximumAge : 120000
+        });
+        if (requestId !== locateRequestId) return false;
+
+        const latlng = L.latLng(position.coords.latitude, position.coords.longitude);
+        if (options.setView === true) {
+            map.setView(latlng, options.maxZoom || 10, { animate: true });
+        }
+        renderUserLocation(latlng, { openPopup: options.openPopup });
+        return true;
+    } catch (error) {
+        if (requestId !== locateRequestId) return false;
+        const message = getLocationFailureMessage(error);
+        console.warn(message);
+        if (isManual) alert(message);
+        return false;
+    } finally {
+        if (requestId === locateRequestId) {
+            manualLocateRequestInFlight = false;
+            setLocateControlBusy(false);
+        }
+    }
 }
 
 function locateIfAlreadyGranted(options = {}) {
@@ -422,10 +482,14 @@ const LocateControl = L.Control.extend({
     onAdd: function (map) {
         const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control custom-locate-btn');
         const button = L.DomUtil.create('a', '', container);
+        locateControlContainer = container;
+        locateControlButton = button;
         button.innerHTML = '⌖';
         button.href = '#';
         button.title = 'Find My Location';
         button.setAttribute('role', 'button');
+        button.setAttribute('aria-label', 'Find my location');
+        button.setAttribute('aria-busy', 'false');
 
         L.DomEvent.disableClickPropagation(container);
         L.DomEvent.on(button, 'click', function (e) {
@@ -441,23 +505,8 @@ window.BARK.getUserLocationMarker = function () { return userLocationMarker; };
 
 map.on('locationfound', function (e) {
     manualLocateRequestInFlight = false;
-
-    if (userLocationMarker) {
-        map.removeLayer(userLocationMarker);
-    }
-
-    const pulsingIcon = L.divIcon({
-        className: 'custom-location-pulse',
-        html: '<div class="pulse-location-dot" style="width: 16px; height: 16px;"></div>',
-        iconSize: [16, 16],
-        iconAnchor: [8, 8]
-    });
-
-    userLocationMarker = L.marker(e.latlng, { icon: pulsingIcon }).addTo(map);
-    userLocationMarker.bindPopup('You are here!', { autoPan: false }).openPopup();
-
-    // 🎯 RE-CALCULATE AND RE-SORT ACHIEVEMENTS NOW THAT WE HAVE ACTUAL LOCATION
-    window.syncState();
+    setLocateControlBusy(false);
+    renderUserLocation(e.latlng);
 });
 
 map.on('locationerror', function (e) {
@@ -465,6 +514,7 @@ map.on('locationerror', function (e) {
     console.warn(message);
     if (manualLocateRequestInFlight) alert(message);
     manualLocateRequestInFlight = false;
+    setLocateControlBusy(false);
 });
 
 // Use location on load only after permission has already been granted. This keeps

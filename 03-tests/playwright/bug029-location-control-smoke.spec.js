@@ -1,10 +1,10 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect, devices } = require('@playwright/test');
 const { newBarkContext, expectBarkAppIdentity } = require('./helpers/barkContext');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL || 'http://localhost:4173/index.html';
 
-async function openMapWithMockLocation(browser, geolocationImpl) {
-    const context = await newBarkContext(browser);
+async function openMapWithMockLocation(browser, geolocationImpl, contextOptions = {}) {
+    const context = await newBarkContext(browser, contextOptions);
     await context.addInitScript((impl) => {
         Object.defineProperty(window.navigator, 'geolocation', {
             configurable: true,
@@ -84,6 +84,39 @@ test.describe('BUG-029 location control', () => {
             expect(state.marker.lat).toBeCloseTo(38.8977, 4);
             expect(state.marker.lng).toBeCloseTo(-77.0365, 4);
             expect(state.zoom).toBeGreaterThanOrEqual(9);
+        } finally {
+            await context.close();
+        }
+    });
+
+    test('manual locate tap works with a phone-sized touch target', async ({ browser }) => {
+        const { context, page } = await openMapWithMockLocation(browser, {
+            mode: 'success',
+            latitude: 44.428,
+            longitude: -110.5885,
+            permissionState: 'prompt'
+        }, devices['iPhone 13']);
+
+        try {
+            const controlBox = await page.locator('.custom-locate-btn a').boundingBox();
+            expect(controlBox.width).toBeGreaterThanOrEqual(44);
+            expect(controlBox.height).toBeGreaterThanOrEqual(44);
+
+            await page.tap('.custom-locate-btn a');
+            await page.waitForFunction(() => Boolean(
+                window.BARK.getUserLocationMarker &&
+                window.BARK.getUserLocationMarker()
+            ), null, { timeout: 5000 });
+
+            const state = await page.evaluate(() => ({
+                center: window.map.getCenter(),
+                marker: window.BARK.getUserLocationMarker().getLatLng()
+            }));
+
+            expect(state.center.lat).toBeCloseTo(44.428, 4);
+            expect(state.center.lng).toBeCloseTo(-110.5885, 4);
+            expect(state.marker.lat).toBeCloseTo(44.428, 4);
+            expect(state.marker.lng).toBeCloseTo(-110.5885, 4);
         } finally {
             await context.close();
         }
