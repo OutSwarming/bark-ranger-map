@@ -165,7 +165,7 @@ test.describe('account auth UI smoke', () => {
 
             async function clickGoogleAndReadPrompt() {
                 const expectedLength = popupPrompts.length + 1;
-                document.getElementById('google-login-btn').click();
+                await window.BARK.services.auth.handleGoogleSignInClick();
 
                 const startedAt = Date.now();
                 while (popupPrompts.length < expectedLength && Date.now() - startedAt < 1000) {

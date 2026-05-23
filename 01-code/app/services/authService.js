@@ -348,24 +348,31 @@ async function prepareGoogleIdentityServicesForIos() {
     }
 }
 
+async function handleGoogleSignInClick(event = null) {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    if (handleGoogleSignInClick.inFlight) return;
+    handleGoogleSignInClick.inFlight = true;
+    try {
+        const provider = createGoogleProvider({
+            forceAccountChooser: consumeGoogleAccountChooserRequest()
+        });
+        if (typeof window.BARK.incrementRequestCount === 'function') {
+            window.BARK.incrementRequestCount();
+        }
+        await signInWithGoogleProvider(provider);
+    } catch (error) {
+        console.error('[authService] Google sign-in failed:', error);
+        alert('Login Error: ' + (error && error.message ? error.message : 'unknown error'));
+    } finally {
+        handleGoogleSignInClick.inFlight = false;
+    }
+}
+
 function bindGoogleSignInButton() {
     const googleBtn = document.getElementById('google-login-btn');
     if (!googleBtn || googleBtn.dataset.barkGoogleSignInBound === 'true') return;
     googleBtn.dataset.barkGoogleSignInBound = 'true';
-    googleBtn.addEventListener('click', async () => {
-        try {
-            const provider = createGoogleProvider({
-                forceAccountChooser: consumeGoogleAccountChooserRequest()
-            });
-            if (typeof window.BARK.incrementRequestCount === 'function') {
-                window.BARK.incrementRequestCount();
-            }
-            await signInWithGoogleProvider(provider);
-        } catch (error) {
-            console.error('[authService] Google sign-in failed:', error);
-            alert('Login Error: ' + (error && error.message ? error.message : 'unknown error'));
-        }
-    });
+    googleBtn.onclick = handleGoogleSignInClick;
 }
 
 function getEffectiveFirebaseConfig() {
@@ -1484,6 +1491,7 @@ window.BARK.services.auth = {
     isIosStandalonePwa,
     shouldUseRedirectGoogleSignIn,
     signInWithGoogleProvider,
+    handleGoogleSignInClick,
     consumeGoogleRedirectResult,
     requestGoogleAccountChooser,
     getEffectiveFirebaseConfig,
