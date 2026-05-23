@@ -372,7 +372,8 @@ function bindGoogleSignInButton() {
     const googleBtn = document.getElementById('google-login-btn');
     if (!googleBtn || googleBtn.dataset.barkGoogleSignInBound === 'true') return;
     googleBtn.dataset.barkGoogleSignInBound = 'true';
-    googleBtn.onclick = handleGoogleSignInClick;
+    googleBtn.addEventListener('click', handleGoogleSignInClick);
+    googleBtn.addEventListener('touchend', handleGoogleSignInClick, { passive: false });
 }
 
 function getEffectiveFirebaseConfig() {
