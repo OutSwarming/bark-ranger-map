@@ -213,7 +213,7 @@ test.describe('account auth UI smoke', () => {
         ]);
     });
 
-    test('iOS GIS not-displayed falls back to Firebase popup', async ({ browser }) => {
+    test('iOS GIS not-displayed does not fall back to Firebase popup', async ({ browser }) => {
         const context = await newBarkContext(browser, {
             userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
             viewport: { width: 390, height: 844 },
@@ -262,7 +262,7 @@ test.describe('account auth UI smoke', () => {
                     document.getElementById('google-login-btn').click();
 
                     const startedAt = Date.now();
-                    while (!observed.includes('firebase-popup') && Date.now() - startedAt < 2000) {
+                    while (!observed.includes('gis-prompt') && Date.now() - startedAt < 2000) {
                         await new Promise(resolve => setTimeout(resolve, 10));
                     }
 
@@ -273,8 +273,7 @@ test.describe('account auth UI smoke', () => {
                 }
             });
 
-            expect(calls).toContain('gis-prompt');
-            expect(calls).toContain('firebase-popup');
+            expect(calls).not.toContain('firebase-popup');
         } finally {
             await context.close();
         }

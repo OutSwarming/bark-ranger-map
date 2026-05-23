@@ -123,8 +123,13 @@ function showIosPwaGoogleSignInNotice(error) {
 // is set; falls back to the existing popup/redirect path otherwise.
 
 let googleIdentityServicesInitialized = false;
+let googleIdentityServicesButtonRendered = false;
 let googleIdentityServicesPromptInFlight = null;
+let googleIdentityServicesScriptLoadPromise = null;
 const GOOGLE_IDENTITY_SERVICES_PROMPT_TIMEOUT_MS = 5000;
+const GOOGLE_IDENTITY_SERVICES_SCRIPT_TIMEOUT_MS = 8000;
+const GOOGLE_IDENTITY_SERVICES_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
 
 function getGoogleOauthClientId() {
     return (window.BARK
@@ -142,6 +147,59 @@ function isGoogleIdentityServicesReady() {
     );
 }
 
+function loadGoogleIdentityServicesScript() {
+    if (isGoogleIdentityServicesReady()) return Promise.resolve(true);
+    if (googleIdentityServicesScriptLoadPromise) return googleIdentityServicesScriptLoadPromise;
+
+    googleIdentityServicesScriptLoadPromise = new Promise((resolve, reject) => {
+        let settled = false;
+        const finish = (result, error = null) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeoutHandle);
+            if (result) resolve(true);
+            else reject(error || new Error('Google Identity Services did not load.'));
+        };
+        const timeoutHandle = setTimeout(() => {
+            finish(false, Object.assign(new Error('Google Identity Services timed out.'), { code: 'gis/script-timeout' }));
+        }, GOOGLE_IDENTITY_SERVICES_SCRIPT_TIMEOUT_MS);
+
+        const existingScript = document.querySelector('script[src="' + GOOGLE_IDENTITY_SERVICES_SCRIPT_SRC + '"]');
+        if (existingScript) {
+            existingScript.addEventListener('load', () => finish(isGoogleIdentityServicesReady()), { once: true });
+            existingScript.addEventListener('error', () => finish(false, Object.assign(new Error('Google Identity Services failed to load.'), { code: 'gis/script-error' })), { once: true });
+            const pollStartedAt = Date.now();
+            const pollHandle = setInterval(() => {
+                if (isGoogleIdentityServicesReady()) {
+                    clearInterval(pollHandle);
+                    finish(true);
+                } else if (Date.now() - pollStartedAt > GOOGLE_IDENTITY_SERVICES_SCRIPT_TIMEOUT_MS) {
+                    clearInterval(pollHandle);
+                }
+            }, 100);
+            return;
+        }
+
+        const script = document.createElement('script');
+        script.src = GOOGLE_IDENTITY_SERVICES_SCRIPT_SRC;
+        script.async = true;
+        script.defer = true;
+        script.onload = () => finish(isGoogleIdentityServicesReady());
+        script.onerror = () => finish(false, Object.assign(new Error('Google Identity Services failed to load.'), { code: 'gis/script-error' }));
+        document.head.appendChild(script);
+    }).catch(error => {
+        googleIdentityServicesScriptLoadPromise = null;
+        throw error;
+    });
+
+    return googleIdentityServicesScriptLoadPromise;
+}
+
+function canRenderGoogleIdentityServicesButton() {
+    return Boolean(isGoogleIdentityServicesReady()
+        && typeof window.google.accounts.id.renderButton === 'function');
+}
+
 function ensureGoogleIdentityServicesInitialized() {
     if (googleIdentityServicesInitialized) return true;
     if (!isGoogleIdentityServicesReady()) return false;
@@ -152,7 +210,7 @@ function ensureGoogleIdentityServicesInitialized() {
             ux_mode: 'popup',
             auto_select: false,
             cancel_on_tap_outside: true,
-            use_fedcm_for_prompt: true
+            use_fedcm_for_prompt: !isIosDevice()
         });
         googleIdentityServicesInitialized = true;
         return true;
@@ -238,6 +296,58 @@ function signInWithGoogleIdentityServices() {
     });
 }
 
+function renderGoogleIdentityServicesButton() {
+    if (!isIosDevice() || googleIdentityServicesButtonRendered || !canRenderGoogleIdentityServicesButton()) {
+        return false;
+    }
+
+    const googleBtn = document.getElementById('google-login-btn');
+    if (!googleBtn || !ensureGoogleIdentityServicesInitialized()) return false;
+
+    let gisButton = document.getElementById('google-login-gis-btn');
+    if (!gisButton) {
+        gisButton = document.createElement('div');
+        gisButton.id = 'google-login-gis-btn';
+        gisButton.className = 'google-login-gis-btn';
+        googleBtn.insertAdjacentElement('afterend', gisButton);
+    }
+
+    try {
+        gisButton.innerHTML = '';
+        window.google.accounts.id.renderButton(gisButton, {
+            type: 'standard',
+            theme: 'outline',
+            size: 'large',
+            text: 'continue_with',
+            shape: 'rectangular',
+            logo_alignment: 'left',
+            width: Math.max(240, Math.min(400, Math.round(googleBtn.getBoundingClientRect().width || 320)))
+        });
+        googleBtn.hidden = true;
+        gisButton.hidden = false;
+        googleIdentityServicesButtonRendered = true;
+        return true;
+    } catch (error) {
+        console.error('[authService] GIS button render failed; keeping Firebase popup button:', error);
+        gisButton.hidden = true;
+        googleBtn.hidden = false;
+        return false;
+    }
+}
+
+async function prepareGoogleIdentityServicesForIos() {
+    if (!isIosDevice() || !getGoogleOauthClientId()) return false;
+
+    try {
+        await loadGoogleIdentityServicesScript();
+        ensureGoogleIdentityServicesInitialized();
+        return renderGoogleIdentityServicesButton() || isGoogleIdentityServicesReady();
+    } catch (error) {
+        console.error('[authService] GIS script unavailable on iOS:', error);
+        return false;
+    }
+}
+
 function bindGoogleSignInButton() {
     const googleBtn = document.getElementById('google-login-btn');
     if (!googleBtn || googleBtn.dataset.barkGoogleSignInBound === 'true') return;
@@ -258,6 +368,21 @@ function bindGoogleSignInButton() {
     });
 }
 
+function getEffectiveFirebaseConfig() {
+    const config = { ...(window.BARK.firebaseConfig || {}) };
+    const hostname = window.location && window.location.hostname;
+    const isLocalHost = LOCAL_HOSTNAMES.has(hostname);
+    const isFirebaseHostedApp = hostname === 'barkrangermap-auth.web.app'
+        || hostname === 'barkrangermap-auth.firebaseapp.com';
+
+    if (window.location && window.location.protocol === 'https:' && hostname && !isLocalHost && isFirebaseHostedApp) {
+        config.authDomain = hostname;
+    }
+
+    window.BARK.effectiveFirebaseConfig = config;
+    return config;
+}
+
 function isBenignGoogleSignInError(error) {
     const code = error && error.code ? String(error.code) : '';
     return code === 'auth/popup-closed-by-user'
@@ -269,15 +394,32 @@ async function signInWithGoogleProvider(provider) {
     const auth = firebase.auth();
 
     // iPhone Safari: Firebase's popup handshake fails under ITP. Use Google
-    // Identity Services if configured. Everything else just uses popup, which
-    // is what was working before the redirect detour.
-    if (isIosDevice() && isGoogleIdentityServicesReady()) {
+    // Identity Services if configured. Do not fall through to Firebase popup on
+    // iOS: Safari reports that path as auth/network-request-failed.
+    if (isIosDevice()) {
+        const gisReady = await prepareGoogleIdentityServicesForIos();
+        if (!gisReady) {
+            showAuthFailureNotice('Google sign-in could not load on this iPhone browser. Refresh once, or use email sign-in while Google is blocked.');
+            return;
+        }
+
+        if (googleIdentityServicesButtonRendered) {
+            showAuthFailureNotice('Tap the Google sign-in button again to continue.');
+            return;
+        }
+
         try {
             await signInWithGoogleIdentityServices();
             return;
         } catch (error) {
             if (isBenignGoogleSignInError(error)) return;
-            console.error('[authService] GIS sign-in failed; falling through to popup:', error);
+            console.error('[authService] GIS sign-in failed on iOS:', error);
+            if (renderGoogleIdentityServicesButton()) {
+                showAuthFailureNotice('Tap the Google sign-in button again to continue.');
+                return;
+            }
+            showAuthFailureNotice('Google sign-in could not be completed on this iPhone browser. Please try again or use email sign-in.');
+            return;
         }
     }
 
@@ -1124,7 +1266,7 @@ async function initFirebase() {
     const loadSavedRoutes = window.BARK.loadSavedRoutes;
 
     try {
-        firebase.initializeApp(window.BARK.firebaseConfig);
+        firebase.initializeApp(getEffectiveFirebaseConfig());
         await ensureLocalAuthPersistence();
     } catch (error) {
         console.error("[authService] initializeApp failed:", error);
@@ -1140,10 +1282,16 @@ async function initFirebase() {
     // Initialize Google Identity Services as soon as its script loads, if a
     // client ID is configured. Polled because the GIS script is async.
     if (getGoogleOauthClientId()) {
+        if (isIosDevice()) {
+            prepareGoogleIdentityServicesForIos();
+        }
+
         let gisPollAttempts = 0;
         const gisPollInterval = setInterval(() => {
             gisPollAttempts += 1;
-            if (ensureGoogleIdentityServicesInitialized() || gisPollAttempts > 40) {
+            const initialized = ensureGoogleIdentityServicesInitialized();
+            if (initialized) renderGoogleIdentityServicesButton();
+            if (initialized || gisPollAttempts > 40) {
                 clearInterval(gisPollInterval);
             }
         }, 250);
@@ -1338,8 +1486,12 @@ window.BARK.services.auth = {
     signInWithGoogleProvider,
     consumeGoogleRedirectResult,
     requestGoogleAccountChooser,
+    getEffectiveFirebaseConfig,
+    loadGoogleIdentityServicesScript,
     isGoogleIdentityServicesReady,
     ensureGoogleIdentityServicesInitialized,
+    renderGoogleIdentityServicesButton,
+    prepareGoogleIdentityServicesForIos,
     signInWithGoogleIdentityServices
 };
 window.BARK.initFirebase = initFirebase;

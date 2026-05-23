@@ -315,6 +315,16 @@ textarea,
     font-size: 15px;
 }
 
+.google-login-gis-btn {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+}
+
+.google-login-gis-btn > div {
+    width: 100%;
+}
+
 .google-login-icon {
     width: 18px;
     height: 18px;
