@@ -357,6 +357,66 @@ if (mapStyleSelect) {
 window.BARK.loadLayer = loadLayer;
 
 // ====== LOCATE CONTROL ======
+let userLocationMarker = null;
+let manualLocateRequestInFlight = false;
+
+function getLocationFailureMessage(error = {}) {
+    const code = Number(error.code);
+    if (!navigator.geolocation) {
+        return 'Location is not available in this browser.';
+    }
+    if (window.isSecureContext === false) {
+        return 'Location requires the secure web app URL. Open the HTTPS site, then try again.';
+    }
+    if (code === 1) {
+        return 'Location permission is blocked. Enable location access for this site in your browser settings, then tap the location button again.';
+    }
+    if (code === 2) {
+        return 'Your location is unavailable right now. Check device location services and try again.';
+    }
+    if (code === 3) {
+        return 'Location lookup timed out. Move somewhere with a clearer GPS signal and try again.';
+    }
+    return 'Could not get your location. Check browser and device location permissions, then try again.';
+}
+
+function requestMapLocation(options = {}) {
+    if (!navigator.geolocation) {
+        if (options.manual) alert(getLocationFailureMessage());
+        return false;
+    }
+
+    manualLocateRequestInFlight = options.manual === true;
+    map.locate({
+        setView: options.setView === true,
+        maxZoom: options.maxZoom || 10,
+        watch: false,
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+    });
+    return true;
+}
+
+function locateIfAlreadyGranted(options = {}) {
+    if (!navigator.geolocation) return;
+    if (!navigator.permissions || typeof navigator.permissions.query !== 'function') return;
+
+    navigator.permissions.query({ name: 'geolocation' })
+        .then(status => {
+            if (!status || status.state !== 'granted') return;
+            requestMapLocation({
+                setView: options.setView === true,
+                maxZoom: options.maxZoom || 10,
+                manual: false
+            });
+        })
+        .catch(() => {});
+}
+
+window.BARK.requestMapLocation = requestMapLocation;
+window.BARK.locateIfAlreadyGranted = locateIfAlreadyGranted;
+
 const LocateControl = L.Control.extend({
     options: { position: 'bottomleft' },
     onAdd: function (map) {
@@ -370,17 +430,18 @@ const LocateControl = L.Control.extend({
         L.DomEvent.disableClickPropagation(container);
         L.DomEvent.on(button, 'click', function (e) {
             L.DomEvent.preventDefault(e);
-            map.locate({ setView: true, maxZoom: 10 });
+            requestMapLocation({ setView: true, maxZoom: 10, manual: true });
         });
         return container;
     }
 });
 map.addControl(new LocateControl());
 
-let userLocationMarker = null;
 window.BARK.getUserLocationMarker = function () { return userLocationMarker; };
 
 map.on('locationfound', function (e) {
+    manualLocateRequestInFlight = false;
+
     if (userLocationMarker) {
         map.removeLayer(userLocationMarker);
     }
@@ -400,16 +461,21 @@ map.on('locationfound', function (e) {
 });
 
 map.on('locationerror', function (e) {
-    console.warn("Could not access your location. Please check your browser permissions.");
+    const message = getLocationFailureMessage(e);
+    console.warn(message);
+    if (manualLocateRequestInFlight) alert(message);
+    manualLocateRequestInFlight = false;
 });
 
-// Prompt for location immediately on load
+// Use location on load only after permission has already been granted. This keeps
+// the manual locate button from feeling broken because an earlier auto-prompt was
+// dismissed or blocked.
 setTimeout(() => {
     const usedSaved = window.rememberMapPosition && localStorage.getItem('mapLat');
     if (!usedSaved && !window.startNationalView) {
-        map.locate({ setView: true, maxZoom: 10 });
+        locateIfAlreadyGranted({ setView: true, maxZoom: 10 });
     } else {
-        map.locate({ setView: false, watch: false });
+        locateIfAlreadyGranted({ setView: false, maxZoom: 10 });
     }
 }, 500);
 
