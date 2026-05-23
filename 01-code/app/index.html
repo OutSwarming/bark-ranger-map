@@ -1199,7 +1199,9 @@
                     <p class="account-auth-copy">Save where you've been, keep verified check-ins, build your profile, and back up road trip itineraries.</p>
 
                     <button id="google-login-btn" class="google-login-btn" type="button"
-                        onclick="window.BARK && window.BARK.services && window.BARK.services.auth && window.BARK.services.auth.handleGoogleSignInClick && window.BARK.services.auth.handleGoogleSignInClick(event)">
+                        onclick="window.BARK && window.BARK.services && window.BARK.services.auth && window.BARK.services.auth.handleGoogleSignInClick && window.BARK.services.auth.handleGoogleSignInClick(event)"
+                        onpointerdown="window.BARK && window.BARK.services && window.BARK.services.auth && window.BARK.services.auth.handleGoogleSignInClick && window.BARK.services.auth.handleGoogleSignInClick(event)"
+                        ontouchstart="window.BARK && window.BARK.services && window.BARK.services.auth && window.BARK.services.auth.handleGoogleSignInClick && window.BARK.services.auth.handleGoogleSignInClick(event)">
                         <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google"
                             class="google-login-icon">
                         Continue with Google
@@ -1438,7 +1440,7 @@
     <script src="services/premiumService.js?v=2" defer></script>
     <script src="services/authAccountUi.js?v=13" defer></script>
     <script src="modules/paywallController.js?v=8" defer></script>
-    <script src="services/authService.js?v=38" defer></script>
+    <script src="services/authService.js?v=39" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>
     <script src="modules/MarkerLayerManager.js?v=9" defer></script>
     <script src="modules/TripLayerManager.js?v=5" defer></script>
