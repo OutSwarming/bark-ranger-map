@@ -213,6 +213,73 @@ test.describe('account auth UI smoke', () => {
         ]);
     });
 
+    test('iOS GIS not-displayed falls back to Firebase popup', async ({ browser }) => {
+        const context = await newBarkContext(browser, {
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+            viewport: { width: 390, height: 844 },
+            isMobile: true,
+            hasTouch: true
+        });
+        const page = await context.newPage();
+        try {
+            await openApp(page);
+            await page.evaluate(() => window.firebase.auth().signOut());
+            await page.waitForFunction(() => !window.firebase.auth().currentUser, { timeout: 30000 });
+            await openProfile(page);
+
+            const calls = await page.evaluate(async () => {
+                const auth = firebase.auth();
+                const originalGoogle = window.google;
+                const originalSignInWithPopup = auth.signInWithPopup;
+                const observed = [];
+
+                window.google = {
+                    accounts: {
+                        id: {
+                            initialize() {
+                                observed.push('gis-initialize');
+                            },
+                            prompt(callback) {
+                                observed.push('gis-prompt');
+                                callback({
+                                    isDisplayed: () => false,
+                                    isNotDisplayed: () => true,
+                                    getNotDisplayedReason: () => 'browser_not_supported',
+                                    isSkippedMoment: () => false,
+                                    isDismissedMoment: () => false
+                                });
+                            }
+                        }
+                    }
+                };
+
+                auth.signInWithPopup = async () => {
+                    observed.push('firebase-popup');
+                    return { user: auth.currentUser || null };
+                };
+
+                try {
+                    document.getElementById('google-login-btn').click();
+
+                    const startedAt = Date.now();
+                    while (!observed.includes('firebase-popup') && Date.now() - startedAt < 2000) {
+                        await new Promise(resolve => setTimeout(resolve, 10));
+                    }
+
+                    return observed;
+                } finally {
+                    window.google = originalGoogle;
+                    auth.signInWithPopup = originalSignInWithPopup;
+                }
+            });
+
+            expect(calls).toContain('gis-prompt');
+            expect(calls).toContain('firebase-popup');
+        } finally {
+            await context.close();
+        }
+    });
+
     test('profile card DOM puts account controls below profile value cards', async ({ page }) => {
         const errors = [];
         page.on('console', message => {
