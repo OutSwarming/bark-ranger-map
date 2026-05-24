@@ -40,6 +40,8 @@ const inputs = {
     hazards: document.getElementById('hazards'),
     extraSwag: document.getElementById('extra-swag'),
     dateInput: document.getElementById('date-input'),
+    manualLat: document.getElementById('manual-lat'),
+    manualLng: document.getElementById('manual-lng'),
     forceGeocode: document.getElementById('force-geocode')
 };
 
@@ -373,6 +375,8 @@ function loadNextPark() {
         inputs.strictRules.value = currentPark.strictRules || '';
         inputs.hazards.value = currentPark.hazards || '';
         inputs.extraSwag.value = currentPark.extraSwag || '';
+        inputs.manualLat.value = currentPark.lat || currentPark.latitude || '';
+        inputs.manualLng.value = currentPark.lng || currentPark.long || currentPark.longitude || '';
 
         // Update button status
         syncBtn.textContent = `Sync to Map (${parkQueue.length} left)`;
@@ -459,6 +463,8 @@ syncBtn.addEventListener('click', async () => {
             hazards: inputs.hazards.value,
             extraSwag: inputs.extraSwag.value,
             dateUpdated: inputs.dateInput.value,
+            lat: inputs.manualLat.value,
+            lng: inputs.manualLng.value,
             forceGeocode: inputs.forceGeocode.checked, // Pass the override flag
             allowAppend: false // Default to false!
         };

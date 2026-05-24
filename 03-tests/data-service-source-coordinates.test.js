@@ -75,12 +75,39 @@ test('data service skips source rows with missing coordinates instead of repairi
 
     harness.sandbox.window.BARK.parseCSVString([
         'Location,State,Swag Cost,Type,Useful/Important/Other Info,Website,lat,lng,Park id',
-        'Cliffs of the Neuse State Park,North Carolina,Unknown,State,Tag,https://www.ncparks.gov/state-parks/cliffs-neuse-state-park,,,38e0a9bb-4365-4d84-87ea-cca3bde06435'
+        'Cliffs of the Neuse State Park,North Carolina,Unknown,State,Tag,https://www.ncparks.gov/state-parks/cliffs-neuse-state-park,,,38e0a9bb-4365-4d84-87ea-cca3bde06435',
+        'Fort Caroline/Timucuan Ecological and Historical Preserve,Florida,Free,National,Tag,https://www.nps.gov/places/foca.htm,30.385948,-81.497541,b7b26034-7d2c-4c3e-9901-29e1b5751230'
     ].join('\n'));
 
     const publishedPoints = harness.getPublishedPoints();
-    assert.equal(publishedPoints.length, 0);
+    assert.equal(publishedPoints.length, 1);
+    assert.equal(publishedPoints[0].id, 'b7b26034-7d2c-4c3e-9901-29e1b5751230');
+});
+
+test('data service rejects a CSV refresh that would publish zero usable parks', () => {
+    const harness = loadDataServiceHarness();
+
+    harness.sandbox.window.BARK.parseCSVString([
+        'Location,State,Swag Cost,Type,Useful/Important/Other Info,Website,lat,lng,Park id',
+        'Cliffs of the Neuse State Park,North Carolina,Unknown,State,Tag,https://www.ncparks.gov/state-parks/cliffs-neuse-state-park,,,38e0a9bb-4365-4d84-87ea-cca3bde06435'
+    ].join('\n'));
+
+    assert.equal(harness.getPublishedPoints(), null);
     assert.equal(harness.getGamificationPoints(), null);
+});
+
+test('data service accepts Latitude and Longitude coordinate headers', () => {
+    const harness = loadDataServiceHarness();
+
+    harness.sandbox.window.BARK.parseCSVString([
+        'Location,State,Swag Cost,Type,Useful/Important/Other Info,Website,Latitude,Longitude,Park id',
+        'Cliffs of the Neuse State Park,North Carolina,Unknown,State,Tag,https://www.ncparks.gov/state-parks/cliffs-neuse-state-park,35.2354,-77.8932,38e0a9bb-4365-4d84-87ea-cca3bde06435'
+    ].join('\n'));
+
+    const publishedPoints = harness.getPublishedPoints();
+    assert.equal(publishedPoints.length, 1);
+    assert.equal(publishedPoints[0].lat, 35.2354);
+    assert.equal(publishedPoints[0].lng, -77.8932);
 });
 
 test('data service publishes Fort Caroline and Kingsley Plantation source coordinates unchanged', () => {
