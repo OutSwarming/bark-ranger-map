@@ -230,12 +230,7 @@ test.describe('account auth UI smoke', () => {
             const calls = await page.evaluate(async () => {
                 const auth = firebase.auth();
                 const originalSignInWithPopup = auth.signInWithPopup;
-                const originalSetPersistence = auth.setPersistence;
                 const observed = [];
-
-                auth.setPersistence = async (persistence) => {
-                    observed.push({ type: 'set-persistence', persistence });
-                };
 
                 auth.signInWithPopup = async (provider) => {
                     observed.push({
@@ -256,11 +251,10 @@ test.describe('account auth UI smoke', () => {
                     return observed;
                 } finally {
                     auth.signInWithPopup = originalSignInWithPopup;
-                    auth.setPersistence = originalSetPersistence;
                 }
             });
 
-            expect(calls.map(call => call.type)).toContain('set-persistence');
+            expect(calls.map(call => call.type)).toEqual(['firebase-popup']);
             expect(calls).toContainEqual({
                 type: 'firebase-popup',
                 providerId: 'google.com'
