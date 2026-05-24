@@ -213,7 +213,7 @@ test.describe('account auth UI smoke', () => {
         ]);
     });
 
-    test('iOS GIS not-displayed does not fall back to Firebase popup', async ({ browser }) => {
+    test('iOS Google sign-in uses the same Firebase popup path as desktop', async ({ browser }) => {
         const context = await newBarkContext(browser, {
             userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
             viewport: { width: 390, height: 844 },
@@ -229,32 +229,19 @@ test.describe('account auth UI smoke', () => {
 
             const calls = await page.evaluate(async () => {
                 const auth = firebase.auth();
-                const originalGoogle = window.google;
                 const originalSignInWithPopup = auth.signInWithPopup;
+                const originalSetPersistence = auth.setPersistence;
                 const observed = [];
 
-                window.google = {
-                    accounts: {
-                        id: {
-                            initialize() {
-                                observed.push('gis-initialize');
-                            },
-                            prompt(callback) {
-                                observed.push('gis-prompt');
-                                callback({
-                                    isDisplayed: () => false,
-                                    isNotDisplayed: () => true,
-                                    getNotDisplayedReason: () => 'browser_not_supported',
-                                    isSkippedMoment: () => false,
-                                    isDismissedMoment: () => false
-                                });
-                            }
-                        }
-                    }
+                auth.setPersistence = async (persistence) => {
+                    observed.push({ type: 'set-persistence', persistence });
                 };
 
-                auth.signInWithPopup = async () => {
-                    observed.push('firebase-popup');
+                auth.signInWithPopup = async (provider) => {
+                    observed.push({
+                        type: 'firebase-popup',
+                        providerId: provider && provider.providerId
+                    });
                     return { user: auth.currentUser || null };
                 };
 
@@ -262,91 +249,22 @@ test.describe('account auth UI smoke', () => {
                     document.getElementById('google-login-btn').click();
 
                     const startedAt = Date.now();
-                    while (!observed.includes('gis-prompt') && Date.now() - startedAt < 2000) {
+                    while (!observed.some(call => call.type === 'firebase-popup') && Date.now() - startedAt < 2000) {
                         await new Promise(resolve => setTimeout(resolve, 10));
                     }
 
                     return observed;
                 } finally {
-                    window.google = originalGoogle;
                     auth.signInWithPopup = originalSignInWithPopup;
+                    auth.setPersistence = originalSetPersistence;
                 }
             });
 
-            expect(calls).not.toContain('firebase-popup');
-        } finally {
-            await context.close();
-        }
-    });
-
-    test('iOS Google sign-in uses token client without replacing the custom button', async ({ browser }) => {
-        const context = await newBarkContext(browser, {
-            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
-            viewport: { width: 390, height: 844 },
-            isMobile: true,
-            hasTouch: true
-        });
-        const page = await context.newPage();
-        try {
-            await openApp(page);
-            await page.evaluate(() => window.firebase.auth().signOut());
-            await page.waitForFunction(() => !window.firebase.auth().currentUser, { timeout: 30000 });
-            await openProfile(page);
-
-            const calls = await page.evaluate(async () => {
-                const auth = firebase.auth();
-                const originalGoogle = window.google;
-                const originalSignInWithCredential = auth.signInWithCredential;
-                const observed = [];
-
-                window.google = {
-                    accounts: {
-                        oauth2: {
-                            initTokenClient(config) {
-                                observed.push({
-                                    type: 'token-client-init',
-                                    clientId: config.client_id,
-                                    scope: config.scope
-                                });
-                                return {
-                                    requestAccessToken(options) {
-                                        observed.push({
-                                            type: 'token-request',
-                                            prompt: options && options.prompt
-                                        });
-                                        config.callback({ access_token: 'fake-access-token' });
-                                    }
-                                };
-                            }
-                        }
-                    }
-                };
-
-                auth.signInWithCredential = async () => {
-                    observed.push({ type: 'firebase-credential' });
-                    return { user: { uid: 'test-user' } };
-                };
-
-                try {
-                    document.getElementById('google-login-btn').click();
-
-                    const startedAt = Date.now();
-                    while (!observed.some(call => call.type === 'firebase-credential') && Date.now() - startedAt < 2000) {
-                        await new Promise(resolve => setTimeout(resolve, 10));
-                    }
-
-                    return observed;
-                } finally {
-                    window.google = originalGoogle;
-                    auth.signInWithCredential = originalSignInWithCredential;
-                }
+            expect(calls.map(call => call.type)).toContain('set-persistence');
+            expect(calls).toContainEqual({
+                type: 'firebase-popup',
+                providerId: 'google.com'
             });
-
-            expect(calls.map(call => call.type)).toEqual([
-                'token-client-init',
-                'token-request',
-                'firebase-credential'
-            ]);
             await expect(page.locator('#google-login-btn')).toBeVisible();
             await expect(page.locator('#google-login-gis-btn')).toHaveCount(0);
         } finally {
