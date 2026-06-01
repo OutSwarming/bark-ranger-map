@@ -560,7 +560,7 @@
         const canonicalResult = callOptionalCallback(
             'normalizeLocalVisitedPlacesToCanonical',
             options.normalizeLocalVisitedPlacesToCanonical,
-            { writeBack: true }
+            { writeBack: false, source: 'snapshot' }
         );
         if (canonicalResult && typeof canonicalResult.catch === 'function') {
             canonicalResult.catch(error => {

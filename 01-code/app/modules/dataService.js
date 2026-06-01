@@ -204,7 +204,7 @@ function processParsedResults(results) {
 
     const firebaseService = window.BARK.services && window.BARK.services.firebase;
     if (firebaseService && typeof firebaseService.normalizeLocalVisitedPlacesToCanonical === 'function') {
-        firebaseService.normalizeLocalVisitedPlacesToCanonical({ writeBack: true })
+        firebaseService.normalizeLocalVisitedPlacesToCanonical({ writeBack: false, source: 'park-data-load' })
             .catch(error => console.error('[dataService] visited-place canonicalization failed:', error));
     }
 

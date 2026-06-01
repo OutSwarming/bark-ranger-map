@@ -97,10 +97,20 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasAny(['visitedPlaces']);
     }
 
+    function largeVisitedPlacesShrink() {
+      return resource.data.keys().hasAny(['visitedPlaces'])
+        && request.resource.data.keys().hasAny(['visitedPlaces'])
+        && resource.data.visitedPlaces is list
+        && request.resource.data.visitedPlaces is list
+        && resource.data.visitedPlaces.size() >= 3
+        && request.resource.data.visitedPlaces.size() <= resource.data.visitedPlaces.size() - 3;
+    }
+
     function updatesValidVisitedPlacesForPlan() {
       return !changesVisitedPlaces()
         || (
           hasValidVisitedPlacesShape(request.resource.data)
+          && !largeVisitedPlacesShrink()
           && (
             hasActivePremiumEntitlement(resource.data)
             || withinFreeVisitedPlaceLimit(request.resource.data)

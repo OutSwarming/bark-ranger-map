@@ -249,6 +249,30 @@ describe('Firestore entitlement and admin field rules', () => {
         }));
     });
 
+    it('denies large client-side visitedPlaces shrink writes even for premium users', async () => {
+        await seedDoc(['users', 'premium-shrink'], {
+            entitlement: {
+                premium: true,
+                status: 'manual_active',
+                source: 'admin_override',
+                manualOverride: true
+            },
+            settings: { mapStyle: 'default' },
+            visitedPlaces: makeVisitedPlaces(8)
+        });
+
+        const premiumDb = authedDb('premium-shrink');
+        const premiumRef = doc(premiumDb, 'users', 'premium-shrink');
+
+        await assertSucceeds(updateDoc(premiumRef, {
+            visitedPlaces: makeVisitedPlaces(6)
+        }));
+
+        await assertFails(updateDoc(premiumRef, {
+            visitedPlaces: makeVisitedPlaces(2)
+        }));
+    });
+
     it('denies expired access_code users from writing above the free visit limit', async () => {
         await seedDoc(['users', 'expired-access-code'], {
             entitlement: {
