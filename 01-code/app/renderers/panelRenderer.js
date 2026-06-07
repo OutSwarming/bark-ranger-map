@@ -437,12 +437,10 @@ function renderMarkerClickPanel(context) {
                 verifyBtn.style.opacity = '1';
             }
 
-            // Three-state verified-checkin button:
-            //   • yellow (#facc15) "Verifying…"      — local write done, awaiting server confirmation
-            //   • green  (#4CAF50) "Verified & Secured" — authoritative server snapshot has the visit
-            //   • orange (#f59e0b) "Verified (syncing…)" — 30s passed with no server confirmation,
-            //                                              visit is durably queued in IndexedDB + localStorage
-            const SERVER_CONFIRMATION_TIMEOUT_MS = 30000;
+            // Verified check-in waits indefinitely for real server confirmation:
+            //   yellow (#facc15) "Verifying..."          — local write queued, retrying server confirmation
+            //   green  (#4CAF50) "Verified & Secured"   — Firestore confirmed the visit
+            const SERVER_CONFIRMATION_RETRY_MS = 8000;
 
             const setVerifyButtonStateVerifying = (label) => {
                 verifyBtn.style.background = '#facc15';
@@ -459,14 +457,6 @@ function renderMarkerClickPanel(context) {
                 verifyBtn.disabled = true;
                 verifyBtn.style.cursor = 'default';
                 verifyBtn.style.opacity = '0.7';
-            };
-            const setVerifyButtonStatePendingSync = () => {
-                verifyBtn.style.background = '#f59e0b';
-                verifyBtn.style.color = '';
-                verifyBtnText.textContent = '🐾 Verified (syncing…)';
-                verifyBtn.disabled = true;
-                verifyBtn.style.cursor = 'default';
-                verifyBtn.style.opacity = '0.85';
             };
             const restoreVerifyButtonDefault = () => {
                 verifyBtn.style.background = '#FF9800';
@@ -522,15 +512,14 @@ function renderMarkerClickPanel(context) {
 
                 const visitId = checkinResult.visitRecord && checkinResult.visitRecord.id;
                 const confirmation = typeof checkinService.awaitServerConfirmation === 'function'
-                    ? await checkinService.awaitServerConfirmation(visitId, { timeoutMs: SERVER_CONFIRMATION_TIMEOUT_MS })
+                    ? await checkinService.awaitServerConfirmation(visitId, { retryMs: SERVER_CONFIRMATION_RETRY_MS })
                     : { confirmed: true };
 
                 if (confirmation.confirmed) {
                     setVerifyButtonStateConfirmed();
                     alert(`Check-in Verified! You earned 2 points.`);
                 } else {
-                    setVerifyButtonStatePendingSync();
-                    alert("Check-in saved on your phone. We'll sync it to the cloud the moment you have signal again — keep the app open and you won't lose this visit.");
+                    setVerifyButtonStateVerifying('Verifying…');
                 }
 
                 markVisitedBtn.classList.add('visited');
@@ -626,7 +615,7 @@ function renderMarkerClickPanel(context) {
 
                 let confirmation;
                 try {
-                    confirmation = await checkinService.awaitServerConfirmation(newVisit.id, { timeoutMs: 10000 });
+                    confirmation = await checkinService.awaitServerConfirmation(newVisit.id, { retryMs: SERVER_CONFIRMATION_RETRY_MS });
                 } catch (error) {
                     console.warn('[panelRenderer] mark-as-visited confirmation threw:', error);
                     confirmation = { confirmed: false, reason: 'error' };
