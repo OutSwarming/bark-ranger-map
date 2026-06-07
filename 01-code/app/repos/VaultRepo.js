@@ -426,6 +426,10 @@
         pending.delete(getVisitId(parkId));
     }
 
+    function hasPendingMutation(parkId) {
+        return pending.has(getVisitId(parkId));
+    }
+
     function clearPendingMutations() {
         pending.clear();
     }
@@ -664,6 +668,7 @@
         assertWriteIsNotDestructive,
         stageUpsert,
         stageDelete,
+        hasPendingMutation,
         clearPendingMutation,
         clearPendingMutations,
         reconcileSnapshot,

@@ -165,6 +165,26 @@ function awaitWithFirebaseWriteTimeout(writePromiseFactory) {
     });
 }
 
+function queueVisitedPlacesWrite(label, visitId, writePromiseFactory, onFatalError) {
+    awaitWithFirebaseWriteTimeout(writePromiseFactory)
+        .catch(error => {
+            if (isNetworkLikeError(error)) {
+                console.warn(`[checkinService] ${label} queued for sync (network unavailable):`, error);
+                return;
+            }
+
+            console.error(`[checkinService] ${label} failed after local staging:`, error);
+            if (typeof onFatalError === 'function') {
+                try {
+                    onFatalError(error);
+                } catch (rollbackError) {
+                    console.error(`[checkinService] ${label} rollback failed:`, rollbackError);
+                }
+            }
+            cancelPendingServerConfirmation(visitId, 'write-failed');
+        });
+}
+
 // Pending confirmations live here while their visit IDs wait to appear in an
 // authoritative server snapshot. authService calls notifyAuthoritativeSnapshot()
 // whenever such a snapshot arrives so we can resolve any matching promises and
@@ -331,6 +351,15 @@ function notifyAuthoritativeSnapshot() {
         pendingServerConfirmations.delete(visitId);
         entry.resolve({ confirmed: true });
     });
+}
+
+function cancelPendingServerConfirmation(visitId, reason) {
+    if (!visitId || pendingServerConfirmations.size === 0) return;
+    const entry = pendingServerConfirmations.get(visitId);
+    if (!entry) return;
+    clearPendingConfirmationTimers(entry);
+    pendingServerConfirmations.delete(visitId);
+    entry.resolve({ confirmed: false, reason: reason || 'cancelled' });
 }
 
 function cancelPendingServerConfirmations(reason) {
@@ -695,32 +724,29 @@ async function verifyGpsCheckin(parkData) {
         refreshVisitedVisuals('checkin-verified-add', firebaseService);
         requestVisitStateSync('checkin-verified-add');
 
-        // Race the Firebase write against a 15s timeout. With offline persistence
-        // enabled, the write is durably queued in IndexedDB even if the timeout
-        // wins — the timeout only governs how long the UI waits before telling
-        // the user "saved, will sync when online" instead of "saved to cloud".
-        let syncStatus = 'cloud';
-        try {
-            await awaitWithFirebaseWriteTimeout(() => firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()));
-        } catch (writeError) {
-            if (isNetworkLikeError(writeError)) {
-                // Visit is in the vault, in localStorage, and (with persistence
-                // enabled) in Firestore's offline queue. The next authoritative
-                // snapshot will clear the localStorage entry. DO NOT roll back —
-                // that's exactly the bug that lost Maddy's Edgar Evins visit.
-                syncStatus = 'pending';
-                console.warn('[checkinService] Verified visit queued for sync (network unavailable):', writeError);
-            } else {
-                throw writeError;
+        queueVisitedPlacesWrite(
+            'Verified visit',
+            checkinResult.visitRecord.id,
+            () => firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()),
+            () => {
+                const currentVaultRepo = getVaultRepo();
+                if (currentVaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof currentVaultRepo.restore === 'function') {
+                    currentVaultRepo.restore(rollbackToken || token);
+                } else if (typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
+                    firebaseService.clearVisitedPlacePendingMutation(checkinResult.visitRecord.id);
+                }
+                if (tokenUid && stashedVisitId) {
+                    clearUnconfirmedVisit(tokenUid, stashedVisitId);
+                }
             }
-        }
+        );
 
         queueDailyStreakIncrement(firebaseService);
 
         return {
             ...checkinResult,
             action: 'verified',
-            syncStatus
+            syncStatus: 'pending'
         };
     } catch (error) {
         // Reaching here means we hit a non-network error (auth, permission,
@@ -806,24 +832,27 @@ async function markAsVisited(parkData) {
         refreshVisitedVisuals('checkin-mark-add', firebaseService);
         requestVisitStateSync('checkin-mark-add');
 
-        let syncStatus = 'cloud';
-        try {
-            if (canSyncProgress) {
-                await awaitWithFirebaseWriteTimeout(() => firebaseService.syncUserProgress());
-            } else {
-                await awaitWithFirebaseWriteTimeout(() => firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()));
+        queueVisitedPlacesWrite(
+            'Visit',
+            visitRecord.id,
+            () => canSyncProgress
+                ? firebaseService.syncUserProgress()
+                : firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()),
+            () => {
+                const currentVaultRepo = getVaultRepo();
+                if (currentVaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof currentVaultRepo.restore === 'function') {
+                    currentVaultRepo.restore(rollbackToken || token);
+                } else if (typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
+                    firebaseService.clearVisitedPlacePendingMutation(visitRecord.id);
+                }
+                if (tokenUid && stashedVisitId) {
+                    clearUnconfirmedVisit(tokenUid, stashedVisitId);
+                }
             }
-        } catch (writeError) {
-            if (isNetworkLikeError(writeError)) {
-                syncStatus = 'pending';
-                console.warn('[checkinService] Visit queued for sync (network unavailable):', writeError);
-            } else {
-                throw writeError;
-            }
-        }
+        );
 
         queueDailyStreakIncrement(firebaseService);
-        return { success: true, action: 'added', visitRecord, syncStatus };
+        return { success: true, action: 'added', visitRecord, syncStatus: 'pending' };
     } catch (error) {
         const vaultRepo = getVaultRepo();
         if (vaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof vaultRepo.restore === 'function') {
