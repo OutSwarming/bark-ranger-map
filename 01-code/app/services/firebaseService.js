@@ -595,6 +595,9 @@ async function syncUserProgress() {
         await db.collection('users').doc(user.uid).set({
             visitedPlaces: visitedArray
         }, { merge: true });
+        replaceLocalVisitedPlaces(makeVisitedPlaceMap(visitedArray), {
+            source: 'sync-user-progress-merged-write'
+        });
 
         window.syncState();
     } catch (error) {
@@ -621,6 +624,9 @@ async function updateCurrentUserVisitedPlaces(visitedArray) {
         window.BARK.incrementRequestCount();
         endVisitedPlacesWrite = beginVisitedPlacesWrite();
         await userRef.update({ visitedPlaces: nextVisitedArray });
+        replaceLocalVisitedPlaces(makeVisitedPlaceMap(nextVisitedArray), {
+            source: 'update-current-user-visited-merged-write'
+        });
         if (typeof window.syncState === 'function') window.syncState();
     } catch (error) {
         nextVisitedArray.forEach(place => clearVisitedPlacePendingMutation(place && place.id));

@@ -142,4 +142,9 @@ test('visitedPlaces writes preserve server visits when local state has not hydra
         writtenVisitedPlaces.map(visit => visit.id).sort(),
         ['local-new', 'server-a', 'server-b']
     );
+    assert.equal(VaultRepo.size(), 3, 'local visit repo should rehydrate from the protected merged write');
+    assert.deepEqual(
+        VaultRepo.getVisits().map(visit => visit.id).sort(),
+        ['local-new', 'server-a', 'server-b']
+    );
 });

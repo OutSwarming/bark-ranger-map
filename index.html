@@ -7,7 +7,7 @@
     <script>
         const firebaseAppUrl = 'https://barkrangermap-auth.web.app/';
         const localAppUrl = '01-code/app/';
-        const targetUrl = window.location.hostname === 'outswarming.github.io'
+        const targetUrl = window.location.hostname.endsWith('.github.io')
             ? firebaseAppUrl
             : localAppUrl;
         window.location.replace(targetUrl + window.location.search + window.location.hash);
