@@ -360,8 +360,18 @@ function renderMarkerClickPanel(context) {
             if (visitedEntry) {
                 const cachedObj = visitedEntry.record;
 
+                // Match the verify button: if the visit hasn't been confirmed
+                // by an authoritative server snapshot yet, render the button
+                // in the orange "syncing…" state instead of green. The
+                // .visited.pending-sync CSS rule handles the color.
+                const vaultRepoForPending = window.BARK.repos && window.BARK.repos.VaultRepo;
+                const visitIsPendingSync = vaultRepoForPending
+                    && typeof vaultRepoForPending.hasPendingMutation === 'function'
+                    && vaultRepoForPending.hasPendingMutation(d.id);
+
                 markVisitedBtn.classList.add('visited');
-                markVisitedText.textContent = '✓ Visited';
+                markVisitedBtn.classList.toggle('pending-sync', Boolean(visitIsPendingSync));
+                markVisitedText.textContent = visitIsPendingSync ? '✓ Visited (syncing…)' : '✓ Visited';
 
                 if (cachedObj.verified) {
                     markVisitedBtn.disabled = true;
@@ -383,8 +393,24 @@ function renderMarkerClickPanel(context) {
                 }
 
                 if (cachedObj.verified) {
-                    verifyBtn.style.background = '#4CAF50';
-                    verifyBtnText.textContent = '🐾 Verified & Secured';
+                    // Distinguish "server has confirmed this visit" (green) from
+                    // "we added it locally but the server hasn't echoed it back
+                    // yet" (orange). Without this gate, re-opening the panel
+                    // after an offline verify makes the button look fully
+                    // confirmed when in reality the visit is still in the
+                    // pending-sync queue.
+                    const vaultRepo = window.BARK.repos && window.BARK.repos.VaultRepo;
+                    const isPendingServerSync = vaultRepo
+                        && typeof vaultRepo.hasPendingMutation === 'function'
+                        && vaultRepo.hasPendingMutation(d.id);
+
+                    if (isPendingServerSync) {
+                        verifyBtn.style.background = '#f59e0b';
+                        verifyBtnText.textContent = '🐾 Verified (syncing…)';
+                    } else {
+                        verifyBtn.style.background = '#4CAF50';
+                        verifyBtnText.textContent = '🐾 Verified & Secured';
+                    }
                     verifyBtn.disabled = true;
                     verifyBtn.style.cursor = 'default';
                     verifyBtn.style.opacity = '0.7';
@@ -411,54 +437,143 @@ function renderMarkerClickPanel(context) {
                 verifyBtn.style.opacity = '1';
             }
 
+            // Three-state verified-checkin button:
+            //   • yellow (#facc15) "Verifying…"      — local write done, awaiting server confirmation
+            //   • green  (#4CAF50) "Verified & Secured" — authoritative server snapshot has the visit
+            //   • orange (#f59e0b) "Verified (syncing…)" — 30s passed with no server confirmation,
+            //                                              visit is durably queued in IndexedDB + localStorage
+            const SERVER_CONFIRMATION_TIMEOUT_MS = 30000;
+
+            const setVerifyButtonStateVerifying = (label) => {
+                verifyBtn.style.background = '#facc15';
+                verifyBtn.style.color = '#1f2937';
+                verifyBtnText.textContent = label;
+                verifyBtn.disabled = true;
+                verifyBtn.style.cursor = 'progress';
+                verifyBtn.style.opacity = '1';
+            };
+            const setVerifyButtonStateConfirmed = () => {
+                verifyBtn.style.background = '#4CAF50';
+                verifyBtn.style.color = '';
+                verifyBtnText.textContent = '🐾 Verified & Secured';
+                verifyBtn.disabled = true;
+                verifyBtn.style.cursor = 'default';
+                verifyBtn.style.opacity = '0.7';
+            };
+            const setVerifyButtonStatePendingSync = () => {
+                verifyBtn.style.background = '#f59e0b';
+                verifyBtn.style.color = '';
+                verifyBtnText.textContent = '🐾 Verified (syncing…)';
+                verifyBtn.disabled = true;
+                verifyBtn.style.cursor = 'default';
+                verifyBtn.style.opacity = '0.85';
+            };
+            const restoreVerifyButtonDefault = () => {
+                verifyBtn.style.background = '#FF9800';
+                verifyBtn.style.color = '';
+                verifyBtnText.textContent = '🐾 Verified Check-In';
+                verifyBtn.disabled = false;
+                verifyBtn.style.cursor = 'pointer';
+                verifyBtn.style.opacity = '1';
+            };
+
             verifyBtn.onclick = async () => {
                 if (!checkinService || typeof checkinService.verifyGpsCheckin !== 'function') {
                     alert("Check-in service is unavailable. Try again later.");
                     return;
                 }
-                verifyBtnText.textContent = 'Locating...';
+                if (verifyBtn.disabled) return; // debounce double-tap
 
+                setVerifyButtonStateVerifying('Locating…');
+
+                let checkinResult = null;
                 try {
-                    const checkinResult = await checkinService.verifyGpsCheckin(d);
-                    if (checkinResult.success) {
-                        alert(`Check-in Verified! You earned 2 points.`);
-
-                        verifyBtn.style.background = '#4CAF50';
-                        verifyBtnText.textContent = '🐾 Verified & Secured';
-                        verifyBtn.disabled = true;
-                        verifyBtn.style.cursor = 'default';
-                        verifyBtn.style.opacity = '0.7';
-
-                        markVisitedBtn.classList.add('visited');
-                        markVisitedText.textContent = '✓ Visited';
-                        markVisitedBtn.disabled = true;
-                        markVisitedBtn.style.cursor = 'default';
-                        markVisitedBtn.style.opacity = '0.7';
-
-                        window.syncState();
-                        window.BARK.updateStatsUI();
-                    } else {
-                        const radiusKm = window.BARK.config && window.BARK.config.CHECKIN_RADIUS_KM;
-                        if (checkinResult.error === 'OUT_OF_RANGE' && Number.isFinite(checkinResult.distance)) {
-                            alert(`Out of Range! You are ${checkinResult.distance.toFixed(1)} km away. You must be within ${radiusKm} km to verify.`);
-                        } else if (checkinResult.error === 'GEOLOCATION_UNSUPPORTED') {
-                            alert("Geolocation is not supported by your browser.");
-                        } else if (checkinResult.error === 'PERMISSION_DENIED') {
-                            alert("Location permission denied. GPS is required for verified check-ins.");
-                        } else if (checkinResult.error === 'LOCATION_FAILED') {
-                            alert("Failed to get location. Try again later.");
-                        } else if (checkinResult.error === 'FREE_VISIT_LIMIT') {
-                            openFreeVisitLimitPaywall(checkinResult);
-                        } else {
-                            alert("Check-in could not be verified. Try again later.");
-                        }
-                        verifyBtnText.textContent = '🐾 Verified Check-In';
-                    }
+                    checkinResult = await checkinService.verifyGpsCheckin(d);
                 } catch (error) {
                     console.error("[panelRenderer] verify check-in failed:", error);
+                    restoreVerifyButtonDefault();
                     alert("Failed to get location. Try again later.");
-                    verifyBtnText.textContent = '🐾 Verified Check-In';
+                    return;
                 }
+
+                if (!checkinResult || !checkinResult.success) {
+                    restoreVerifyButtonDefault();
+                    const radiusKm = window.BARK.config && window.BARK.config.CHECKIN_RADIUS_KM;
+                    const err = checkinResult && checkinResult.error;
+                    if (err === 'OUT_OF_RANGE' && Number.isFinite(checkinResult.distance)) {
+                        alert(`Out of Range! You are ${checkinResult.distance.toFixed(1)} km away. You must be within ${radiusKm} km to verify.`);
+                    } else if (err === 'GEOLOCATION_UNSUPPORTED') {
+                        alert("Geolocation is not supported by your browser.");
+                    } else if (err === 'PERMISSION_DENIED') {
+                        alert("Location permission denied. GPS is required for verified check-ins.");
+                    } else if (err === 'LOCATION_FAILED') {
+                        alert("Failed to get location. Try again later.");
+                    } else if (err === 'FREE_VISIT_LIMIT') {
+                        openFreeVisitLimitPaywall(checkinResult);
+                    } else {
+                        alert("Check-in could not be verified. Try again later.");
+                    }
+                    return;
+                }
+
+                // Local write succeeded — now wait for the authoritative server snapshot
+                // to echo the visit back before we tell the user it's truly saved.
+                setVerifyButtonStateVerifying('Verifying…');
+
+                const visitId = checkinResult.visitRecord && checkinResult.visitRecord.id;
+                const confirmation = typeof checkinService.awaitServerConfirmation === 'function'
+                    ? await checkinService.awaitServerConfirmation(visitId, { timeoutMs: SERVER_CONFIRMATION_TIMEOUT_MS })
+                    : { confirmed: true };
+
+                if (confirmation.confirmed) {
+                    setVerifyButtonStateConfirmed();
+                    alert(`Check-in Verified! You earned 2 points.`);
+                } else {
+                    setVerifyButtonStatePendingSync();
+                    alert("Check-in saved on your phone. We'll sync it to the cloud the moment you have signal again — keep the app open and you won't lose this visit.");
+                }
+
+                markVisitedBtn.classList.add('visited');
+                markVisitedText.textContent = '✓ Visited';
+                markVisitedBtn.disabled = true;
+                markVisitedBtn.style.cursor = 'default';
+                markVisitedBtn.style.opacity = '0.7';
+
+                window.syncState();
+                window.BARK.updateStatsUI();
+            };
+
+            // Three-state mark-visited button to match the verify button:
+            //   pending  orange "✓ Visited (syncing…)" — local write done, awaiting server
+            //   green    "✓ Visited"                   — authoritative snapshot has the visit
+            //   default  "Mark as Visited"             — not visited / removed
+            const setMarkVisitedStatePending = () => {
+                markVisitedBtn.classList.add('visited');
+                markVisitedBtn.classList.add('pending-sync');
+                markVisitedText.textContent = '✓ Visited (syncing…)';
+                markVisitedBtn.disabled = false;
+                markVisitedBtn.style.cursor = 'pointer';
+                markVisitedBtn.style.opacity = '1';
+                markVisitedBtn.onmouseenter = null;
+                markVisitedBtn.onmouseleave = null;
+            };
+            const setMarkVisitedStateConfirmed = () => {
+                markVisitedBtn.classList.add('visited');
+                markVisitedBtn.classList.remove('pending-sync');
+                markVisitedText.textContent = '✓ Visited';
+                markVisitedBtn.disabled = false;
+                markVisitedBtn.style.cursor = 'pointer';
+                markVisitedBtn.style.opacity = '1';
+            };
+            const setMarkVisitedStateDefault = () => {
+                markVisitedBtn.classList.remove('visited');
+                markVisitedBtn.classList.remove('pending-sync');
+                markVisitedText.textContent = 'Mark as Visited';
+                markVisitedBtn.disabled = false;
+                markVisitedBtn.style.cursor = 'pointer';
+                markVisitedBtn.style.opacity = '1';
+                markVisitedBtn.onmouseenter = null;
+                markVisitedBtn.onmouseleave = null;
             };
 
             markVisitedBtn.onclick = async () => {
@@ -467,39 +582,64 @@ function renderMarkerClickPanel(context) {
                     return;
                 }
 
+                let visitResult = null;
                 try {
-                    const visitResult = await checkinService.markAsVisited(d);
-                    if (!visitResult.success) {
-                        if (visitResult.error === 'UNCHECK_LOCKED') {
-                            alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
-                        } else if (visitResult.error === 'FREE_VISIT_LIMIT') {
-                            openFreeVisitLimitPaywall(visitResult);
-                        } else if (visitResult.error !== 'ALREADY_VERIFIED') {
-                            alert("Check-in service is unavailable. Try again later.");
-                        }
-                        return;
-                    }
-
-                    if (visitResult.action === 'removed') {
-                        markVisitedBtn.classList.remove('visited');
-                        markVisitedText.textContent = 'Mark as Visited';
-                        markVisitedBtn.onmouseenter = null;
-                        markVisitedBtn.onmouseleave = null;
-
-                        window.syncState();
-                        return;
-                    }
-
-                    markVisitedBtn.classList.add('visited');
-                    markVisitedText.textContent = '✓ Visited';
-                    markVisitedBtn.disabled = false;
-                    markVisitedBtn.style.cursor = 'pointer';
-                    markVisitedBtn.style.opacity = '1';
-
-                    window.syncState();
+                    visitResult = await checkinService.markAsVisited(d);
                 } catch (error) {
                     console.error("[panelRenderer] mark visited failed:", error);
                     alert("Check-in service is unavailable. Try again later.");
+                    return;
+                }
+
+                if (!visitResult.success) {
+                    if (visitResult.error === 'UNCHECK_LOCKED') {
+                        alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
+                    } else if (visitResult.error === 'FREE_VISIT_LIMIT') {
+                        openFreeVisitLimitPaywall(visitResult);
+                    } else if (visitResult.error !== 'ALREADY_VERIFIED') {
+                        alert("Check-in service is unavailable. Try again later.");
+                    }
+                    return;
+                }
+
+                if (visitResult.action === 'removed') {
+                    setMarkVisitedStateDefault();
+                    window.syncState();
+                    return;
+                }
+
+                // Local write succeeded — show pending state and wait for the
+                // server snapshot to confirm before flipping the button green.
+                // Mirrors what verifyGpsCheckin does so the two buttons feel
+                // identical: never lie about confirmation, never flip green
+                // until Google's servers actually have the visit.
+                setMarkVisitedStatePending();
+                window.syncState();
+
+                const newVisit = visitResult.visitRecord;
+                if (!newVisit || !newVisit.id || typeof checkinService.awaitServerConfirmation !== 'function') {
+                    // Can't await confirmation — best-effort flip to confirmed
+                    // and let any future snapshot correct us.
+                    setMarkVisitedStateConfirmed();
+                    return;
+                }
+
+                let confirmation;
+                try {
+                    confirmation = await checkinService.awaitServerConfirmation(newVisit.id, { timeoutMs: 10000 });
+                } catch (error) {
+                    console.warn('[panelRenderer] mark-as-visited confirmation threw:', error);
+                    confirmation = { confirmed: false, reason: 'error' };
+                }
+
+                if (confirmation.confirmed) {
+                    setMarkVisitedStateConfirmed();
+                } else {
+                    // Stay orange. The window-online recovery handler in
+                    // checkinService will sweep this clean once the device is
+                    // back online; the localStorage replay backstops us if the
+                    // PWA closes first.
+                    setMarkVisitedStatePending();
                 }
             };
         } else {

@@ -549,6 +549,14 @@ function buildVaultRepoSubscriptionOptions() {
         onChange(change) {
             if (hasAuthoritativeSnapshotMetadata(change && change.metadata)) {
                 window._visitedPlacesServerSnapshotReceived = true;
+                const checkinService = window.BARK.services && window.BARK.services.checkin;
+                const currentUser = firebaseRef && firebaseRef.auth ? firebaseRef.auth().currentUser : null;
+                if (currentUser && checkinService && typeof checkinService.reconcileUnconfirmedVisits === 'function') {
+                    checkinService.reconcileUnconfirmedVisits(currentUser.uid);
+                }
+                if (checkinService && typeof checkinService.notifyAuthoritativeSnapshot === 'function') {
+                    checkinService.notifyAuthoritativeSnapshot();
+                }
             }
             refreshAuthSnapshotUi();
             maybeSyncAuthoritativeProfileScore('visitedPlaces-snapshot');
@@ -620,6 +628,10 @@ function stopVaultRepoVisitSubscription() {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.stopSubscription === 'function') {
         vaultRepo.stopSubscription();
+    }
+    const checkinService = window.BARK.services && window.BARK.services.checkin;
+    if (checkinService && typeof checkinService.cancelPendingServerConfirmations === 'function') {
+        checkinService.cancelPendingServerConfirmations('subscription-stopped');
     }
 }
 
@@ -1001,6 +1013,12 @@ async function initFirebase() {
                     if (isAuthenticatedUserChange) {
                         stopVaultRepoVisitSubscription();
                         resetAccountScopedRuntimeState();
+                    }
+
+                    const checkinService = window.BARK.services && window.BARK.services.checkin;
+                    if (checkinService && typeof checkinService.replayUnconfirmedVisits === 'function') {
+                        Promise.resolve(checkinService.replayUnconfirmedVisits(user.uid))
+                            .catch(error => console.error('[authService] replayUnconfirmedVisits failed:', error));
                     }
 
                     try {

@@ -45,6 +45,17 @@ class MarkerLayerManager {
         return false;
     }
 
+    // True if the park is in the local vault but the server snapshot hasn't
+    // confirmed it yet (still waiting on a successful Firestore sync). Used to
+    // tint the pin ring orange instead of green until the visit is durable on
+    // Google's servers.
+    isPendingServerSync(parkData) {
+        if (!parkData || !parkData.id) return false;
+        const vaultRepo = getVaultRepo();
+        if (!vaultRepo || typeof vaultRepo.hasPendingMutation !== 'function') return false;
+        return vaultRepo.hasPendingMutation(parkData.id);
+    }
+
     getTargetLayerType() {
         const zoom = this.map ? this.map.getZoom() : 0;
         if (window.BARK.getMarkerLayerPolicy) return window.BARK.getMarkerLayerPolicy(zoom).layerType;
@@ -107,12 +118,18 @@ class MarkerLayerManager {
         if (!marker || !marker._parkData || !marker._icon) return;
 
         const isVisited = this.getVisitedState(marker._parkData);
+        const isPendingSync = isVisited && this.isPendingServerSync(marker._parkData);
         const style = MapMarkerConfig.getPinStyle(marker._parkData, isVisited);
         marker._icon.classList.toggle('cat-national', style.categoryClass === 'cat-national');
         marker._icon.classList.toggle('cat-state', style.categoryClass === 'cat-state');
         marker._icon.classList.toggle('visited-pin', Boolean(isVisited));
         marker._icon.classList.toggle('visited-marker', Boolean(isVisited));
         marker._icon.classList.toggle('unvisited-marker', !isVisited);
+        // .visited-pin--pending-sync tints the ring orange via styles.css; the
+        // CSS rule uses !important so an inline JS override here would be
+        // suppressed anyway. The class is the source of truth for the
+        // visited-but-not-server-confirmed visual state.
+        marker._icon.classList.toggle('visited-pin--pending-sync', Boolean(isPendingSync));
         // park-pin--in-trip hides the inner pin shape so the trip overlay badge
         // is the only visible marker at trip-stop locations. Re-applied on every
         // cluster `add` event (via bindMarkerEvents), so cluster rebuilds cannot
