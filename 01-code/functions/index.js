@@ -606,6 +606,29 @@ function getCanonicalParkId(value) {
     return CANONICAL_PARK_ID_PATTERN.test(parkId) ? parkId : '';
 }
 
+function parseManualCoordinate(value, min, max) {
+    const cleaned = cleanSheetCell(value);
+    if (!cleaned) return null;
+
+    const parsed = Number(cleaned);
+    if (!Number.isFinite(parsed) || parsed < min || parsed > max) return undefined;
+    return parsed;
+}
+
+function getManualCoordinates(data) {
+    const rawLat = cleanSheetCell(data && (data.lat ?? data.latitude));
+    const rawLng = cleanSheetCell(data && (data.lng ?? data.long ?? data.longitude));
+    if (!rawLat && !rawLng) return null;
+
+    const lat = parseManualCoordinate(rawLat, -90, 90);
+    const lng = parseManualCoordinate(rawLng, -180, 180);
+    if (lat === undefined || lng === undefined || lat === null || lng === null) {
+        throw new functions.https.HttpsError("invalid-argument", "Manual latitude and longitude must both be valid coordinates.");
+    }
+
+    return { lat, lng };
+}
+
 // ============================================================================
 // 1. LEGACY MAP FUNCTIONS (ROUTING & LEADERBOARD)
 // ============================================================================
@@ -2300,7 +2323,8 @@ if (process.env.NODE_ENV === "test") {
         processLemonSqueezyWebhookEntitlement,
         handleLemonSqueezyWebhook,
         calculateServerLeaderboardScore,
-        handleSyncLeaderboardScore
+        handleSyncLeaderboardScore,
+        getManualCoordinates
     };
 }
 
@@ -2545,8 +2569,15 @@ exports.syncToSpreadsheet = functions
             existingLng = existingRow[8]; // Column I
         }
 
+        const manualCoordinates = getManualCoordinates(newPark);
+
+        if (manualCoordinates) {
+            newPark.lat = manualCoordinates.lat;
+            newPark.lng = manualCoordinates.lng;
+            console.log(`Manual coordinates accepted for ${newPark.parkName}: ${newPark.lat}, ${newPark.lng}`);
+        }
         // Only Geocode if missing OR forceGeocode is true
-        if (!existingLat || !existingLng || newPark.forceGeocode === true) {
+        else if (!existingLat || !existingLng || newPark.forceGeocode === true) {
             try {
                 const googleMapsKey = process.env.GOOGLE_MAPS_API_KEY;
                 if (!googleMapsKey) {
